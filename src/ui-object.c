@@ -74,7 +74,6 @@ static int num_head;
 static size_t max_len;
 static int ex_width;
 static int ex_offset;
-static int carry_col_width;
 
 /**
  * ------------------------------------------------------------------------
@@ -237,20 +236,6 @@ static void show_obj(int obj_num, int row, int col, bool cursor,
 		int weight = obj->number * object_weight_one(obj);
 		strnfmt(buf, sizeof(buf), "%4d.%1d lb", weight / 10, weight % 10);
 		put_str(buf, row + obj_num, col + ex_offset_ctr);
-		ex_offset_ctr += 9;
-	}
-
-	/* Carryable amount for floor items */
-	if (mode & OLIST_CARRY) {
-		int carryable = inven_carry_num(player, obj);
-		if (carryable > 0 && carryable < obj->number) {
-			strnfmt(buf, sizeof(buf), "carry %d", carryable);
-			c_put_str(COLOUR_L_GREEN, buf, row + obj_num, col + ex_offset_ctr);
-		} else if (carryable == 0) {
-			strnfmt(buf, sizeof(buf), "full");
-			c_put_str(COLOUR_RED, buf, row + obj_num, col + ex_offset_ctr);
-		}
-		ex_offset_ctr += carry_col_width;
 	}
 }
 
@@ -422,33 +407,6 @@ static void show_obj_list(olist_detail_t mode)
 	if (mode & OLIST_WEIGHT) ex_width += 9;
 	if (mode & OLIST_PRICE) ex_width += 9;
 	if (mode & OLIST_FAIL) ex_width += 10;
-	if (mode & OLIST_CARRY) {
-		int carry_digits = 1;
-		int max_carryable = 0;
-
-		/* Calculate maximum carryable amount across all items */
-		for (i = 0; i < num_obj; i++) {
-			if (items[i].object) {
-				int carryable = inven_carry_num(player, items[i].object);
-				if (carryable > max_carryable) {
-					max_carryable = carryable;
-				}
-			}
-		}
-
-		/* Calculate required digits (at least 1 for "carry 0" or "full") */
-		if (max_carryable > 0) {
-			carry_digits = 0;
-			while (max_carryable > 0) {
-				max_carryable /= 10;
-				carry_digits++;
-			}
-		}
-
-		/* "carry " (6 chars) + digits + 1 padding, "full" needs 5 chars including padding */
-		carry_col_width = MAX(6 + carry_digits + 1, 5);
-		ex_width += carry_col_width;
-	}
 
 	/* Determine beginning row and column */
 	if (in_term) {
@@ -631,12 +589,12 @@ void show_floor(struct object **floor_list, int floor_num, int mode,
 	if (floor_num > z_info->floor_size)
 		floor_num = z_info->floor_size;
 
-	/* Build the object list, always show carryable amount for floor */
-	build_obj_list(floor_num - 1, floor_list, tester, mode | OLIST_CARRY);
+	/* Build the object list */
+	build_obj_list(floor_num - 1, floor_list, tester, mode);
 
 	/* Display the object list */
 	num_head = 0;
-	show_obj_list(mode | OLIST_CARRY);
+	show_obj_list(mode);
 }
 
 
@@ -1236,35 +1194,6 @@ static struct object *item_menu(cmd_code cmd, int prompt_size, int mode)
 	if (olist_mode & OLIST_FAIL) {
 		ex_width += 10;
 		ex_offset_ctr += 10;
-	}
-	if (olist_mode & OLIST_CARRY) {
-		int carry_digits = 1;
-		int max_carryable = 0;
-		int i;
-
-		/* Calculate maximum carryable amount across all items */
-		for (i = 0; i < num_obj; i++) {
-			if (items[i].object) {
-				int carryable = inven_carry_num(player, items[i].object);
-				if (carryable > max_carryable) {
-					max_carryable = carryable;
-				}
-			}
-		}
-
-		/* Calculate required digits (at least 1 for "carry 0" or "full") */
-		if (max_carryable > 0) {
-			carry_digits = 0;
-			while (max_carryable > 0) {
-				max_carryable /= 10;
-				carry_digits++;
-			}
-		}
-
-		/* "carry " (6 chars) + digits + 1 padding, "full" needs 5 chars including padding */
-		carry_col_width = MAX(6 + carry_digits + 1, 5);
-		ex_width += carry_col_width;
-		ex_offset_ctr += carry_col_width;
 	}
 
 	/* Set up the menu region */

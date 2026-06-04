@@ -265,19 +265,13 @@ static void player_pickup_aux(struct player *p, struct object *obj,
 		struct object *picked_up;
 
 		if (auto_max)
-			num = max;
+			num = auto_max;
 		else
 			num = get_quantity(NULL, max);
 		if (!num) return;
-		picked_up = floor_object_for_pickup(p, obj, num, false, &dummy);
-		if (!picked_up) {
-			return;
-		}
+		picked_up = floor_object_for_use(p, obj, num, false, &dummy);
 		inven_carry(p, picked_up, true, domsg);
 	}
-
-	/* Combine all stackable items in the pack */
-	combine_pack(p);
 }
 
 /**

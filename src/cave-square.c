@@ -1589,3 +1589,143 @@ void square_mark(struct chunk *c, struct loc grid) {
 void square_unmark(struct chunk *c, struct loc grid) {
 	sqinfo_off(square(c, grid)->info, SQUARE_MARK);
 }
+
+/**
+ * Unified check for whether a monster can potentially enter a grid.
+ *
+ * This is a pure judgment function with no side effects - it determines if a
+ * monster can enter the given grid, considering the monster's abilities and
+ * the terrain features. Used for pathfinding decisions before actual movement.
+ *
+ * Covers: bounds, player/decoy, passable floor, permanent walls, rubble,
+ * doors, monster wall-passing abilities, traps (runes, webs, player traps),
+ * temporary obstacles, unknown grids, and grids with bad player memory.
+ *
+ * Monsters use the actual cave state, not the player's memory.  When the
+ * player has not explored a grid or their memory is wrong, the monster still
+ * knows the real terrain.  However, if the player's memory says the grid is
+ * impassable while the real state is passable (e.g. a door was opened but
+ * the player doesn't know), the function uses the real state so that the
+ * monster doesn't get stuck on stale information.
+ *
+ * \param c The chunk to check
+ * \param mon The monster (may be NULL for generic walkable check)
+ * \param grid The grid to check
+ * \return true if the monster can potentially enter the grid
+ */
+bool square_monster_can_enter(struct chunk *c, const struct monster *mon,
+							   struct loc grid)
+{
+	/* Bounds check */
+	if (!square_in_bounds(c, grid)) {
+		return false;
+	}
+
+	/* Always allow attacking the player or decoy */
+	if (square_isplayer(c, grid) || square_isdecoyed(c, grid)) {
+		return true;
+	}
+
+	/* Permanent wall - cannot pass */
+	if (square_isperm(c, grid)) {
+		return false;
+	}
+
+	/*
+	 * Check for temporary obstacles and traps.
+	 * These require the monster to have special abilities or spend a turn
+	 * dealing with them before entering.
+	 */
+
+	/* Glyph of warding - monster needs to break it first */
+	if (square_iswarded(c, grid)) {
+		if (!mon) return false;
+		return true;
+	}
+
+	/* Web - monster needs to pass through or clear it */
+	if (square_iswebbed(c, grid)) {
+		if (!mon) return false;
+		if (rf_has(mon->race->flags, RF_PASS_WEB)) {
+			return true;
+		}
+		if (rf_has(mon->race->flags, RF_PASS_WALL)) {
+			return true;
+		}
+		if (rf_has(mon->race->flags, RF_SMASH_WALL) ||
+			rf_has(mon->race->flags, RF_KILL_WALL)) {
+			return true;
+		}
+		if (rf_has(mon->race->flags, RF_CLEAR_WEB)) {
+			return true;
+		}
+		return false;
+	}
+
+	/* Player-placed traps - most monsters avoid them */
+	if (square_isplayertrap(c, grid)) {
+		if (!mon) return false;
+		if (rf_has(mon->race->flags, RF_PASS_WALL)) {
+			return true;
+		}
+		return false;
+	}
+
+	/* Floor is open */
+	if (square_ispassable(c, grid)) {
+		return true;
+	}
+
+	/* If no monster provided, do a basic check only */
+	if (!mon) {
+		return square_is_monster_walkable(c, grid);
+	}
+
+	/* Monster can pass through walls */
+	if (rf_has(mon->race->flags, RF_PASS_WALL)) {
+		return true;
+	}
+
+	/* Monster can smash walls */
+	if (rf_has(mon->race->flags, RF_SMASH_WALL)) {
+		return true;
+	}
+
+	/* Monster can kill walls */
+	if (rf_has(mon->race->flags, RF_KILL_WALL)) {
+		return true;
+	}
+
+	/* Check for doors - monster may be able to open or bash */
+	if (square_iscloseddoor(c, grid) || square_issecretdoor(c, grid)) {
+		if (rf_has(mon->race->flags, RF_OPEN_DOOR) ||
+			rf_has(mon->race->flags, RF_BASH_DOOR)) {
+			return true;
+		}
+		return false;
+	}
+
+	/* Rubble or other non-passable feature */
+	return false;
+}
+
+/**
+ * Check whether a grid is known to the player and the player's memory
+ * matches reality.  Returns a tri-state value:
+ *   SQUARE_KNOWN_GOOD  - player knows the grid and memory matches
+ *   SQUARE_KNOWN_BAD   - player knows the grid but memory is wrong
+ *   SQUARE_UNKNOWN      - player has not explored this grid
+ *
+ * Monsters use real terrain; this function is for callers that need to
+ * decide whether to display messages or update the player's view.
+ */
+int square_player_knowledge(struct chunk *c, struct loc grid)
+{
+	if (!square_isknown(c, grid)) {
+		return SQUARE_UNKNOWN;
+	}
+	if (square_ismemorybad(c, grid)) {
+		return SQUARE_KNOWN_BAD;
+	}
+	return SQUARE_KNOWN_GOOD;
+}

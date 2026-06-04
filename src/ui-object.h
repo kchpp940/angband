@@ -37,8 +37,7 @@ typedef enum {
 	OLIST_FAIL   = 0x20,	/* Show device failure */
 	OLIST_SEMPTY = 0x40,
 	OLIST_DEATH  = 0x80,
-	OLIST_RECHARGE = 0x100,	/* Show failure for device recharging */
-	OLIST_CARRY  = 0x200	/* Show carryable amount for floor items */
+	OLIST_RECHARGE = 0x100	/* Show failure for device recharging */
 } olist_detail_t;
 
 
