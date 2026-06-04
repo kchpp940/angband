@@ -744,12 +744,63 @@ static void quiver_absorb_num(const struct player *p, const struct object *obj,
 }
 
 /**
+ * Calculate how much of an item can be carried in the pack (not including
+ * the quiver).
+ *
+ * \param p Is the player whose pack to use.
+ * \param obj Is the object to add.
+ * \param n_free_slot At entry, *n_free_slot is the maximum number of
+ * additional pack slots that can be used.  At exit, *n_free_slot will be
+ * the number of those slots that were not used.
+ * \return The number of items that can be added to the pack.  Will be no
+ * more than obj->number.
+ */
+static int pack_absorb_num(const struct player *p, const struct object *obj,
+		int *n_free_slot)
+{
+	int max_stack = obj->kind->base->max_stack;
+	int num_to_pack = 0;
+	int num_left = obj->number;
+	int i;
+
+	/* First try to add to existing stacks */
+	for (i = 0; i < z_info->pack_size && num_left > 0; i++) {
+		struct object *inven_obj = p->upkeep->inven[i];
+		if (inven_obj && object_stackable(inven_obj, obj, OSTACK_PACK)) {
+			int space = max_stack - inven_obj->number;
+			if (space > 0) {
+				int add = MIN(space, num_left);
+				num_to_pack += add;
+				num_left -= add;
+			}
+		}
+	}
+
+	/* Then use empty slots, if available and allowed */
+	if (num_left > 0 && *n_free_slot > 0) {
+		int slots_needed = (num_left + max_stack - 1) / max_stack;
+		int slots_available = MIN(*n_free_slot, slots_needed);
+		int add = slots_available * max_stack;
+
+		if (add > num_left) {
+			add = num_left;
+		}
+
+		num_to_pack += add;
+		num_left -= add;
+		*n_free_slot -= slots_available;
+	}
+
+	return num_to_pack;
+}
+
+/**
  * Calculate how much of an item is can be carried in the inventory or quiver.
  */
 int inven_carry_num(const struct player *p, const struct object *obj)
 {
 	int n_free_slot = z_info->pack_size - pack_slots_used(p);
-	int num_to_quiver, num_left, i;
+	int num_to_quiver, num_to_pack;
 
 	/* Treasure can always be picked up. */
 	if (tval_is_money(obj) && lookup_kind(obj->tval, obj->sval)) {
@@ -759,24 +810,22 @@ int inven_carry_num(const struct player *p, const struct object *obj)
 	/* Absorb as many as we can in the quiver. */
 	quiver_absorb_num(p, obj, &n_free_slot, &num_to_quiver);
 
-	/* The quiver will get everything, or the pack can hold what's left. */
-	if (num_to_quiver == obj->number || n_free_slot > 0) {
+	/* If the quiver will get everything, we're done */
+	if (num_to_quiver == obj->number) {
 		return obj->number;
 	}
 
-	/* See if we can add to a partially full inventory slot. */
-	num_left = obj->number - num_to_quiver;
-	for (i = 0; i < z_info->pack_size; i++) {
-		struct object *inven_obj = p->upkeep->inven[i];
-		if (inven_obj && object_stackable(inven_obj, obj, OSTACK_PACK)) {
-			num_left -= inven_obj->kind->base->max_stack -
-				inven_obj->number;
-			if (num_left <= 0) break;
-		}
+	/* Calculate how many can go into the pack */
+	{
+		struct object *pack_obj = object_new();
+		object_copy(pack_obj, obj);
+		pack_obj->number = obj->number - num_to_quiver;
+		num_to_pack = pack_absorb_num(p, pack_obj, &n_free_slot);
+		object_free(pack_obj);
 	}
 
-	/* Return the number we can absorb */
-	return obj->number - MAX(num_left, 0);
+	/* Return the total number we can absorb */
+	return num_to_quiver + num_to_pack;
 }
 
 /**

@@ -2608,6 +2608,7 @@ static void see_floor_items(game_event_type type, game_event_data *data,
 		/* Get the object */
 		struct object *obj = floor_list[0];
 		char o_name[80];
+		int carryable = inven_carry_num(player, obj);
 
 		if (!can_pickup)
 			p = "have no room for";
@@ -2625,7 +2626,11 @@ static void see_floor_items(game_event_type type, game_event_data *data,
 
 		/* Message */
 		event_signal(EVENT_MESSAGE_FLUSH);
-		msg("You %s %s.", p, o_name);
+		if (carryable > 0 && carryable < obj->number && !blind) {
+			msg("You %s %s (can carry %d).", p, o_name, carryable);
+		} else {
+			msg("You %s %s.", p, o_name);
+		}
 	} else {
 		ui_event e;
 
@@ -2634,7 +2639,7 @@ static void see_floor_items(game_event_type type, game_event_data *data,
 		else if (blind)
 			p = "feel something on the floor";
 
-		/* Display objects on the floor */
+		/* Display objects on the floor - individual items show carryable amount */
 		screen_save();
 		show_floor(floor_list, floor_num, OLIST_WEIGHT, NULL);
 		prt(format("You %s: ", p), 0, 0);

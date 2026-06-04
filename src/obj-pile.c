@@ -881,6 +881,42 @@ struct object *floor_object_for_use(struct player *p, struct object *obj,
 
 
 /**
+ * Remove an amount of an object from the floor for pickup, returning a
+ * detached object which can be carried.  This is similar to
+ * floor_object_for_use(), but limits the amount to what the player can
+ * actually carry according to inven_carry_num().
+ *
+ * \param p Is the player picking up the object.
+ * \param obj Is the object on the floor.
+ * \param num Is the requested number to pick up.
+ * \param message Whether to print a message about what remains.
+ * \param none_left Is set to true if all of the object was removed,
+ * false otherwise.
+ * \return The detached object that was picked up, or NULL if nothing
+ * could be picked up.
+ */
+struct object *floor_object_for_pickup(struct player *p, struct object *obj,
+	int num, bool message, bool *none_left)
+{
+	int carry_max = inven_carry_num(p, obj);
+
+	/* Nothing can be carried, leave the floor pile untouched */
+	if (carry_max <= 0) {
+		if (none_left) {
+			*none_left = false;
+		}
+		return NULL;
+	}
+
+	/* Limit to what the player can actually carry */
+	num = MIN(num, carry_max);
+
+	/* Use the existing function with the limited amount */
+	return floor_object_for_use(p, obj, num, message, none_left);
+}
+
+
+/**
  * Find and return the oldest object on the given grid marked as "ignore".
  */
 static struct object *floor_get_oldest_ignored(const struct player *p,

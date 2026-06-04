@@ -76,6 +76,8 @@ void object_copy_amt(struct object *dest, struct object *src, int amt);
 struct object *object_split(struct object *src, int amt);
 struct object *floor_object_for_use(struct player *p, struct object *obj,
 	int num, bool message, bool *none_left);
+struct object *floor_object_for_pickup(struct player *p, struct object *obj,
+	int num, bool message, bool *none_left);
 bool floor_carry(struct chunk *c, struct loc grid, struct object *drop,
 				 bool *note);
 void drop_near(struct chunk *c, struct object **dropped, int chance,
