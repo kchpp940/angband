@@ -329,14 +329,6 @@ bool square_canputitem(struct chunk *c, struct loc grid);
 bool square_isdiggable(struct chunk *c, struct loc grid);
 bool square_iswebbable(struct chunk *c, struct loc grid);
 bool square_is_monster_walkable(struct chunk *c, struct loc grid);
-bool square_monster_can_enter(struct chunk *c, const struct monster *mon, struct loc grid);
-
-#define SQUARE_UNKNOWN      0
-#define SQUARE_KNOWN_BAD    1
-#define SQUARE_KNOWN_GOOD   2
-
-int square_player_knowledge(struct chunk *c, struct loc grid);
-
 bool square_ispassable(struct chunk *c, struct loc grid);
 bool square_isprojectable(struct chunk *c, struct loc grid);
 bool square_allowsfeel(struct chunk *c, struct loc grid);

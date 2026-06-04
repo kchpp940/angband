@@ -2457,6 +2457,35 @@ static void update_bonuses(struct player *p)
 }
 
 
+void load_finalize(struct player *p)
+{
+	memset(&p->state, 0, sizeof(p->state));
+	memset(&p->known_state, 0, sizeof(p->known_state));
+
+	calc_inventory(p);
+
+	update_bonuses(p);
+
+	calc_light(p, &p->state, true);
+
+	calc_hitpoints(p);
+
+	calc_mana(p, &p->state, true);
+
+	if (p->class->magic.total_spells > 0) {
+		calc_spells(p);
+	}
+
+	combine_pack(p);
+
+	p->upkeep->update = 0;
+
+	p->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_INVEN | PR_EQUIP
+						   | PR_MONSTER | PR_MESSAGE | PR_MONLIST | PR_ITEMLIST
+						   | PR_DTRAP | PR_FEELING | PR_LIGHT);
+}
+
+
 
 
 /**

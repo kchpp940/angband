@@ -2721,9 +2721,7 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 	/* Allow big cursor */
 	smlcurs = false;
 
-	/* Redraw stuff */
 	player->upkeep->redraw |= (PR_INVEN | PR_EQUIP | PR_MONSTER | PR_MESSAGE);
-	redraw_stuff(player);
 
 	/* Because of the "flexible" sidebar, all these things trigger
 	   the same function. */

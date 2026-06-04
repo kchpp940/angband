@@ -332,14 +332,18 @@ static bool get_move_bodyguard(struct monster *mon)
 		int new_dist = distance(grid, leader->grid);
 		int char_dist = distance(grid, player->grid);
 
-		/* Unified check: can the monster enter this grid? */
-		if (!square_monster_can_enter(cave, mon, grid) ||
-			monster_hates_grid(mon, grid)) {
+		/* Bounds check */
+		if (!square_in_bounds(cave, grid)) {
 			continue;
 		}
 
 		/* There's a monster blocking that we can't deal with */
 		if (!monster_can_kill(mon, grid) && !monster_can_move(mon, grid)){
+			continue;
+		}
+
+		/* There's damaging terrain */
+		if (monster_hates_grid(mon, grid)) {
 			continue;
 		}
 
@@ -428,19 +432,23 @@ static bool get_move_advance(struct monster *mon, bool *track)
 			struct loc grid = loc_sum(mon->grid, ddgrid_ddd[i]);
 			int heard_noise = base_hearing - cave->noise.grids[grid.y][grid.x];
 
+			/* Bounds check */
+			if (!square_in_bounds(cave, grid)) {
+				continue;
+			}
+
 			/* Must be some noise */
 			if (cave->noise.grids[grid.y][grid.x] == 0) {
 				continue;
 			}
 
-			/* Unified check: can the monster enter this grid? */
-			if (!square_monster_can_enter(cave, mon, grid) ||
-				monster_hates_grid(mon, grid)) {
+			/* There's a monster blocking that we can't deal with */
+			if (!monster_can_kill(mon, grid) && !monster_can_move(mon, grid)) {
 				continue;
 			}
 
-			/* There's a monster blocking that we can't deal with */
-			if (!monster_can_kill(mon, grid) && !monster_can_move(mon, grid)) {
+			/* There's damaging terrain */
+			if (monster_hates_grid(mon, grid)) {
 				continue;
 			}
 
@@ -464,12 +472,6 @@ static bool get_move_advance(struct monster *mon, bool *track)
 			/* Get the location */
 			struct loc grid = loc_sum(mon->grid, ddgrid_ddd[i]);
 			int smelled_scent;
-
-			/* Unified check: can the monster enter this grid? */
-			if (!square_monster_can_enter(cave, mon, grid) ||
-				monster_hates_grid(mon, grid)) {
-				continue;
-			}
 
 			/* If no good sound yet, use scent */
 			smelled_scent = mon->race->smell
@@ -513,9 +515,8 @@ static struct loc get_move_random(struct monster *mon)
 		struct loc trygrid;
 
 		trygrid = loc_sum(mon->grid, ddgrid_ddd[attempts[itry]]);
-		/* Use unified check for consistency with other movement decisions */
-		if (square_monster_can_enter(cave, mon, trygrid) &&
-			!monster_hates_grid(mon, trygrid)) {
+		if (square_is_monster_walkable(cave, trygrid) &&
+				!monster_hates_grid(mon, trygrid)) {
 			return ddgrid_ddd[attempts[itry]];
 		} else {
 			int tmp = attempts[itry];
@@ -697,9 +698,8 @@ static bool get_move_flee(struct monster *mon)
 		/* Get the location */
 		struct loc grid = loc_sum(mon->grid, ddgrid_ddd[i]);
 
-		/* Unified check: can the monster enter this grid? */
-		if (!square_monster_can_enter(cave, mon, grid) ||
-			monster_hates_grid(mon, grid)) continue;
+		/* Bounds check */
+		if (!square_in_bounds(cave, grid)) continue;
 
 		/* Calculate distance of this grid from our target */
 		dis = distance(grid, mon->target.grid);
@@ -1136,11 +1136,6 @@ static void monster_slightly_stun_by_move(struct monster *mon)
  * Work out if a monster can move through the grid, if necessary bashing 
  * down doors in the way.
  *
- * Uses square_monster_can_enter() as the sole base judgment to ensure
- * complete consistency with movement decisions. Only handles side effects:
- * messages, terrain modifications, knowledge learning, and obstacle
- * removal (doors, walls, glyphs, webs, player traps).
- *
  * Returns true if the monster is able to move through the grid.
  */
 static bool monster_turn_can_move(struct monster *mon, const char *m_name,
@@ -1154,18 +1149,18 @@ static bool monster_turn_can_move(struct monster *mon, const char *m_name,
 		return true;
 	}
 
-	/* Dangerous terrain in the way (confused monsters may stumble in) */
+	/* Dangerous terrain in the way */
 	if (!confused && monster_hates_grid(mon, new)) {
 		return false;
 	}
 
-	/*
-	 * Use the shared judgment function as the ONLY source of truth for
-	 * whether the monster can potentially enter this grid.
-	 * This ensures 100% consistency between decision and execution.
-	 */
-	if (!square_monster_can_enter(cave, mon, new)) {
-		/* Confused monsters may stumble into impassable terrain */
+	/* Floor is open? */
+	if (square_ispassable(cave, new)) {
+		return true;
+	}
+
+	/* Permanent wall in the way */
+	if (square_isperm(cave, new)) {
 		if (confused) {
 			*did_something = true;
 			monster_display_confused_move_msg(mon, m_name, new);
@@ -1174,109 +1169,7 @@ static bool monster_turn_can_move(struct monster *mon, const char *m_name,
 		return false;
 	}
 
-	/*
-	 * From this point on, we know the monster CAN enter the grid.
-	 * Now we just need to handle any required side effects based on
-	 * what's actually in the grid.
-	 */
-
-	/* Fast path: passable floor with no traps requires no side effects */
-	if (square_ispassable(cave, new) && !square_iswarded(cave, new) &&
-		!square_iswebbed(cave, new) && !square_isplayertrap(cave, new)) {
-		return true;
-	}
-
-	/*
-	 * Handle glyph of warding - attempt to break it.
-	 * square_monster_can_enter() already confirmed the monster can
-	 * potentially pass (it returns true for warded grids), but the
-	 * actual break attempt is probabilistic.
-	 */
-	if (square_iswarded(cave, new)) {
-		/* Break the ward */
-		if (randint1(z_info->glyph_hardness) < mon->race->level) {
-			struct trap_kind *rune = lookup_trap("glyph of warding");
-
-			/* Describe observable breakage */
-			if (square_isseen(cave, new)) {
-				msg("The rune of protection is broken!");
-			}
-
-			/* Break the rune */
-			assert(rune);
-			square_remove_all_traps_of_type(cave, new, rune->tidx);
-
-			/* Update view if needed */
-			if (square_player_knowledge(cave, new) != SQUARE_UNKNOWN) {
-				player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
-			}
-		} else {
-			/* Unbroken ward - can't move */
-			return false;
-		}
-	}
-
-	/*
-	 * Handle web in the destination grid.
-	 * square_monster_can_enter() confirmed the monster can deal with it,
-	 * now apply the side effect: clear the web or pass through.
-	 */
-	if (square_iswebbed(cave, new)) {
-		/* Learn web behaviour */
-		if (monster_is_visible(mon)) {
-			rf_on(lore->flags, RF_CLEAR_WEB);
-			rf_on(lore->flags, RF_PASS_WEB);
-		}
-
-		/* Pass through without clearing */
-		if (rf_has(mon->race->flags, RF_PASS_WEB)) {
-			return true;
-		}
-
-		/* Pass through walls (insubstantial) */
-		if (rf_has(mon->race->flags, RF_PASS_WALL)) {
-			return true;
-		}
-
-		/* Destroy the web (wall-destroying monsters can also destroy webs) */
-		if (rf_has(mon->race->flags, RF_SMASH_WALL) ||
-			rf_has(mon->race->flags, RF_KILL_WALL) ||
-			rf_has(mon->race->flags, RF_CLEAR_WEB)) {
-			struct trap_kind *web = lookup_trap("web");
-
-			assert(web);
-			square_remove_all_traps_of_type(cave, new, web->tidx);
-
-			/* Clearing a web costs a turn for web-clearing monsters */
-			if (rf_has(mon->race->flags, RF_CLEAR_WEB) &&
-				!rf_has(mon->race->flags, RF_SMASH_WALL) &&
-				!rf_has(mon->race->flags, RF_KILL_WALL)) {
-				*did_something = true;
-				return false;
-			}
-		}
-
-		/* If web is cleared, continue to check other features */
-	}
-
-	/*
-	 * Handle player-placed trap in the destination grid.
-	 * square_monster_can_enter() only allows PASS_WALL monsters to enter
-	 * trapped grids; normal monsters are blocked. No side effect needed
-	 * for PASS_WALL (they phase through), but we update view if the
-	 * player's memory is stale.
-	 */
-	if (square_isplayertrap(cave, new)) {
-		if (square_player_knowledge(cave, new) == SQUARE_KNOWN_BAD) {
-			player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
-		}
-		return true;
-	}
-
-	/* If the grid is now just passable floor (after clearing traps), done */
-	if (square_ispassable(cave, new)) {
-		return true;
-	}
+	/* Normal wall, door, or secret door in the way */
 
 	/* There's some kind of feature in the way, so learn about
 	 * kill-wall and pass-wall now */
@@ -1306,7 +1199,7 @@ static bool monster_turn_can_move(struct monster *mon, const char *m_name,
 			player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
 
 		return true;
-	} else if (square_iscloseddoor(cave, new) || square_issecretdoor(cave, new)) {
+	} else if (square_iscloseddoor(cave, new)|| square_issecretdoor(cave, new)){
 		/* Don't allow a confused move to open a door. */
 		bool can_open = rf_has(mon->race->flags, RF_OPEN_DOOR) &&
 			!confused;
@@ -1334,7 +1227,12 @@ static bool monster_turn_can_move(struct monster *mon, const char *m_name,
 			/* Only choice */
 			will_bash = true;
 		} else {
-			/* Door is an insurmountable obstacle (shouldn't reach here) */
+			/* Door is an insurmountable obstacle */
+			if (confused) {
+				*did_something = true;
+				monster_display_confused_move_msg(mon, m_name, new);
+				monster_slightly_stun_by_move(mon);
+			}
 			return false;
 		}
 
@@ -1386,14 +1284,40 @@ static bool monster_turn_can_move(struct monster *mon, const char *m_name,
 				square_open_door(cave, new);
 			}
 		}
+	} else if (confused) {
+		*did_something = true;
+		monster_display_confused_move_msg(mon, m_name, new);
+		monster_slightly_stun_by_move(mon);
 	}
 
-	/*
-	 * If we passed the square_monster_can_enter() check, the monster
-	 * can enter. This handles any remaining cases like rubble for
-	 * wall-passing monsters, etc.
-	 */
-	return true;
+	return false;
+}
+
+/**
+ * Try to break a glyph.
+ */
+static bool monster_turn_attack_glyph(struct monster *mon, struct loc new)
+{
+	assert(square_iswarded(cave, new));
+
+	/* Break the ward */
+	if (randint1(z_info->glyph_hardness) < mon->race->level) {
+		struct trap_kind *rune = lookup_trap("glyph of warding");
+
+		/* Describe observable breakage */
+		if (square_isseen(cave, new)) {
+			msg("The rune of protection is broken!");
+		}
+
+		/* Break the rune */
+		assert(rune);
+		square_remove_all_traps_of_type(cave, new, rune->tidx);
+
+		return true;
+	}
+
+	/* Unbroken ward - can't move */
+	return false;
 }
 
 /**
@@ -1670,6 +1594,11 @@ static void monster_turn(struct monster *mon)
 		/* Check if we can move */
 		if (!monster_turn_can_move(mon, m_name, new,
 								   stagger == CONFUSED_STAGGER, &did_something))
+			continue;
+
+		/* Try to break the glyph if there is one.  This can happen multiple
+		 * times per turn because failure does not break the loop */
+		if (square_iswarded(cave, new) && !monster_turn_attack_glyph(mon, new))
 			continue;
 
 		/* Break a decoy if there is one */

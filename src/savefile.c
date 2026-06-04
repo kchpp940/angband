@@ -17,8 +17,12 @@
  */
 #include <errno.h>
 #include "angband.h"
+#include "cave.h"
 #include "game-world.h"
 #include "init.h"
+#include "mon-util.h"
+#include "obj-knowledge.h"
+#include "player-calcs.h"
 #include "savefile.h"
 #include "save-charoutput.h"
 #include "z-file.h"
@@ -650,9 +654,19 @@ bool savefile_load(const char *path, bool cheat_death)
 			player->noscore |= NOSCORE_WIZARD;
 	}
 
-	/* Character is now "complete" */
 	character_generated = true;
 	player->upkeep->playing = true;
+
+	load_finalize(player);
+
+	update_player_object_knowledge(player);
+
+	update_view(cave, player);
+
+	update_monsters(true);
+
+	player->upkeep->update |= PU_PANEL;
+	player->upkeep->redraw |= PR_MAP;
 
 	return ok;
 }
