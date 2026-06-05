@@ -773,18 +773,13 @@ static void do_gcu_resize(void) {
 		Term_activate(&data[i].t);
 
 		/* If we can resize the curses window, then resize the Term */
+		/* Term_resize() pushes EVT_RESIZE event which is handled by ui-game.c */
 		get_gcu_term_size(i, &rows, &cols, &y, &x);
 		if (wresize(data[i].win, rows, cols) == OK)
 			Term_resize(cols, rows);
 
 		/* Activate the old term */
 		Term_activate(old_t);
-	}
-	/* Use unified resize invalidation entry point */
-	if (character_dungeon) {
-		ui_invalidate_on_resize();
-	} else {
-		do_cmd_redraw();
 	}
 }
 

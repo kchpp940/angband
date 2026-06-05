@@ -461,6 +461,8 @@ void signals_init(bool hup_disconnects, bool tstp_default)
 void signals_perform_deferred_suspend(void)
 {
 #ifdef SIGSTOP
+	ui_event evt = EVENT_EMPTY;
+
 	/* Flush output */
 	Term_fresh();
 
@@ -476,14 +478,10 @@ void signals_perform_deferred_suspend(void)
 	/* Resume the "Term" */
 	Term_xtra(TERM_XTRA_ALIVE, 1);
 
-	/* Terminal may have been resized while suspended, use unified invalidation */
-	if (character_dungeon) {
-		ui_invalidate_on_resize();
-	} else {
-		/* Redraw all terminals if not in dungeon */
-		Term_redraw_all();
-		Term_fresh();
-	}
+	/* Terminal may have been resized while suspended */
+	/* Push EVT_RESIZE event to trigger unified UI invalidation */
+	evt.type = EVT_RESIZE;
+	Term_event_push(&evt);
 #else
 	/* Clear the indicator. */
 	terms_suspending = 0;

@@ -4722,13 +4722,11 @@ static bool get_event(struct my_app *a)
 
 static void refresh_angband_terms(struct my_app *a)
 {
-	if (!character_dungeon) {
-		return;
-	}
-
-	/* Use unified resize/graphics mode change invalidation entry point */
-	ui_invalidate_on_resize();
-
+	/*
+	 * SDL2-specific window redraw only.
+	 * UI invalidation is handled by EVT_RESIZE events in ui-game.c
+	 * to avoid duplicate refreshes and ensure single invalidate per resize batch.
+	 */
 	redraw_all_windows(a, false);
 }
 

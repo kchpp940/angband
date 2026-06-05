@@ -1783,7 +1783,6 @@ static errr Term_xtra_win_react(void)
 
 
 	/* Clean up windows */
-	bool any_resized = false;
 	for (i = 0; i < MAX_TERM_DATA; i++) {
 		term *old = Term;
 
@@ -1791,11 +1790,10 @@ static errr Term_xtra_win_react(void)
 
 		/* Update resized windows */
 		if ((td->cols != td->t.wid) || (td->rows != td->t.hgt)) {
-			any_resized = true;
 			/* Activate */
 			Term_activate(&td->t);
 
-			/* Resize the term */
+			/* Resize the term - this pushes EVT_RESIZE event */
 			Term_resize(td->cols, td->rows);
 
 			/* Redraw the contents */
@@ -1804,11 +1802,6 @@ static errr Term_xtra_win_react(void)
 			/* Restore */
 			Term_activate(old);
 		}
-	}
-
-	/* If any terminal was resized, use unified resize invalidation */
-	if (any_resized && character_dungeon) {
-		ui_invalidate_on_resize();
 	}
 
 	/* Success */
@@ -3851,17 +3844,15 @@ static void process_menus(WORD wCmd)
 				/* Focus on main window */
 				SetFocus(data[0].w);
 
-				/* React to changes */
+				/* React to changes - this calls Term_resize() which pushes EVT_RESIZE */
 				Term_xtra_win_react();
-
-				/* Use unified resize invalidation entry point */
-				if (character_dungeon) ui_invalidate_on_resize();
 			}
 
 			break;
 		}
 
 		case IDM_OPTIONS_GRAPHICS_NICE: {
+			ui_event evt = EVENT_EMPTY;
 			/* Paranoia */
 			if (!inkey_flag || !initialized) {
 				plog("You may not do that right now.");
@@ -3874,8 +3865,9 @@ static void process_menus(WORD wCmd)
 			/* React to changes */
 			Term_xtra_win_react();
 
-			/* Use unified graphics mode change invalidation */
-			if (character_dungeon) ui_invalidate_on_resize();
+			/* Push EVT_RESIZE to trigger UI invalidation for graphics mode change */
+			evt.type = EVT_RESIZE;
+			Term_event_push(&evt);
 			
 			break;
 		}
@@ -3987,8 +3979,12 @@ static void process_menus(WORD wCmd)
 			/* React to changes */
 			Term_xtra_win_react();
 
-			/* Force redraw */
-			Term_key_push(KTRL('R'), 0);
+			/* Push EVT_RESIZE to trigger UI invalidation for tile size change */
+			{
+				ui_event evt = EVENT_EMPTY;
+				evt.type = EVT_RESIZE;
+				Term_event_push(&evt);
+			}
 
 			break;
 		}
@@ -4835,7 +4831,7 @@ static LRESULT FAR PASCAL AngbandListProc(HWND hWnd, UINT uMsg,
 				/* Activate */
 				Term_activate(&td->t);
 
-				/* Resize the term */
+				/* Resize the term - this pushes EVT_RESIZE event */
 				Term_resize(td->cols, td->rows);
 
 				/* Activate */
@@ -4843,9 +4839,6 @@ static LRESULT FAR PASCAL AngbandListProc(HWND hWnd, UINT uMsg,
 
 				/* Redraw later */
 				InvalidateRect(td->w, NULL, true);
-
-				/* Use unified resize invalidation entry point */
-				if (character_dungeon) ui_invalidate_on_resize();
 			}
 
 			td->size_hack = false;
