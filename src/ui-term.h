@@ -188,6 +188,8 @@ struct term
 	uint16_t key_xtra;
 	uint16_t key_size;
 
+	bool resize_pending;
+
 	int wid;
 	int hgt;
 
@@ -411,6 +413,7 @@ extern errr Term_key_push(keycode_t k, uint8_t mods);
 extern errr Term_event_push(const ui_event *ke);
 extern errr Term_inkey(ui_event *ch, bool wait, bool take);
 extern bool Term_consume_all_resize_events(void);
+extern void Term_signal_resize(void);
 
 extern errr Term_save(void);
 extern errr Term_load(void);

@@ -2666,10 +2666,14 @@ errr Term_event_push(const ui_event *ke)
 
 
 /**
- * Consume all pending EVT_RESIZE events from all terminal queues.
+ * Consume consecutive EVT_RESIZE events at the head of all terminal queues.
  *
  * This is used to coalesce multiple resize events from different terminals
  * into a single UI invalidation. Returns true if any resize events were found.
+ *
+ * Important: This only consumes resize events at the HEAD of each queue;
+ * it will NOT skip over other events (keypress, mouse, etc.) to find resize
+ * events later in the queue, preserving event processing order.
  */
 bool Term_consume_all_resize_events(void)
 {
@@ -2680,7 +2684,7 @@ bool Term_consume_all_resize_events(void)
 		term *t = angband_term[i];
 		if (!t) continue;
 
-		/* Consume all consecutive EVT_RESIZE events from this terminal's queue */
+		/* Consume consecutive EVT_RESIZE events at the HEAD of this queue */
 		while (t->key_head != t->key_tail) {
 			ui_event *evt = &t->key_queue[t->key_tail];
 			if (evt->type != EVT_RESIZE) break;
@@ -2690,6 +2694,9 @@ bool Term_consume_all_resize_events(void)
 			/* Advance past this resize event, wrap if necessary */
 			if (++t->key_tail == t->key_size) t->key_tail = 0;
 		}
+
+		/* Clear resize pending flag for this terminal */
+		t->resize_pending = false;
 	}
 
 	return found_resize;
@@ -3084,11 +3091,37 @@ errr Term_resize(int w, int h)
 	Term->y1 = 0;
 	Term->y2 = h - 1;
 
-	/* Push a resize event onto the stack */
-	Term_event_push(&evt);
+	/*
+	 * Only push EVT_RESIZE event if not already pending.
+	 * This prevents multiple resize events from piling up in the queue
+	 * when multiple terminals resize in sequence.
+	 */
+	if (!Term->resize_pending) {
+		Term->resize_pending = true;
+		Term_event_push(&evt);
+	}
 
 	/* Success */
 	return (0);
+}
+
+
+/**
+ * Push an EVT_RESIZE event for the current terminal, respecting the
+ * resize_pending flag to avoid duplicate events.
+ *
+ * This should be used for graphics mode changes or other cases where
+ * a full UI refresh is needed without an actual terminal size change.
+ */
+void Term_signal_resize(void)
+{
+	ui_event evt = EVENT_EMPTY;
+	evt.type = EVT_RESIZE;
+
+	if (!Term->resize_pending) {
+		Term->resize_pending = true;
+		Term_event_push(&evt);
+	}
 }
 
 

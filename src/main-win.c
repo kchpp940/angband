@@ -3852,7 +3852,6 @@ static void process_menus(WORD wCmd)
 		}
 
 		case IDM_OPTIONS_GRAPHICS_NICE: {
-			ui_event evt = EVENT_EMPTY;
 			/* Paranoia */
 			if (!inkey_flag || !initialized) {
 				plog("You may not do that right now.");
@@ -3865,9 +3864,8 @@ static void process_menus(WORD wCmd)
 			/* React to changes */
 			Term_xtra_win_react();
 
-			/* Push EVT_RESIZE to trigger UI invalidation for graphics mode change */
-			evt.type = EVT_RESIZE;
-			Term_event_push(&evt);
+			/* Signal resize for graphics mode change - respects resize_pending flag */
+			Term_signal_resize();
 			
 			break;
 		}
@@ -3979,12 +3977,8 @@ static void process_menus(WORD wCmd)
 			/* React to changes */
 			Term_xtra_win_react();
 
-			/* Push EVT_RESIZE to trigger UI invalidation for tile size change */
-			{
-				ui_event evt = EVENT_EMPTY;
-				evt.type = EVT_RESIZE;
-				Term_event_push(&evt);
-			}
+			/* Signal resize for tile size change - respects resize_pending flag */
+			Term_signal_resize();
 
 			break;
 		}

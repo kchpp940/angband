@@ -461,8 +461,6 @@ void signals_init(bool hup_disconnects, bool tstp_default)
 void signals_perform_deferred_suspend(void)
 {
 #ifdef SIGSTOP
-	ui_event evt = EVENT_EMPTY;
-
 	/* Flush output */
 	Term_fresh();
 
@@ -479,9 +477,7 @@ void signals_perform_deferred_suspend(void)
 	Term_xtra(TERM_XTRA_ALIVE, 1);
 
 	/* Terminal may have been resized while suspended */
-	/* Push EVT_RESIZE event to trigger unified UI invalidation */
-	evt.type = EVT_RESIZE;
-	Term_event_push(&evt);
+	Term_signal_resize();
 #else
 	/* Clear the indicator. */
 	terms_suspending = 0;
