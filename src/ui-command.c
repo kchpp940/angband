@@ -129,18 +129,14 @@ void do_cmd_redraw(void)
  *
  * This should NOT be called for normal redraw operations.
  *
- * Note: This function includes reentrancy protection to coalesce multiple
- * resize events (e.g. multiple subwindows resizing in the same batch).
+ * Note: Event coalescing is handled at the event layer in ui-game.c by
+ * Term_consume_all_resize_events(), so this function should only be called
+ * once per batch of resize events.
  */
 void ui_invalidate_on_resize(void)
 {
-	static bool in_resize_invalidate = false;
 	term *old = Term;
 	int i;
-
-	/* Reentrancy protection - coalesce multiple resize events */
-	if (in_resize_invalidate) return;
-	in_resize_invalidate = true;
 
 	/* Low level flush */
 	Term_flush();
@@ -211,9 +207,6 @@ void ui_invalidate_on_resize(void)
 		}
 	}
 	Term_activate(old);
-
-	/* Reset reentrancy flag */
-	in_resize_invalidate = false;
 }
 
 

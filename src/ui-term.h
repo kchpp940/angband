@@ -410,6 +410,7 @@ extern errr Term_keypress(keycode_t k, uint8_t mods);
 extern errr Term_key_push(keycode_t k, uint8_t mods);
 extern errr Term_event_push(const ui_event *ke);
 extern errr Term_inkey(ui_event *ch, bool wait, bool take);
+extern bool Term_consume_all_resize_events(void);
 
 extern errr Term_save(void);
 extern errr Term_load(void);

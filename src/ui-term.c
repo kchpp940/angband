@@ -2666,6 +2666,37 @@ errr Term_event_push(const ui_event *ke)
 
 
 /**
+ * Consume all pending EVT_RESIZE events from all terminal queues.
+ *
+ * This is used to coalesce multiple resize events from different terminals
+ * into a single UI invalidation. Returns true if any resize events were found.
+ */
+bool Term_consume_all_resize_events(void)
+{
+	bool found_resize = false;
+	int i;
+
+	for (i = 0; i < ANGBAND_TERM_MAX; i++) {
+		term *t = angband_term[i];
+		if (!t) continue;
+
+		/* Consume all consecutive EVT_RESIZE events from this terminal's queue */
+		while (t->key_head != t->key_tail) {
+			ui_event *evt = &t->key_queue[t->key_tail];
+			if (evt->type != EVT_RESIZE) break;
+
+			found_resize = true;
+
+			/* Advance past this resize event, wrap if necessary */
+			if (++t->key_tail == t->key_size) t->key_tail = 0;
+		}
+	}
+
+	return found_resize;
+}
+
+
+/**
  * Check for a pending event on the active terminal's input queue.
  *
  * Store the event, if any, in "ch", and return "0".
