@@ -81,4 +81,7 @@ const char *mon_spell_lore_description(int index,
 int mon_spell_lore_damage(int index, const struct monster_race *race,
 						  bool know_hp);
 
+/* Tactical spell bias */
+void tactical_apply_spell_bias(struct chunk *c, const struct monster *mon, bitflag *spells);
+
 #endif /* MONSTER_SPELL_H */

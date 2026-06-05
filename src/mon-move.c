@@ -53,7 +53,7 @@
 
 static bool get_move_tactical_surround(struct monster *mon, struct loc *grid);
 static bool get_move_tactical_retreat(struct monster *mon, struct loc *grid);
-static bool get_move_tactical_escort(struct monster *mon, struct loc *grid);
+static bool get_move_tactical_escort(struct monster *mon, struct monster_group *group, struct loc *grid);
 static bool get_move_tactical_focus_fire(struct monster *mon, struct loc *grid);
 
 
@@ -852,14 +852,6 @@ static bool get_move(struct monster *mon, int *dir, bool *good)
 
 	bool done = false;
 
-	/* Update tactical stance periodically (every 3 turns) */
-	if (mon->tactical_cooldown <= 0) {
-		mon->tactical_stance = monster_determine_tactical_stance(cave, mon);
-		mon->tactical_cooldown = 3;
-	} else {
-		mon->tactical_cooldown--;
-	}
-
 	/* Calculate range */
 	get_move_find_range(mon);
 
@@ -970,30 +962,44 @@ static bool get_move(struct monster *mon, int *dir, bool *good)
 	}
 
 	/* Tactical stances for cooperative monster groups */
-	if (!done && mon->tactical_stance != TACTICAL_STANCE_NONE) {
-		struct loc tactical_grid = loc(0, 0);
-		bool tactical_success = false;
+	if (!done) {
+		struct monster_group *group = NULL;
+		enum monster_tactical_stance stance = TACTICAL_STANCE_NONE;
+		int group_idx = mon->group_info[PRIMARY_GROUP].index;
 
-		switch (mon->tactical_stance) {
-			case TACTICAL_STANCE_SURROUND:
-				tactical_success = get_move_tactical_surround(mon, &tactical_grid);
-				break;
-			case TACTICAL_STANCE_RETREAT:
-				tactical_success = get_move_tactical_retreat(mon, &tactical_grid);
-				break;
-			case TACTICAL_STANCE_ESCORT_CASTER:
-				tactical_success = get_move_tactical_escort(mon, &tactical_grid);
-				break;
-			case TACTICAL_STANCE_FOCUS_FIRE:
-				tactical_success = get_move_tactical_focus_fire(mon, &tactical_grid);
-				break;
-			default:
-				break;
+		if (group_idx > 0) {
+			group = cave->monster_groups[group_idx];
+			if (group && monster_group_tactical_is_enabled(group)) {
+				monster_group_tactical_update(cave, group);
+				stance = monster_group_get_stance(group);
+			}
 		}
 
-		if (tactical_success && !loc_is_zero(tactical_grid)) {
-			grid = tactical_grid;
-			mflag_off(mon->mflag, MFLAG_TRACKING);
+		if (stance != TACTICAL_STANCE_NONE) {
+			struct loc tactical_grid = loc(0, 0);
+			bool tactical_success = false;
+
+			switch (stance) {
+				case TACTICAL_STANCE_SURROUND:
+					tactical_success = get_move_tactical_surround(mon, &tactical_grid);
+					break;
+				case TACTICAL_STANCE_RETREAT:
+					tactical_success = get_move_tactical_retreat(mon, &tactical_grid);
+					break;
+				case TACTICAL_STANCE_ESCORT_CASTER:
+					tactical_success = get_move_tactical_escort(mon, group, &tactical_grid);
+					break;
+				case TACTICAL_STANCE_FOCUS_FIRE:
+					tactical_success = get_move_tactical_focus_fire(mon, &tactical_grid);
+					break;
+				default:
+					break;
+			}
+
+			if (tactical_success && !loc_is_zero(tactical_grid)) {
+				grid = tactical_grid;
+				mflag_off(mon->mflag, MFLAG_TRACKING);
+			}
 		}
 	}
 
@@ -2181,14 +2187,16 @@ static bool get_move_tactical_retreat(struct monster *mon, struct loc *grid)
 /**
  * Tactical escort - position between the caster and the player
  */
-static bool get_move_tactical_escort(struct monster *mon, struct loc *grid)
+static bool get_move_tactical_escort(struct monster *mon, struct monster_group *group, struct loc *grid)
 {
-	struct monster *caster = monster_find_nearby_caster(cave, mon, 6);
+	struct monster *caster = monster_group_find_caster(cave, group);
 	int i;
 	struct loc best = loc(0, 0);
 	int best_score = -1;
 
 	if (!caster) return false;
+	if (caster == mon) return false;
+	if (!mon->race->blow) return false;
 
 	for (i = 0; i < 8; i++) {
 		struct loc test_grid = loc_sum(mon->grid, ddgrid_ddd[i]);
@@ -2198,7 +2206,7 @@ static bool get_move_tactical_escort(struct monster *mon, struct loc *grid)
 
 		if (!square_in_bounds(cave, test_grid)) continue;
 		if (!square_ispassable(cave, test_grid)) continue;
-		if (square_monster(cave, test_grid) && test_grid.x != caster->grid.x) continue;
+		if (square_monster(cave, test_grid)) continue;
 
 		dist_to_caster = distance(test_grid, caster->grid);
 		dist_to_player = distance(test_grid, player->grid);

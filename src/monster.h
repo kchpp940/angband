@@ -288,18 +288,6 @@ enum monster_group_type {
 };
 
 /**
- * Monster tactical stance types for group cooperation
- */
-enum monster_tactical_stance {
-	TACTICAL_STANCE_NONE = 0,
-	TACTICAL_STANCE_SURROUND,
-	TACTICAL_STANCE_RETREAT,
-	TACTICAL_STANCE_ESCORT_CASTER,
-	TACTICAL_STANCE_FOCUS_FIRE,
-	TACTICAL_STANCE_MAX
-};
-
-/**
  * How monsters mimic
  */
 struct monster_mimic {
@@ -427,9 +415,6 @@ struct monster {
 
 	uint8_t min_range;			/* What is the closest we want to be? */
 	uint8_t best_range;			/* How close do we want to be? */
-
-	enum monster_tactical_stance tactical_stance;
-	int tactical_cooldown;
 };
 
 /** Variables **/

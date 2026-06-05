@@ -20,6 +20,7 @@
 #include "init.h"
 #include "mon-attack.h"
 #include "mon-desc.h"
+#include "mon-group.h"
 #include "mon-lore.h"
 #include "mon-make.h"
 #include "mon-predicate.h"
@@ -30,6 +31,34 @@
 #include "player-timed.h"
 #include "player-util.h"
 #include "project.h"
+
+void tactical_apply_spell_bias(struct chunk *c, const struct monster *mon, bitflag *spells)
+{
+	int group_idx = mon->group_info[PRIMARY_GROUP].index;
+	struct monster_group *group;
+	enum monster_tactical_stance stance;
+
+	if (group_idx <= 0) return;
+
+	group = c->monster_groups[group_idx];
+	if (!group || !monster_group_tactical_is_enabled(group)) return;
+
+	stance = monster_group_get_stance(group);
+
+	if (stance == TACTICAL_STANCE_FOCUS_FIRE) {
+		bitflag damage_spells[RSF_SIZE];
+		rsf_wipe(damage_spells);
+		create_mon_spell_mask(damage_spells, RST_DAMAGE, RST_NONE);
+		rsf_inter(spells, damage_spells);
+	} else if (stance == TACTICAL_STANCE_ESCORT_CASTER) {
+		bitflag support_spells[RSF_SIZE];
+		rsf_wipe(support_spells);
+		create_mon_spell_mask(support_spells, RST_HASTE, RST_HEAL, RST_HEAL_OTHER, RST_SUMMON, RST_TACTIC, RST_NONE);
+		if (!rsf_is_empty(support_spells)) {
+			rsf_inter(spells, support_spells);
+		}
+	}
+}
 
 /**
  * ------------------------------------------------------------------------

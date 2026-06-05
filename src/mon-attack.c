@@ -418,23 +418,8 @@ bool make_ranged_attack(struct monster *mon)
 		ignore_spells(f, RST_DAMAGE);
 	}
 
-	/* Tactical stance: focus fire - prioritize damage spells */
-	if (mon->tactical_stance == TACTICAL_STANCE_FOCUS_FIRE) {
-		bitflag damage_spells[RSF_SIZE];
-		rsf_wipe(damage_spells);
-		create_mon_spell_mask(damage_spells, RST_DAMAGE, RST_NONE);
-		rsf_inter(f, damage_spells);
-	}
-
-	/* Tactical stance: escort caster - prioritize support spells */
-	if (mon->tactical_stance == TACTICAL_STANCE_ESCORT_CASTER) {
-		bitflag support_spells[RSF_SIZE];
-		rsf_wipe(support_spells);
-		create_mon_spell_mask(support_spells, RST_HASTE, RST_HEAL, RST_HEAL_OTHER, RST_SUMMON, RST_TACTIC, RST_NONE);
-		if (!rsf_is_empty(support_spells)) {
-			rsf_inter(f, support_spells);
-		}
-	}
+	/* Apply tactical spell bias based on group stance */
+	tactical_apply_spell_bias(cave, mon, f);
 
 	/* Non-stupid monsters do some filtering */
 	if (!monster_is_stupid(mon)) {

@@ -20,6 +20,22 @@
 
 #include "monster.h"
 
+enum monster_tactical_stance {
+	TACTICAL_STANCE_NONE = 0,
+	TACTICAL_STANCE_SURROUND,
+	TACTICAL_STANCE_RETREAT,
+	TACTICAL_STANCE_ESCORT_CASTER,
+	TACTICAL_STANCE_FOCUS_FIRE,
+	TACTICAL_STANCE_MAX
+};
+
+struct monster_tactical_state {
+	enum monster_tactical_stance stance;
+	int cooldown;
+	int update_turn;
+	bool enabled;
+};
+
 struct tactical_context {
 	int nearby_allies;
 	int player_hp_percent;
@@ -29,16 +45,21 @@ struct tactical_context {
 	bool has_melee;
 };
 
-bool monster_can_cooperate(const struct monster *mon);
-int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range);
+void monster_group_tactical_init(struct monster_group *group);
+void monster_group_tactical_update(struct chunk *c, struct monster_group *group);
+void monster_group_tactical_disable(struct monster_group *group);
+
+enum monster_tactical_stance monster_group_get_stance(const struct monster_group *group);
+bool monster_group_tactical_is_enabled(const struct monster_group *group);
+int monster_group_get_tactical_cooldown(const struct monster_group *group);
+
+bool monster_group_can_cooperate(struct chunk *c, const struct monster_group *group);
+int monster_group_count_nearby_allies(struct chunk *c, const struct monster_group *group, int range);
 int monster_measure_corridor_width(struct chunk *c, const struct monster *mon);
-enum monster_tactical_stance monster_determine_tactical_stance(struct chunk *c, struct monster *mon);
-bool monster_tactical_should_surround(struct chunk *c, struct monster *mon);
-bool monster_tactical_should_retreat(struct chunk *c, struct monster *mon);
-bool monster_tactical_should_escort(struct chunk *c, struct monster *mon);
-bool monster_tactical_should_focus_fire(struct chunk *c, struct monster *mon);
-struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range);
-struct monster *monster_find_focus_target(struct chunk *c, const struct monster *mon);
+struct monster *monster_group_find_caster(struct chunk *c, const struct monster_group *group);
+struct monster *monster_group_get_leader_monster(struct chunk *c, const struct monster_group *group);
+
+void monster_group_on_status_changed(struct chunk *c, struct monster *mon);
 
 struct mon_group_list_entry {
 	int midx;
@@ -49,6 +70,7 @@ struct monster_group {
 	int index;
 	int leader;
 	struct mon_group_list_entry *member_list;
+	struct monster_tactical_state tactical;
 };
 
 struct monster_group *monster_group_new(void);
