@@ -40,6 +40,7 @@ typedef enum
 void free_effect(struct effect *source);
 bool effect_valid(const struct effect *effect);
 bool effect_aim(const struct effect *effect);
+int effect_proj_flags(const struct effect *effect);
 const char *effect_info(const struct effect *effect);
 const char *effect_desc(const struct effect *effect);
 effect_index effect_lookup(const char *name);

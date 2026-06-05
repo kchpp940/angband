@@ -18,7 +18,6 @@
  */
 
 #include "angband.h"
-#include "cave.h"
 #include "cmds.h"
 #include "datafile.h"
 #include "game-input.h"

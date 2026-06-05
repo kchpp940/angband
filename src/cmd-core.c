@@ -956,7 +956,7 @@ int cmd_get_target(struct command *cmd, const char *arg, int *target)
 {
 	if (cmd_get_arg_target(cmd, arg, target) == CMD_OK) {
 		if (*target != DIR_UNKNOWN &&
-				(*target != DIR_TARGET || target_okay()))
+				(*target != DIR_TARGET || target_check_okay(target_get_context_proj_flags())))
 			return CMD_OK;
 	}
 

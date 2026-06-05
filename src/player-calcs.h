@@ -126,7 +126,6 @@ void notice_stuff(struct player *p);
 void update_stuff(struct player *p);
 void redraw_stuff(struct player *p);
 void handle_stuff(struct player *p);
-void load_finalize(struct player *p);
 int weight_remaining(struct player *p);
 
 #endif /* !PLAYER_CALCS_H */

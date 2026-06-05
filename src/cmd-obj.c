@@ -28,6 +28,7 @@
 #include "obj-gear.h"
 #include "obj-ignore.h"
 #include "obj-info.h"
+#include "project.h"
 #include "obj-knowledge.h"
 #include "obj-make.h"
 #include "obj-pile.h"
@@ -432,12 +433,20 @@ static bool use_aux(struct command *cmd, struct object *obj, enum use use,
 		/* Unknown things with no obvious aim get a random direction */
 		if (!known_aim) {
 			dir = ddd[randint0(8)];
-		} else if (cmd_get_target(cmd, "target", &dir) != CMD_OK) {
-			return false;
+		} else {
+			int proj_flags = effect_proj_flags(effect);
+			target_action_begin(proj_flags);
+			if (cmd_get_target(cmd, "target", &dir) != CMD_OK) {
+				target_action_end();
+				return false;
+			}
 		}
 
 		/* Confusion wrecks aim */
 		player_confuse_dir(player, &dir, false);
+	} else {
+		/* Non-aiming items still need a clean context */
+		target_action_begin(PROJECT_STOP);
 	}
 
 	/* track the object used */
@@ -728,6 +737,8 @@ static bool use_aux(struct command *cmd, struct object *obj, enum use use,
 		if (square_object(cave, player->grid))
 			push_object(player->grid);
 	}
+
+	target_action_end();
 
 	return can_use == 0;
 }
@@ -1152,10 +1163,17 @@ void do_cmd_cast(struct command *cmd)
 	}
 
 	if (spell_needs_aim(spell_index)) {
+		int proj_flags = effect_proj_flags(spell->effect);
+		target_action_begin(proj_flags);
 		if (cmd_get_target(cmd, "target", &dir) == CMD_OK)
 			player_confuse_dir(player, &dir, false);
-		else
+		else {
+			target_action_end();
 			return;
+		}
+	} else {
+		/* Non-aiming spells still need a clean context */
+		target_action_begin(PROJECT_STOP);
 	}
 
 	/* Cast a spell */
@@ -1168,6 +1186,7 @@ void do_cmd_cast(struct command *cmd)
 		}
 	}
 	target_release();
+	target_action_end();
 }
 
 

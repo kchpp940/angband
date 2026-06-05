@@ -1323,17 +1323,19 @@ bool target_set_interactive(int mode, int x, int y, bool allow_pathfinding)
 
 		/* Update help */
 		if (help) {
-			bool has_target = target_able(square_monster(cave, loc(x, y)));
+			int proj_flags = target_get_context_proj_flags();
+			bool has_target = target_able_with_flags(
+				square_monster(cave, loc(x, y)), proj_flags);
 			bool has_object = !(mode & TARGET_KILL)
 					&& pile_has_known(square_object(cave, loc(x, y)));
 			target_display_help(has_target, has_object,
 				use_free_mode, allow_pathfinding);
 		}
 
-		/* Find the path. */
+		/* Find the path using context flags with PROJECT_INFO for UI. */
 		path_n = project_path(cave, path_g, z_info->max_range,
 			loc(player->grid.x, player->grid.y), loc(x, y),
-			PROJECT_THRU | PROJECT_INFO);
+			target_get_context_proj_flags() | PROJECT_INFO);
 
 		/* Draw the path in "target" mode. If there is one */
 		if (mode & (TARGET_KILL))
@@ -1360,7 +1362,7 @@ bool target_set_interactive(int mode, int x, int y, bool allow_pathfinding)
 				/* Interesting mode: Try to target a monster and done, or bell */
 				struct monster *m_local = square_monster(cave, loc(x, y));
 
-				if (target_able(m_local)) {
+				if (target_able_with_flags(m_local, target_get_context_proj_flags())) {
 					/* Monster race and health tracked by target_set_interactive_aux() */
 					target_set_monster(m_local);
 					done = true;
@@ -1473,7 +1475,7 @@ bool target_set_interactive(int mode, int x, int y, bool allow_pathfinding)
 			if (use_interesting_mode) {
 				struct monster *m_local = square_monster(cave, loc(x, y));
 
-				if (target_able(m_local)) {
+				if (target_able_with_flags(m_local, target_get_context_proj_flags())) {
 					/* Monster race and health tracked by target_set_interactive_aux() */
 					target_set_monster(m_local);
 					done = true;

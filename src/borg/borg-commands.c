@@ -141,7 +141,7 @@ static bool borg_cmd_target(void)
     Term_flush();
 
     /* Check for use of current target */
-    if (target_okay()) {
+    if (target_check_okay(PROJECT_STOP)) {
         if (!get_com("Use current target? (y/n) ", &cmd)) {
             borg_note("command aborted");
             return false;

@@ -39,13 +39,18 @@
 struct target {
 	struct loc grid;
 	int midx;
+	int proj_flags;
 };
 
 void look_mon_desc(char *buf, size_t max, int m_idx);
 bool target_able(struct monster *m);
+bool target_able_with_flags(struct monster *m, int proj_flags);
+bool target_check_okay(int proj_flags);
 bool target_okay(void);
 bool target_set_monster(struct monster *mon);
+bool target_set_monster_with_flags(struct monster *mon, int proj_flags);
 void target_set_location(int y, int x);
+void target_set_location_with_flags(int y, int x, int proj_flags);
 bool target_is_set(void);
 void target_fix(void);
 void target_release(void);
@@ -59,5 +64,10 @@ bool target_sighted(void);
 struct point_set *target_get_monsters(int mode, monster_predicate pred,
 	bool restrict_to_panel);
 bool target_set_closest(int mode, monster_predicate pred);
+void target_set_context_proj_flags(int proj_flags);
+int target_get_context_proj_flags(void);
+void target_reset_context(void);
+void target_action_begin(int proj_flags);
+void target_action_end(void);
 
 #endif /* !TARGET_H */

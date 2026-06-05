@@ -1631,6 +1631,7 @@ void player_handle_post_move(struct player *p, bool eval_trap,
 
 	/* Update view and search */
 	update_view(cave, p);
+	target_release();
 	search(p);
 }
 

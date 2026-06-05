@@ -380,11 +380,15 @@ bool projectable(struct chunk *c, struct loc grid1, struct loc grid2, int flg)
 	/* No grid is ever projectable from itself */
 	if (!grid_n) return false;
 
-	/* May not end in a wall grid */
-	if (!square_ispassable(c, grid_g[grid_n - 1])) return false;
-
 	/* May not end in an unrequested grid */
 	if (!loc_eq(grid_g[grid_n - 1], grid2)) return false;
+
+	/*
+	 * May not end in a wall grid, unless there's a monster there.
+	 * Monsters can occupy projectable but impassable grids (like doors).
+	 */
+	if (!square_ispassable(c, grid_g[grid_n - 1]) &&
+		square(c, grid_g[grid_n - 1])->mon <= 0) return false;
 
 	/* Assume okay */
 	return (true);
