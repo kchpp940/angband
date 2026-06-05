@@ -1793,7 +1793,7 @@ static errr Term_xtra_win_react(void)
 			/* Activate */
 			Term_activate(&td->t);
 
-			/* Resize the term - this pushes EVT_RESIZE event */
+			/* Resize the term */
 			Term_resize(td->cols, td->rows);
 
 			/* Redraw the contents */
@@ -1803,6 +1803,7 @@ static errr Term_xtra_win_react(void)
 			Term_activate(old);
 		}
 	}
+
 
 	/* Success */
 	return (0);
@@ -3844,8 +3845,11 @@ static void process_menus(WORD wCmd)
 				/* Focus on main window */
 				SetFocus(data[0].w);
 
-				/* React to changes - this calls Term_resize() which pushes EVT_RESIZE */
+				/* React to changes */
 				Term_xtra_win_react();
+
+				/* Force redraw */
+				Term_key_push(KTRL('R'), 0);
 			}
 
 			break;
@@ -3864,8 +3868,8 @@ static void process_menus(WORD wCmd)
 			/* React to changes */
 			Term_xtra_win_react();
 
-			/* Signal resize for graphics mode change - respects resize_pending flag */
-			Term_signal_resize();
+			/* Force redraw */
+			Term_key_push(KTRL('R'), 0);
 			
 			break;
 		}
@@ -3977,8 +3981,8 @@ static void process_menus(WORD wCmd)
 			/* React to changes */
 			Term_xtra_win_react();
 
-			/* Signal resize for tile size change - respects resize_pending flag */
-			Term_signal_resize();
+			/* Force redraw */
+			Term_key_push(KTRL('R'), 0);
 
 			break;
 		}
@@ -4825,7 +4829,7 @@ static LRESULT FAR PASCAL AngbandListProc(HWND hWnd, UINT uMsg,
 				/* Activate */
 				Term_activate(&td->t);
 
-				/* Resize the term - this pushes EVT_RESIZE event */
+				/* Resize the term */
 				Term_resize(td->cols, td->rows);
 
 				/* Activate */
@@ -4833,6 +4837,9 @@ static LRESULT FAR PASCAL AngbandListProc(HWND hWnd, UINT uMsg,
 
 				/* Redraw later */
 				InvalidateRect(td->w, NULL, true);
+
+				/* HACK - Redraw all windows */
+				if (character_dungeon) do_cmd_redraw();
 			}
 
 			td->size_hack = false;

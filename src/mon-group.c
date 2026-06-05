@@ -520,3 +520,214 @@ void monster_groups_verify(struct chunk *c)
 		}
 	}
 }
+
+/**
+ * Check if a monster can cooperate with others
+ */
+bool monster_can_cooperate(const struct monster *mon)
+{
+	if (!mon) return false;
+	if (monster_is_unique(mon)) return false;
+	if (rf_has(mon->race->flags, RF_NEVER_MOVE)) return false;
+	if (mon->m_timed[MON_TMD_CONF] || mon->m_timed[MON_TMD_FEAR] ||
+		mon->m_timed[MON_TMD_SLEEP] || mon->m_timed[MON_TMD_STUN]) {
+		return false;
+	}
+	return true;
+}
+
+/**
+ * Count nearby allies of the same race or base type
+ */
+int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range)
+{
+	int count = 0;
+	int i;
+
+	for (i = 1; i < c->mon_max; i++) {
+		struct monster *other = cave_monster(c, i);
+		if (!other || other == mon) continue;
+		if (!monster_can_cooperate(other)) continue;
+
+		if (distance(mon->grid, other->grid) <= range) {
+			if (other->race == mon->race) {
+				count++;
+			} else if (other->race->base == mon->race->base) {
+				count++;
+			}
+		}
+	}
+	return count;
+}
+
+/**
+ * Measure the corridor width around a monster
+ */
+int monster_measure_corridor_width(struct chunk *c, const struct monster *mon)
+{
+	int width = 0;
+	int i;
+
+	for (i = 0; i < 4; i++) {
+		struct loc grid1 = loc_sum(mon->grid, ddgrid_ddd[i * 2]);
+		struct loc grid2 = loc_sum(mon->grid, ddgrid_ddd[(i * 2 + 4) % 8]);
+
+		if (square_in_bounds(c, grid1) && square_ispassable(c, grid1)) {
+			width++;
+		}
+		if (square_in_bounds(c, grid2) && square_ispassable(c, grid2)) {
+			width++;
+		}
+	}
+	return width;
+}
+
+/**
+ * Find a nearby caster monster to escort
+ */
+struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range)
+{
+	int i;
+	struct monster *best_caster = NULL;
+	int best_dist = range + 1;
+
+	for (i = 1; i < c->mon_max; i++) {
+		struct monster *other = cave_monster(c, i);
+		int dist;
+
+		if (!other || other == mon) continue;
+		if (!monster_can_cooperate(other)) continue;
+
+		dist = distance(mon->grid, other->grid);
+		if (dist > range) continue;
+
+		if (other->race->freq_spell > 30 || other->race->freq_innate > 30) {
+			if (dist < best_dist) {
+				best_caster = other;
+				best_dist = dist;
+			}
+		}
+	}
+	return best_caster;
+}
+
+/**
+ * Find the best target for focus fire (lowest HP ally near player)
+ */
+struct monster *monster_find_focus_target(struct chunk *c, const struct monster *mon)
+{
+	int i;
+	struct monster *target = NULL;
+	int lowest_hp_pct = 100;
+
+	for (i = 1; i < c->mon_max; i++) {
+		struct monster *other = cave_monster(c, i);
+		int hp_pct;
+
+		if (!other || other == mon) continue;
+		if (!monster_can_cooperate(other)) continue;
+		if (other->race != mon->race) continue;
+
+		hp_pct = (other->hp * 100) / other->maxhp;
+		if (hp_pct < lowest_hp_pct) {
+			lowest_hp_pct = hp_pct;
+			target = other;
+		}
+	}
+	return target;
+}
+
+/**
+ * Check if monster should surround the player
+ */
+bool monster_tactical_should_surround(struct chunk *c, struct monster *mon)
+{
+	int allies = monster_count_nearby_allies(c, mon, 5);
+	int corridor = monster_measure_corridor_width(c, mon);
+	int player_hp_pct = (player->chp * 100) / player->mhp;
+
+	if (allies < 2) return false;
+
+	if (player_hp_pct < 30) return true;
+
+	if (corridor >= 6 && allies >= 3) return true;
+
+	return false;
+}
+
+/**
+ * Check if monster should retreat to regroup
+ */
+bool monster_tactical_should_retreat(struct chunk *c, struct monster *mon)
+{
+	int allies = monster_count_nearby_allies(c, mon, 5);
+	int hp_pct = (mon->hp * 100) / mon->maxhp;
+	int corridor = monster_measure_corridor_width(c, mon);
+
+	if (corridor <= 2 && allies >= 2 && hp_pct < 50) return true;
+
+	if (allies == 0 && hp_pct < 30 && mon->cdis <= 2) return true;
+
+	return false;
+}
+
+/**
+ * Check if monster should escort a caster
+ */
+bool monster_tactical_should_escort(struct chunk *c, struct monster *mon)
+{
+	struct monster *caster = monster_find_nearby_caster(c, mon, 4);
+
+	if (!caster) return false;
+
+	if (mon->race->blow && !monster_loves_archery(mon)) {
+		if (caster != mon && distance(caster->grid, player->grid) <= 6) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Check if monster should focus fire on wounded player
+ */
+bool monster_tactical_should_focus_fire(struct chunk *c, struct monster *mon)
+{
+	int player_hp_pct = (player->chp * 100) / player->mhp;
+	int allies = monster_count_nearby_allies(c, mon, 4);
+
+	if (player_hp_pct < 40 && allies >= 2) {
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Determine the best tactical stance for a monster
+ */
+enum monster_tactical_stance monster_determine_tactical_stance(struct chunk *c, struct monster *mon)
+{
+	if (!monster_can_cooperate(mon)) {
+		return TACTICAL_STANCE_NONE;
+	}
+
+	if (monster_tactical_should_focus_fire(c, mon)) {
+		return TACTICAL_STANCE_FOCUS_FIRE;
+	}
+
+	if (monster_tactical_should_escort(c, mon)) {
+		return TACTICAL_STANCE_ESCORT_CASTER;
+	}
+
+	if (monster_tactical_should_surround(c, mon)) {
+		return TACTICAL_STANCE_SURROUND;
+	}
+
+	if (monster_tactical_should_retreat(c, mon)) {
+		return TACTICAL_STANCE_RETREAT;
+	}
+
+	return TACTICAL_STANCE_NONE;
+}

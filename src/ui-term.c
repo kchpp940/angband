@@ -2666,44 +2666,6 @@ errr Term_event_push(const ui_event *ke)
 
 
 /**
- * Consume consecutive EVT_RESIZE events at the head of all terminal queues.
- *
- * This is used to coalesce multiple resize events from different terminals
- * into a single UI invalidation. Returns true if any resize events were found.
- *
- * Important: This only consumes resize events at the HEAD of each queue;
- * it will NOT skip over other events (keypress, mouse, etc.) to find resize
- * events later in the queue, preserving event processing order.
- */
-bool Term_consume_all_resize_events(void)
-{
-	bool found_resize = false;
-	int i;
-
-	for (i = 0; i < ANGBAND_TERM_MAX; i++) {
-		term *t = angband_term[i];
-		if (!t) continue;
-
-		/* Consume consecutive EVT_RESIZE events at the HEAD of this queue */
-		while (t->key_head != t->key_tail) {
-			ui_event *evt = &t->key_queue[t->key_tail];
-			if (evt->type != EVT_RESIZE) break;
-
-			found_resize = true;
-
-			/* Advance past this resize event, wrap if necessary */
-			if (++t->key_tail == t->key_size) t->key_tail = 0;
-		}
-
-		/* Clear resize pending flag for this terminal */
-		t->resize_pending = false;
-	}
-
-	return found_resize;
-}
-
-
-/**
  * Check for a pending event on the active terminal's input queue.
  *
  * Store the event, if any, in "ch", and return "0".
@@ -3045,9 +3007,8 @@ errr Term_resize(int w, int h)
 	mem_free(hold_old);
 
 	/* Illegal cursor */
-	if (Term->old->cx >= w) Term->old->cx = w - 1;
-	if (Term->old->cy >= h) Term->old->cy = h - 1;
-	Term->old->cu = 0;
+	if (Term->old->cx >= w) Term->old->cu = 1;
+	if (Term->old->cy >= h) Term->old->cu = 1;
 
 	/* Nuke */
 	term_win_nuke(hold_scr);
@@ -3055,10 +3016,9 @@ errr Term_resize(int w, int h)
 	/* Kill */
 	mem_free(hold_scr);
 
-	/* Clamp cursor to valid range after resize */
-	if (Term->scr->cx >= w) Term->scr->cx = w - 1;
-	if (Term->scr->cy >= h) Term->scr->cy = h - 1;
-	Term->scr->cu = 0;
+	/* Illegal cursor */
+	if (Term->scr->cx >= w) Term->scr->cu = 1;
+	if (Term->scr->cy >= h) Term->scr->cu = 1;
 
 	/* If needed */
 	if (hold_tmp) {
@@ -3068,10 +3028,9 @@ errr Term_resize(int w, int h)
 		/* Kill */
 		mem_free(hold_tmp);
 
-		/* Clamp cursor to valid range after resize */
-		if (Term->tmp->cx >= w) Term->tmp->cx = w - 1;
-		if (Term->tmp->cy >= h) Term->tmp->cy = h - 1;
-		Term->tmp->cu = 0;
+		/* Illegal cursor */
+		if (Term->tmp->cx >= w) Term->tmp->cu = 1;
+		if (Term->tmp->cy >= h) Term->tmp->cu = 1;
 	}
 
 	/* Save new size */
@@ -3081,8 +3040,9 @@ errr Term_resize(int w, int h)
 	/* Force "total erase" */
 	Term->total_erase = true;
 
-	/* Assume change - mark entire window as dirty */
+	/* Assume change */
 	for (i = 0; i < h; i++) {
+		/* Assume change */
 		Term->x1[i] = 0;
 		Term->x2[i] = w - 1;
 	}
@@ -3091,37 +3051,11 @@ errr Term_resize(int w, int h)
 	Term->y1 = 0;
 	Term->y2 = h - 1;
 
-	/*
-	 * Only push EVT_RESIZE event if not already pending.
-	 * This prevents multiple resize events from piling up in the queue
-	 * when multiple terminals resize in sequence.
-	 */
-	if (!Term->resize_pending) {
-		Term->resize_pending = true;
-		Term_event_push(&evt);
-	}
+	/* Push a resize event onto the stack */
+	Term_event_push(&evt);
 
 	/* Success */
 	return (0);
-}
-
-
-/**
- * Push an EVT_RESIZE event for the current terminal, respecting the
- * resize_pending flag to avoid duplicate events.
- *
- * This should be used for graphics mode changes or other cases where
- * a full UI refresh is needed without an actual terminal size change.
- */
-void Term_signal_resize(void)
-{
-	ui_event evt = EVENT_EMPTY;
-	evt.type = EVT_RESIZE;
-
-	if (!Term->resize_pending) {
-		Term->resize_pending = true;
-		Term_event_push(&evt);
-	}
 }
 
 

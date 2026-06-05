@@ -20,6 +20,26 @@
 
 #include "monster.h"
 
+struct tactical_context {
+	int nearby_allies;
+	int player_hp_percent;
+	int corridor_width;
+	bool is_ranged;
+	bool is_caster;
+	bool has_melee;
+};
+
+bool monster_can_cooperate(const struct monster *mon);
+int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range);
+int monster_measure_corridor_width(struct chunk *c, const struct monster *mon);
+enum monster_tactical_stance monster_determine_tactical_stance(struct chunk *c, struct monster *mon);
+bool monster_tactical_should_surround(struct chunk *c, struct monster *mon);
+bool monster_tactical_should_retreat(struct chunk *c, struct monster *mon);
+bool monster_tactical_should_escort(struct chunk *c, struct monster *mon);
+bool monster_tactical_should_focus_fire(struct chunk *c, struct monster *mon);
+struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range);
+struct monster *monster_find_focus_target(struct chunk *c, const struct monster *mon);
+
 struct mon_group_list_entry {
 	int midx;
 	struct mon_group_list_entry *next;

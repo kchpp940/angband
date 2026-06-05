@@ -3841,6 +3841,7 @@ static void resize_subwindow(struct subwindow *subwindow)
 	term *old = Term;
 	Term_activate(subwindow->term);
 	Term_resize(subwindow->cols, subwindow->rows);
+	/* XXX if we don't redraw the term, resizing in birth screen is buggy */
 	Term_redraw();
 	Term_activate(old);
 
@@ -4722,11 +4723,38 @@ static bool get_event(struct my_app *a)
 
 static void refresh_angband_terms(struct my_app *a)
 {
-	/*
-	 * SDL2-specific window redraw only.
-	 * UI invalidation is handled by EVT_RESIZE events in ui-game.c
-	 * to avoid duplicate refreshes and ensure single invalidate per resize batch.
-	 */
+	if (!character_dungeon) {
+		return;
+	}
+
+	term *old = Term;
+	Term_activate(term_screen);
+
+	/* XXX XXX this is basically do_cmd_redraw(), just without EVENT_FLUSH_INPUT */
+	{
+		/* XXX XXX this works for refreshing monster's attrs */
+		event_signal_point(EVENT_MAP, -1, -1);
+
+		Term_flush();
+		verify_panel();
+
+		player->upkeep->notice |= (PN_COMBINE);
+		player->upkeep->update |= (PU_TORCH | PU_INVEN);
+		player->upkeep->update |= (PU_BONUS | PU_HP | PU_SPELLS);
+		player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
+		player->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_MAP | PR_INVEN |
+								   PR_EQUIP | PR_MESSAGE | PR_MONSTER |
+								   PR_OBJECT | PR_MONLIST | PR_ITEMLIST);
+
+		Term_clear();
+		handle_stuff(player);
+		move_cursor_relative(player->grid.x, player->grid.y);
+
+		Term_redraw_all();
+	}
+
+	Term_activate(old);
+
 	redraw_all_windows(a, false);
 }
 

@@ -18,6 +18,7 @@
 
 #include "angband.h"
 #include "mon-desc.h"
+#include "mon-group.h"
 #include "mon-lore.h"
 #include "mon-msg.h"
 #include "mon-predicate.h"
@@ -203,6 +204,15 @@ static bool mon_set_timed(struct monster *mon,
 			if (!monster_revert_shape(mon)) {
 				quit ("Monster shapechange reversion failed!");
 			}
+		}
+	}
+
+	/* Reset tactical stance when monster becomes unable to cooperate */
+	if (update && (effect_type == MON_TMD_FEAR || effect_type == MON_TMD_CONF ||
+		effect_type == MON_TMD_STUN || effect_type == MON_TMD_SLEEP)) {
+		if (timer > 0) {
+			mon->tactical_stance = TACTICAL_STANCE_NONE;
+			mon->tactical_cooldown = 0;
 		}
 	}
 
