@@ -24,6 +24,7 @@
 #include "mon-make.h"
 #include "mon-util.h"
 #include "monster.h"
+#include "player-util.h"
 
 /**
  * Allocate a new monster group
@@ -523,69 +524,71 @@ void monster_groups_verify(struct chunk *c)
 }
 
 /**
- * Initialize tactical state for a group (default disabled)
+ * Check if a monster can cooperate (not unique, not controlled, can move)
  */
-void monster_group_tactical_init(struct monster_group *group)
+static bool monster_can_cooperate(const struct monster *mon)
 {
-	if (!group) return;
-
-	group->tactical.stance = TACTICAL_STANCE_NONE;
-	group->tactical.cooldown = 0;
-	group->tactical.update_turn = 0;
-	group->tactical.enabled = false;
-}
-
-/**
- * Check if a group can cooperate (has enough members, no uniques, etc.)
- */
-bool monster_group_can_cooperate(struct chunk *c, const struct monster_group *group)
-{
-	struct mon_group_list_entry *entry;
-	int member_count = 0;
-
-	if (!group || !group->tactical.enabled) return false;
-
-	for (entry = group->member_list; entry; entry = entry->next) {
-		struct monster *mon = cave_monster(c, entry->midx);
-		if (!mon) continue;
-
-		if (monster_is_unique(mon)) return false;
-		if (rf_has(mon->race->flags, RF_NEVER_MOVE)) return false;
-		if (mon->m_timed[MON_TMD_CONF] || mon->m_timed[MON_TMD_FEAR] ||
-			mon->m_timed[MON_TMD_SLEEP] || mon->m_timed[MON_TMD_STUN]) {
-			continue;
-		}
-		member_count++;
+	if (!mon) return false;
+	if (monster_is_unique(mon)) return false;
+	if (rf_has(mon->race->flags, RF_NEVER_MOVE)) return false;
+	if (mon->m_timed[MON_TMD_CONF] || mon->m_timed[MON_TMD_FEAR] ||
+		mon->m_timed[MON_TMD_SLEEP] || mon->m_timed[MON_TMD_STUN]) {
+		return false;
 	}
-
-	return member_count >= 2;
+	return true;
 }
 
 /**
- * Count active (cooperating) members in a group within range
+ * Check if a monster is primarily a melee attacker
  */
-int monster_group_count_nearby_allies(struct chunk *c, const struct monster_group *group, int range)
+bool monster_is_melee(const struct monster *mon)
 {
-	struct mon_group_list_entry *entry;
-	struct monster *leader = NULL;
+	if (!mon) return false;
+	if (mon->race->blow) return true;
+	return false;
+}
+
+/**
+ * Check if a monster has ranged attack capabilities (archery or spells)
+ */
+bool monster_is_ranged_attacker(const struct monster *mon)
+{
+	if (!mon) return false;
+	if (monster_loves_archery(mon)) return true;
+	if (mon->race->freq_spell > 20) return true;
+	return false;
+}
+
+/**
+ * Check if a monster is a spell caster
+ */
+bool monster_is_spell_caster(const struct monster *mon)
+{
+	if (!mon) return false;
+	return (mon->race->freq_spell > 30 || mon->race->freq_innate > 30);
+}
+
+/**
+ * Count nearby allies - same race or same base type
+ */
+int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range, bool same_race_only)
+{
 	int count = 0;
+	int i;
 
-	if (!group) return 0;
+	if (!monster_can_cooperate(mon)) return 0;
 
-	leader = cave_monster(c, group->leader);
-	if (!leader) return 0;
+	for (i = 1; i < c->mon_max; i++) {
+		struct monster *other = cave_monster(c, i);
+		if (!other || other == mon) continue;
+		if (!monster_can_cooperate(other)) continue;
 
-	for (entry = group->member_list; entry; entry = entry->next) {
-		struct monster *mon = cave_monster(c, entry->midx);
-		if (!mon) continue;
-
-		if (mon->m_timed[MON_TMD_CONF] || mon->m_timed[MON_TMD_FEAR] ||
-			mon->m_timed[MON_TMD_SLEEP] || mon->m_timed[MON_TMD_STUN]) {
-			continue;
-		}
-
-		if (distance(leader->grid, mon->grid) <= range) {
-			count++;
+		if (distance(mon->grid, other->grid) <= range) {
+			if (other->race == mon->race) {
+				count++;
+			} else if (!same_race_only && other->race->base == mon->race->base) {
+				count++;
+			}
 		}
 	}
 	return count;
@@ -614,22 +617,27 @@ int monster_measure_corridor_width(struct chunk *c, const struct monster *mon)
 }
 
 /**
- * Find a caster in the group
+ * Find a nearby caster to escort (within range)
  */
-struct monster *monster_group_find_caster(struct chunk *c, const struct monster_group *group)
+struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range)
 {
-	struct mon_group_list_entry *entry;
+	int i;
 	struct monster *best_caster = NULL;
+	int best_dist = range + 1;
 
-	if (!group) return NULL;
+	for (i = 1; i < c->mon_max; i++) {
+		struct monster *other = cave_monster(c, i);
+		int dist;
 
-	for (entry = group->member_list; entry; entry = entry->next) {
-		struct monster *mon = cave_monster(c, entry->midx);
-		if (!mon) continue;
+		if (!other || other == mon) continue;
+		if (!monster_can_cooperate(other)) continue;
+		if (!monster_is_spell_caster(other)) continue;
 
-		if (mon->race->freq_spell > 30 || mon->race->freq_innate > 30) {
-			if (!best_caster || mon->race->level > best_caster->race->level) {
-				best_caster = mon;
+		dist = distance(mon->grid, other->grid);
+		if (dist <= range) {
+			if (dist < best_dist) {
+				best_caster = other;
+				best_dist = dist;
 			}
 		}
 	}
@@ -637,136 +645,123 @@ struct monster *monster_group_find_caster(struct chunk *c, const struct monster_
 }
 
 /**
- * Get the leader monster of a group
+ * Find a nearby melee monster (for casters to position behind)
  */
-struct monster *monster_group_get_leader_monster(struct chunk *c, const struct monster_group *group)
-{
-	if (!group) return NULL;
-	return cave_monster(c, group->leader);
-}
-
-/**
- * Get current tactical stance of a group
- */
-enum monster_tactical_stance monster_group_get_stance(const struct monster_group *group)
-{
-	if (!group || !group->tactical.enabled) {
-		return TACTICAL_STANCE_NONE;
-	}
-	return group->tactical.stance;
-}
-
-/**
- * Check if tactical cooperation is enabled for a group
- */
-bool monster_group_tactical_is_enabled(const struct monster_group *group)
-{
-	return group && group->tactical.enabled;
-}
-
-/**
- * Get tactical cooldown remaining
- */
-int monster_group_get_tactical_cooldown(const struct monster_group *group)
-{
-	if (!group) return 0;
-	return group->tactical.cooldown;
-}
-
-/**
- * Disable tactical cooperation for a group
- */
-void monster_group_tactical_disable(struct monster_group *group)
-{
-	if (!group) return;
-	group->tactical.stance = TACTICAL_STANCE_NONE;
-	group->tactical.cooldown = 0;
-	group->tactical.enabled = false;
-}
-
-/**
- * Update tactical state for a group
- */
-void monster_group_tactical_update(struct chunk *c, struct monster_group *group)
-{
-	struct monster *leader;
-	int player_hp_pct;
-	int allies;
-	int corridor;
-	struct monster *caster;
-
-	if (!group) return;
-
-	if (group->tactical.cooldown > 0) {
-		group->tactical.cooldown--;
-		return;
-	}
-
-	if (!group->tactical.enabled) {
-		int member_count = 0;
-		struct mon_group_list_entry *entry;
-		for (entry = group->member_list; entry; entry = entry->next) {
-			member_count++;
-		}
-		if (member_count >= 3 && one_in_(3)) {
-			group->tactical.enabled = true;
-		} else {
-			group->tactical.cooldown = 10;
-			return;
-		}
-	}
-
-	if (!monster_group_can_cooperate(c, group)) {
-		monster_group_tactical_disable(group);
-		group->tactical.cooldown = 5;
-		return;
-	}
-
-	leader = monster_group_get_leader_monster(c, group);
-	if (!leader) {
-		monster_group_tactical_disable(group);
-		return;
-	}
-
-	player_hp_pct = (player->chp * 100) / player->mhp;
-	allies = monster_group_count_nearby_allies(c, group, 5);
-	corridor = monster_measure_corridor_width(c, leader);
-	caster = monster_group_find_caster(c, group);
-
-	if (player_hp_pct < 40 && allies >= 2) {
-		group->tactical.stance = TACTICAL_STANCE_FOCUS_FIRE;
-	} else if (caster && allies >= 2) {
-		group->tactical.stance = TACTICAL_STANCE_ESCORT_CASTER;
-	} else if (player_hp_pct < 30 && allies >= 2) {
-		group->tactical.stance = TACTICAL_STANCE_SURROUND;
-	} else if (corridor >= 6 && allies >= 3) {
-		group->tactical.stance = TACTICAL_STANCE_SURROUND;
-	} else if (corridor <= 2 && allies >= 2 && (leader->hp * 100) / leader->maxhp < 50) {
-		group->tactical.stance = TACTICAL_STANCE_RETREAT;
-	} else {
-		group->tactical.stance = TACTICAL_STANCE_NONE;
-	}
-
-	group->tactical.cooldown = 3;
-	group->tactical.update_turn = turn;
-}
-
-/**
- * Callback when a monster's status changes
- */
-void monster_group_on_status_changed(struct chunk *c, struct monster *mon)
+struct monster *monster_find_nearby_melee(struct chunk *c, const struct monster *mon, int range)
 {
 	int i;
-	for (i = 0; i < GROUP_MAX; i++) {
-		int idx = mon->group_info[i].index;
-		if (idx > 0 && c->monster_groups[idx]) {
-			struct monster_group *group = c->monster_groups[idx];
-			if (mon->m_timed[MON_TMD_CONF] || mon->m_timed[MON_TMD_FEAR] ||
-				mon->m_timed[MON_TMD_SLEEP] || mon->m_timed[MON_TMD_STUN]) {
-				if (monster_group_can_cooperate(c, group)) {
-					group->tactical.cooldown = 3;
-				}
+	struct monster *best_melee = NULL;
+	int best_dist = range + 1;
+
+	for (i = 1; i < c->mon_max; i++) {
+		struct monster *other = cave_monster(c, i);
+		int dist;
+
+		if (!other || other == mon) continue;
+		if (!monster_can_cooperate(other)) continue;
+		if (!monster_is_melee(other)) continue;
+		if (monster_is_spell_caster(other)) continue;
+
+		dist = distance(mon->grid, other->grid);
+		if (dist <= range) {
+			if (dist < best_dist) {
+				best_melee = other;
+				best_dist = dist;
 			}
 		}
 	}
+	return best_melee;
+}
+
+/**
+ * Calculate tactical context for a monster based on current surroundings
+ */
+struct tactical_context monster_calculate_tactical_context(struct chunk *c, const struct monster *mon)
+{
+	struct tactical_context ctx = { 0 };
+
+	ctx.nearby_allies_same_race = monster_count_nearby_allies(c, mon, 5, true);
+	ctx.nearby_allies_same_base = monster_count_nearby_allies(c, mon, 5, false);
+	ctx.player_hp_percent = (player->chp * 100) / player->mhp;
+	ctx.corridor_width = monster_measure_corridor_width(c, mon);
+	ctx.is_ranged = monster_is_ranged_attacker(mon);
+	ctx.is_caster = monster_is_spell_caster(mon);
+	ctx.has_melee = monster_is_melee(mon);
+	ctx.hp_percent = (mon->hp * 100) / mon->maxhp;
+	ctx.distance_to_player = mon->cdis;
+
+	return ctx;
+}
+
+/**
+ * Determine tactical stance based on context and monster role
+ * Returns a stable, non-random stance based on current conditions
+ */
+enum monster_tactical_stance monster_determine_tactical_stance(const struct tactical_context *ctx, const struct monster *mon)
+{
+	int total_allies = ctx->nearby_allies_same_base;
+
+	if (!monster_can_cooperate(mon)) {
+		return TACTICAL_STANCE_NONE;
+	}
+
+	if (total_allies < 2) {
+		return TACTICAL_STANCE_NONE;
+	}
+
+	if (ctx->is_caster) {
+		if (ctx->player_hp_percent < 40) {
+			return TACTICAL_STANCE_FOCUS_FIRE;
+		}
+
+		if (ctx->hp_percent < 60) {
+			struct monster *melee = monster_find_nearby_melee(cave, mon, 4);
+			if (melee) {
+				return TACTICAL_STANCE_ESCORT_CASTER;
+			}
+		}
+
+		return TACTICAL_STANCE_NONE;
+	}
+
+	if (ctx->has_melee && !ctx->is_ranged) {
+		if (ctx->player_hp_percent < 30) {
+			return TACTICAL_STANCE_FOCUS_FIRE;
+		}
+
+		if (ctx->corridor_width >= 6 && total_allies >= 3) {
+			return TACTICAL_STANCE_SURROUND;
+		}
+
+		if (ctx->corridor_width <= 2 && ctx->hp_percent < 50 && total_allies >= 2) {
+			return TACTICAL_STANCE_RETREAT;
+		}
+
+		if (total_allies >= 3) {
+			struct monster *caster = monster_find_nearby_caster(cave, mon, 5);
+			if (caster) {
+				return TACTICAL_STANCE_ESCORT_CASTER;
+			}
+		}
+
+		if (total_allies >= 2 && ctx->player_hp_percent < 50) {
+			return TACTICAL_STANCE_SURROUND;
+		}
+
+		return TACTICAL_STANCE_NONE;
+	}
+
+	if (ctx->is_ranged) {
+		if (ctx->player_hp_percent < 40) {
+			return TACTICAL_STANCE_FOCUS_FIRE;
+		}
+
+		if (ctx->corridor_width <= 2 && total_allies >= 2) {
+			return TACTICAL_STANCE_RETREAT;
+		}
+
+		return TACTICAL_STANCE_NONE;
+	}
+
+	return TACTICAL_STANCE_NONE;
 }

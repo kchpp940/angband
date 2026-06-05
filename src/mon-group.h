@@ -29,37 +29,28 @@ enum monster_tactical_stance {
 	TACTICAL_STANCE_MAX
 };
 
-struct monster_tactical_state {
-	enum monster_tactical_stance stance;
-	int cooldown;
-	int update_turn;
-	bool enabled;
-};
-
 struct tactical_context {
-	int nearby_allies;
+	int nearby_allies_same_race;
+	int nearby_allies_same_base;
 	int player_hp_percent;
 	int corridor_width;
 	bool is_ranged;
 	bool is_caster;
 	bool has_melee;
+	int hp_percent;
+	int distance_to_player;
 };
 
-void monster_group_tactical_init(struct monster_group *group);
-void monster_group_tactical_update(struct chunk *c, struct monster_group *group);
-void monster_group_tactical_disable(struct monster_group *group);
+struct tactical_context monster_calculate_tactical_context(struct chunk *c, const struct monster *mon);
+enum monster_tactical_stance monster_determine_tactical_stance(const struct tactical_context *ctx, const struct monster *mon);
 
-enum monster_tactical_stance monster_group_get_stance(const struct monster_group *group);
-bool monster_group_tactical_is_enabled(const struct monster_group *group);
-int monster_group_get_tactical_cooldown(const struct monster_group *group);
-
-bool monster_group_can_cooperate(struct chunk *c, const struct monster_group *group);
-int monster_group_count_nearby_allies(struct chunk *c, const struct monster_group *group, int range);
+int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range, bool same_race_only);
 int monster_measure_corridor_width(struct chunk *c, const struct monster *mon);
-struct monster *monster_group_find_caster(struct chunk *c, const struct monster_group *group);
-struct monster *monster_group_get_leader_monster(struct chunk *c, const struct monster_group *group);
-
-void monster_group_on_status_changed(struct chunk *c, struct monster *mon);
+struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range);
+struct monster *monster_find_nearby_melee(struct chunk *c, const struct monster *mon, int range);
+bool monster_is_melee(const struct monster *mon);
+bool monster_is_ranged_attacker(const struct monster *mon);
+bool monster_is_spell_caster(const struct monster *mon);
 
 struct mon_group_list_entry {
 	int midx;
@@ -70,7 +61,6 @@ struct monster_group {
 	int index;
 	int leader;
 	struct mon_group_list_entry *member_list;
-	struct monster_tactical_state tactical;
 };
 
 struct monster_group *monster_group_new(void);

@@ -51,10 +51,10 @@
 #include "project.h"
 #include "trap.h"
 
-static bool get_move_tactical_surround(struct monster *mon, struct loc *grid);
-static bool get_move_tactical_retreat(struct monster *mon, struct loc *grid);
-static bool get_move_tactical_escort(struct monster *mon, struct monster_group *group, struct loc *grid);
-static bool get_move_tactical_focus_fire(struct monster *mon, struct loc *grid);
+static bool get_move_tactical_surround(struct monster *mon, const struct tactical_context *ctx, struct loc *grid);
+static bool get_move_tactical_retreat(struct monster *mon, const struct tactical_context *ctx, struct loc *grid);
+static bool get_move_tactical_escort(struct monster *mon, const struct tactical_context *ctx, struct loc *grid);
+static bool get_move_tactical_focus_fire(struct monster *mon, const struct tactical_context *ctx, struct loc *grid);
 
 
 /**
@@ -961,19 +961,10 @@ static bool get_move(struct monster *mon, int *dir, bool *good)
 		grid = loc_diff(grid1, mon->grid);
 	}
 
-	/* Tactical stances for cooperative monster groups */
+	/* Tactical stances based on current context (for nearby allies) */
 	if (!done) {
-		struct monster_group *group = NULL;
-		enum monster_tactical_stance stance = TACTICAL_STANCE_NONE;
-		int group_idx = mon->group_info[PRIMARY_GROUP].index;
-
-		if (group_idx > 0) {
-			group = cave->monster_groups[group_idx];
-			if (group && monster_group_tactical_is_enabled(group)) {
-				monster_group_tactical_update(cave, group);
-				stance = monster_group_get_stance(group);
-			}
-		}
+		struct tactical_context ctx = monster_calculate_tactical_context(cave, mon);
+		enum monster_tactical_stance stance = monster_determine_tactical_stance(&ctx, mon);
 
 		if (stance != TACTICAL_STANCE_NONE) {
 			struct loc tactical_grid = loc(0, 0);
@@ -981,16 +972,16 @@ static bool get_move(struct monster *mon, int *dir, bool *good)
 
 			switch (stance) {
 				case TACTICAL_STANCE_SURROUND:
-					tactical_success = get_move_tactical_surround(mon, &tactical_grid);
+					tactical_success = get_move_tactical_surround(mon, &ctx, &tactical_grid);
 					break;
 				case TACTICAL_STANCE_RETREAT:
-					tactical_success = get_move_tactical_retreat(mon, &tactical_grid);
+					tactical_success = get_move_tactical_retreat(mon, &ctx, &tactical_grid);
 					break;
 				case TACTICAL_STANCE_ESCORT_CASTER:
-					tactical_success = get_move_tactical_escort(mon, group, &tactical_grid);
+					tactical_success = get_move_tactical_escort(mon, &ctx, &tactical_grid);
 					break;
 				case TACTICAL_STANCE_FOCUS_FIRE:
-					tactical_success = get_move_tactical_focus_fire(mon, &tactical_grid);
+					tactical_success = get_move_tactical_focus_fire(mon, &ctx, &tactical_grid);
 					break;
 				default:
 					break;
@@ -2085,7 +2076,7 @@ void restore_monsters(void)
  * Tactical surround - move to a position that flanks the player
  * Tries to find a spot opposite to where most allies are positioned
  */
-static bool get_move_tactical_surround(struct monster *mon, struct loc *grid)
+static bool get_move_tactical_surround(struct monster *mon, const struct tactical_context *ctx, struct loc *grid)
 {
 	int i;
 	struct loc best = loc(0, 0);
@@ -2140,7 +2131,7 @@ static bool get_move_tactical_surround(struct monster *mon, struct loc *grid)
 /**
  * Tactical retreat - move back to regroup with allies
  */
-static bool get_move_tactical_retreat(struct monster *mon, struct loc *grid)
+static bool get_move_tactical_retreat(struct monster *mon, const struct tactical_context *ctx, struct loc *grid)
 {
 	int i;
 	struct loc best = loc(0, 0);
@@ -2186,34 +2177,45 @@ static bool get_move_tactical_retreat(struct monster *mon, struct loc *grid)
 
 /**
  * Tactical escort - position between the caster and the player
+ * For melee monsters: protect the caster
+ * For casters: position behind melee monsters
  */
-static bool get_move_tactical_escort(struct monster *mon, struct monster_group *group, struct loc *grid)
+static bool get_move_tactical_escort(struct monster *mon, const struct tactical_context *ctx, struct loc *grid)
 {
-	struct monster *caster = monster_group_find_caster(cave, group);
 	int i;
 	struct loc best = loc(0, 0);
 	int best_score = -1;
+	struct monster *target = NULL;
 
-	if (!caster) return false;
-	if (caster == mon) return false;
-	if (!mon->race->blow) return false;
+	if (ctx->has_melee && !ctx->is_caster) {
+		target = monster_find_nearby_caster(cave, mon, 5);
+	} else if (ctx->is_caster) {
+		target = monster_find_nearby_melee(cave, mon, 4);
+	}
+
+	if (!target || target == mon) return false;
 
 	for (i = 0; i < 8; i++) {
 		struct loc test_grid = loc_sum(mon->grid, ddgrid_ddd[i]);
 		int score = 0;
-		int dist_to_caster, dist_to_player;
-		int caster_to_player;
+		int dist_to_target, dist_to_player;
+		int target_to_player;
 
 		if (!square_in_bounds(cave, test_grid)) continue;
 		if (!square_ispassable(cave, test_grid)) continue;
 		if (square_monster(cave, test_grid)) continue;
 
-		dist_to_caster = distance(test_grid, caster->grid);
+		dist_to_target = distance(test_grid, target->grid);
 		dist_to_player = distance(test_grid, player->grid);
-		caster_to_player = distance(caster->grid, player->grid);
+		target_to_player = distance(target->grid, player->grid);
 
-		if (dist_to_caster <= 2) score += 3;
-		if (dist_to_player < caster_to_player) score += 5;
+		if (dist_to_target <= 2) score += 3;
+
+		if (ctx->has_melee && !ctx->is_caster) {
+			if (dist_to_player < target_to_player) score += 5;
+		} else {
+			if (dist_to_player > target_to_player) score += 5;
+		}
 
 		if (score > best_score) {
 			best_score = score;
@@ -2231,25 +2233,47 @@ static bool get_move_tactical_escort(struct monster *mon, struct monster_group *
 
 /**
  * Tactical focus fire - close in on the player aggressively
+ * Melee: rush to player
+ * Ranged/caster: maintain optimal range but prioritize damage
  */
-static bool get_move_tactical_focus_fire(struct monster *mon, struct loc *grid)
+static bool get_move_tactical_focus_fire(struct monster *mon, const struct tactical_context *ctx, struct loc *grid)
 {
 	int i;
 	struct loc best = loc(0, 0);
 	int best_dist = 999;
 
-	for (i = 0; i < 8; i++) {
-		struct loc test_grid = loc_sum(mon->grid, ddgrid_ddd[i]);
-		int dist;
+	if (ctx->has_melee && !ctx->is_ranged) {
+		for (i = 0; i < 8; i++) {
+			struct loc test_grid = loc_sum(mon->grid, ddgrid_ddd[i]);
+			int dist;
 
-		if (!square_in_bounds(cave, test_grid)) continue;
-		if (!square_is_monster_walkable(cave, test_grid)) continue;
-		if (square_monster(cave, test_grid)) continue;
+			if (!square_in_bounds(cave, test_grid)) continue;
+			if (!square_is_monster_walkable(cave, test_grid)) continue;
+			if (square_monster(cave, test_grid)) continue;
 
-		dist = distance(test_grid, player->grid);
-		if (dist < best_dist) {
-			best_dist = dist;
-			best = loc_diff(test_grid, mon->grid);
+			dist = distance(test_grid, player->grid);
+			if (dist < best_dist) {
+				best_dist = dist;
+				best = loc_diff(test_grid, mon->grid);
+			}
+		}
+	} else {
+		int optimal_dist = ctx->is_caster ? 4 : 3;
+		for (i = 0; i < 8; i++) {
+			struct loc test_grid = loc_sum(mon->grid, ddgrid_ddd[i]);
+			int dist, score;
+
+			if (!square_in_bounds(cave, test_grid)) continue;
+			if (!square_is_monster_walkable(cave, test_grid)) continue;
+			if (square_monster(cave, test_grid)) continue;
+
+			dist = distance(test_grid, player->grid);
+			score = abs(dist - optimal_dist);
+
+			if (score < best_dist) {
+				best_dist = score;
+				best = loc_diff(test_grid, mon->grid);
+			}
 		}
 	}
 
