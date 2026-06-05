@@ -63,6 +63,9 @@
  */
 void do_cmd_redraw(void)
 {
+	term *old = Term;
+	int i;
+
 	/* Low level flush */
 	Term_flush();
 
@@ -74,6 +77,16 @@ void do_cmd_redraw(void)
 
 	/* React to changes */
 	Term_xtra(TERM_XTRA_REACT, 0);
+
+	/* Force total erase and redraw on all terminals first */
+	for (i = 0; i < ANGBAND_TERM_MAX; i++) {
+		if (angband_term[i]) {
+			Term_activate(angband_term[i]);
+			Term_clear();
+			Term->total_erase = true;
+		}
+	}
+	Term_activate(old);
 
 	if (character_dungeon) {
 		/* Combine the pack (later) */
@@ -88,17 +101,18 @@ void do_cmd_redraw(void)
 		/* Fully update the visuals */
 		player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
 
-		/* Redraw everything */
+		/* Redraw everything - ensure all flags are set for complete refresh */
 		player->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_MAP | PR_INVEN |
 								   PR_EQUIP | PR_MESSAGE | PR_MONSTER |
-								   PR_OBJECT | PR_MONLIST | PR_ITEMLIST);
+								   PR_OBJECT | PR_MONLIST | PR_ITEMLIST |
+								   PR_STATUS | PR_SUBWINDOW);
 	}
 
 	/* Clear screen */
 	Term_clear();
 
 	if (character_dungeon) {
-		/* Update */
+		/* Update - this handles most subwindow redraws through event system */
 		handle_stuff(player);
 
 		/* Place the cursor on the player */
@@ -112,8 +126,17 @@ void do_cmd_redraw(void)
 		}
 	}
 
-	/* Redraw every window */
+	/* Redraw every window - ensures complete visual refresh */
 	(void) Term_redraw_all();
+
+	/* Final fresh to ensure everything is drawn */
+	for (i = 0; i < ANGBAND_TERM_MAX; i++) {
+		if (angband_term[i]) {
+			Term_activate(angband_term[i]);
+			Term_fresh();
+		}
+	}
+	Term_activate(old);
 }
 
 

@@ -1617,7 +1617,7 @@ static bool textui_get_aim_dir(int *dp)
 	(*dp) = 0;
 
 	/* Auto-target if requested */
-	if (OPT(player, use_old_target) && target_check_okay(target_get_context_proj_flags()) && !dir) dir = 5;
+	if (OPT(player, use_old_target) && target_okay() && !dir) dir = 5;
 
 	/* Ask until satisfied */
 	while (!dir) {
@@ -1628,7 +1628,7 @@ static bool textui_get_aim_dir(int *dp)
 		bool need_beep = false;
 
 		/* Choose a prompt */
-		if (!target_check_okay(target_get_context_proj_flags()))
+		if (!target_okay())
 			p = "Direction ('*' or <click> to target, \"'\" for closest, Escape to cancel)? ";
 		else
 			p = "Direction ('5' for target, '*' or <click> to re-target, Escape to cancel)? ";

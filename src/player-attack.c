@@ -1346,19 +1346,13 @@ void do_cmd_fire(struct command *cmd) {
 		return;
 	}
 
-	/* Ammunition and thrown items stop at the first monster in the path */
-	target_action_begin(PROJECT_STOP);
-
 	if (cmd_get_target(cmd, "target", &dir) == CMD_OK)
 		player_confuse_dir(player, &dir, false);
-	else {
-		target_action_end();
+	else
 		return;
-	}
 
 	ranged_helper(player, obj, dir, range, shots, attack, ranged_hit_types,
 				  (int) N_ELEMENTS(ranged_hit_types));
-	target_action_end();
 }
 
 
@@ -1395,15 +1389,10 @@ void do_cmd_throw(struct command *cmd) {
 		!= CMD_OK)
 		return;
 
-	/* Ammunition and thrown items stop at the first monster in the path */
-	target_action_begin(PROJECT_STOP);
-
 	if (cmd_get_target(cmd, "target", &dir) == CMD_OK)
 		player_confuse_dir(player, &dir, false);
-	else {
-		target_action_end();
+	else
 		return;
-	}
 
 	if (object_is_equipped(player->body, obj)) {
 		assert(obj_can_takeoff(obj) && tval_is_melee_weapon(obj));
@@ -1415,7 +1404,6 @@ void do_cmd_throw(struct command *cmd) {
 
 	ranged_helper(player, obj, dir, range, shots, attack, ranged_hit_types,
 				  (int) N_ELEMENTS(ranged_hit_types));
-	target_action_end();
 }
 
 /**
@@ -1448,18 +1436,11 @@ void do_cmd_fire_at_nearest(void) {
 		return;
 	}
 
-	/* Ammunition stops at the first monster in the path */
-	target_action_begin(PROJECT_STOP);
-
 	/* Require foe */
-	if (!target_set_closest((TARGET_KILL | TARGET_QUIET), NULL)) {
-		target_action_end();
-		return;
-	}
+	if (!target_set_closest((TARGET_KILL | TARGET_QUIET), NULL)) return;
 
 	/* Fire! */
 	cmdq_push(CMD_FIRE);
 	cmd_set_arg_item(cmdq_peek(), "item", ammo);
 	cmd_set_arg_target(cmdq_peek(), "target", dir);
-	target_action_end();
 }

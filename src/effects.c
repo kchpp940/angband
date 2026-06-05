@@ -59,60 +59,6 @@ static const char *effect_names[] = {
 /*
  * Utility functions
  */
-/**
- * Get the projectile flags that are relevant for targeting based on the
- * effect type. These control how the path is calculated and which monsters
- * are considered valid targets.
- *
- * This ensures that the targeting UI displays the same set of valid targets
- * as will actually be hit when the effect is cast.
- */
-int effect_proj_flags(const struct effect *effect)
-{
-	if (!effect) return PROJECT_STOP;
-
-	switch (effect->index) {
-		case EF_BOLT:
-		case EF_BOLT_STATUS:
-		case EF_BOLT_STATUS_DAM:
-		case EF_BOLT_AWARE:
-			/* Standard bolts stop at the first monster in the path */
-			return PROJECT_STOP;
-
-		case EF_BOLT_OR_BEAM: {
-			/* 50% chance of bolt or beam, use PROJECT_STOP as the
-			 * safer default for targeting purposes */
-			return PROJECT_STOP;
-		}
-
-		case EF_BEAM:
-		case EF_LINE:
-		case EF_SHORT_BEAM:
-		case EF_ARC:
-		case EF_LASH:
-			/* Beams and lines pass through monsters */
-			return PROJECT_BEAM;
-
-		case EF_ALTER:
-			/* Alter effects pass through terrain/objects */
-			return PROJECT_BEAM;
-
-		case EF_STRIKE:
-			/* Strike effects jump directly to the target */
-			return PROJECT_JUMP;
-
-		case EF_BALL:
-		case EF_BREATH:
-		case EF_SWARM:
-			/* Ball/breath/swarm effects pass through obstacles */
-			return PROJECT_THRU | PROJECT_STOP;
-
-		default:
-			/* Default to PROJECT_STOP for other effects */
-			return PROJECT_STOP;
-	}
-}
-
 
 /**
  * Free all the effects in a structure

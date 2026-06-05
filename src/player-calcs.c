@@ -38,7 +38,6 @@
 #include "player-spell.h"
 #include "player-timed.h"
 #include "player-util.h"
-#include "target.h"
 
 /**
  * Stat Table (INT) -- Magic devices
@@ -2610,7 +2609,6 @@ void update_stuff(struct player *p)
 	if (p->upkeep->update & (PU_UPDATE_VIEW)) {
 		p->upkeep->update &= ~(PU_UPDATE_VIEW);
 		update_view(cave, p);
-		target_release();
 	}
 
 	if (p->upkeep->update & (PU_DISTANCE)) {

@@ -1783,6 +1783,7 @@ static errr Term_xtra_win_react(void)
 
 
 	/* Clean up windows */
+	bool any_resized = false;
 	for (i = 0; i < MAX_TERM_DATA; i++) {
 		term *old = Term;
 
@@ -1790,6 +1791,7 @@ static errr Term_xtra_win_react(void)
 
 		/* Update resized windows */
 		if ((td->cols != td->t.wid) || (td->rows != td->t.hgt)) {
+			any_resized = true;
 			/* Activate */
 			Term_activate(&td->t);
 
@@ -1804,6 +1806,10 @@ static errr Term_xtra_win_react(void)
 		}
 	}
 
+	/* If any terminal was resized, trigger complete UI redraw */
+	if (any_resized && character_dungeon) {
+		do_cmd_redraw();
+	}
 
 	/* Success */
 	return (0);
@@ -3848,8 +3854,8 @@ static void process_menus(WORD wCmd)
 				/* React to changes */
 				Term_xtra_win_react();
 
-				/* Force redraw */
-				Term_key_push(KTRL('R'), 0);
+				/* Force complete redraw of all UI elements */
+				if (character_dungeon) do_cmd_redraw();
 			}
 
 			break;

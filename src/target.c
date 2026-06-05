@@ -51,102 +51,6 @@ static struct target target;
 static struct target old_target;
 
 /**
- * Current targeting context projectile flags
- *
- * This is set before targeting begins (e.g., before calling get_aim_dir()
- * or target_set_interactive()) and is used throughout the targeting process
- * to ensure consistent checks between target list generation, path preview,
- * target validation, and target invalidation.
- *
- * Defaults to PROJECT_STOP as a conservative default.
- */
-static int target_context_proj_flags = PROJECT_STOP;
-
-/**
- * Set the current targeting context projectile flags.
- *
- * Call this before initiating any targeting action to ensure all subsequent
- * target checks use the same projectile flags as the actual action will use.
- * Also re-validates any existing target under the new flags.
- */
-void target_set_context_proj_flags(int proj_flags)
-{
-	target_context_proj_flags = proj_flags;
-
-	/*
-	 * Re-validate existing target under new flags. If the target was
-	 * selected with different rules (e.g. PROJECT_JUMP from a previous
-	 * strike spell) and is not valid under the new rules (e.g.
-	 * PROJECT_STOP for a bolt), clear it so the player must choose
-	 * again.
-	 */
-	if (target_set && target.midx > 0) {
-		struct monster *mon = cave_monster(cave, target.midx);
-		if (mon && target_able_with_flags(mon, proj_flags)) {
-			target.proj_flags = proj_flags;
-		} else if (!target_fixed) {
-			target_set = false;
-			target.midx = 0;
-			target.grid.y = 0;
-			target.grid.x = 0;
-			target.proj_flags = 0;
-		}
-	} else if (target_set && target.grid.x && target.grid.y) {
-		target.proj_flags = proj_flags;
-	}
-}
-
-/**
- * Begin a targeting action with specific projectile flags.
- *
- * This is the UNIFIED ENTRY POINT for any command that needs to aim, fire,
- * cast a spell, or otherwise perform an action with targeting. It sets the
- * context flags and re-validates any existing target under the new rules.
- *
- * Always call target_action_end() when done to avoid state leakage between
- * different actions.
- *
- * Example:
- *   target_action_begin(PROJECT_STOP);
- *   // ... do targeting/firing/casting ...
- *   target_action_end();
- */
-void target_action_begin(int proj_flags)
-{
-	target_set_context_proj_flags(proj_flags);
-}
-
-/**
- * End a targeting action.
- *
- * Resets the context to default (PROJECT_STOP) to prevent state leakage
- * between different actions. Always pair this with target_action_begin().
- */
-void target_action_end(void)
-{
-	target_reset_context();
-}
-
-/**
- * Get the current targeting context projectile flags.
- */
-int target_get_context_proj_flags(void)
-{
-	return target_context_proj_flags;
-}
-
-/**
- * Reset the targeting context to the default flags (PROJECT_STOP).
- *
- * Prefer target_action_end() for command-level code. This function is
- * mainly for internal use.
- */
-void target_reset_context(void)
-{
-	target_context_proj_flags = PROJECT_STOP;
-}
-
-/**
  * Monster health description
  */
 void look_mon_desc(char *buf, size_t max, int m_idx)
@@ -205,126 +109,53 @@ void look_mon_desc(char *buf, size_t max, int m_idx)
  */
 bool target_able(struct monster *m)
 {
-	return target_able_with_flags(m, PROJECT_NONE);
-}
-
-/**
- * Determine if a monster is targetable with specific projection flags.
- *
- * This allows callers to match the projection flags of the actual action
- * (e.g., PROJECT_STOP for bolts, PROJECT_JUMP for strike effects).
- */
-bool target_able_with_flags(struct monster *m, int proj_flags)
-{
 	return m && m->race && monster_is_obvious(m) &&
-		projectable(cave, player->grid, m->grid, proj_flags) &&
+		projectable(cave, player->grid, m->grid, PROJECT_NONE) &&
 		!player->timed[TMD_IMAGE];
 }
 
 
 
 /**
- * Check if the current target is valid under the given projection flags.
+ * Update (if necessary) and verify (if possible) the target.
  *
- * This is a PURE PREDICATE: it only returns true/false and does NOT modify
- * any global state. Use this for UI polling, right-click menus, parameter
- * validation, and anywhere you just want to know if a target is currently
- * targetable.
- *
- * Does NOT clear the target, does NOT update target.proj_flags.
- */
-bool target_check_okay(int proj_flags)
-{
-	/* No target */
-	if (!target_set) return false;
-
-	/* Check "monster" targets */
-	if (target.midx > 0) {
-		struct monster *mon = cave_monster(cave, target.midx);
-		if (target_able_with_flags(mon, proj_flags)) {
-			return true;
-		}
-	} else if (target.grid.x && target.grid.y) {
-		/* Allow a direction without a monster */
-		return true;
-	}
-
-	return false;
-}
-
-
-/**
- * Validate and refresh the target for actual use.
- *
- * This HAS SIDE EFFECTS: if the target is valid under the current context
- * flags, target.proj_flags is updated to match. If not valid, the
- * target is cleared.
- *
- * Call this ONLY at action confirmation points: when the user presses '5'
- * to confirm target, when actually firing/casting, or when you intend to
- * USE the target for real.
- *
- * Do NOT call this for UI polling or parameter validation.
+ * We return true if the target is "okay" and false otherwise.
  */
 bool target_okay(void)
 {
 	/* No target */
 	if (!target_set) return false;
 
-	/* Always validate with current context flags */
-	int proj_flags = target_context_proj_flags;
-
 	/* Check "monster" targets */
 	if (target.midx > 0) {
 		struct monster *mon = cave_monster(cave, target.midx);
-		if (target_able_with_flags(mon, proj_flags)) {
+		if (target_able(mon)) {
 			/* Get the monster location */
 			target.grid = mon->grid;
-
-			/* Update stored flags to match current context */
-			target.proj_flags = proj_flags;
 
 			/* Good target */
 			return true;
 		}
 	} else if (target.grid.x && target.grid.y) {
 		/* Allow a direction without a monster */
-		target.proj_flags = proj_flags;
 		return true;
 	}
 
-	/* Target not valid under current rules */
-	target_set = false;
-	target.midx = 0;
-	target.grid.y = 0;
-	target.grid.x = 0;
-	target.proj_flags = 0;
-
+	/* Assume no target */
 	return false;
 }
 
 
 /**
  * Set the target to a monster (or nobody); if target is fixed, don't unset
- * Uses current context projectile flags for validation.
  */
 bool target_set_monster(struct monster *mon)
 {
-	return target_set_monster_with_flags(mon, target_context_proj_flags);
-}
-
-/**
- * Set the target to a monster (or nobody) with specific projectile flags.
- * If target is fixed, don't unset.
- */
-bool target_set_monster_with_flags(struct monster *mon, int proj_flags)
-{
 	/* Acceptable target */
-	if (mon && target_able_with_flags(mon, proj_flags)) {
+	if (mon && target_able(mon)) {
 		target_set = true;
 		target.midx = mon->midx;
 		target.grid = mon->grid;
-		target.proj_flags = proj_flags;
 		return true;
 	} else if (target_fixed) {
 		/* If a monster has died during a spell, this maintains its grid as
@@ -338,25 +169,15 @@ bool target_set_monster_with_flags(struct monster *mon, int proj_flags)
 	target.midx = 0;
 	target.grid.y = 0;
 	target.grid.x = 0;
-	target.proj_flags = 0;
 
 	return false;
 }
 
 
 /**
- * Set the target to a location.
- * Uses current context projectile flags.
+ * Set the target to a location
  */
 void target_set_location(int y, int x)
-{
-	target_set_location_with_flags(y, x, target_context_proj_flags);
-}
-
-/**
- * Set the target to a location with specific projectile flags.
- */
-void target_set_location_with_flags(int y, int x, int proj_flags)
 {
 	struct loc grid = loc(x, y);
 
@@ -366,7 +187,6 @@ void target_set_location_with_flags(int y, int x, int proj_flags)
 		target_set = true;
 		target.midx = 0;
 		target.grid = grid;
-		target.proj_flags = proj_flags;
 		return;
 	}
 
@@ -375,7 +195,6 @@ void target_set_location_with_flags(int y, int x, int proj_flags)
 	target.midx = 0;
 	target.grid.y = 0;
 	target.grid.x = 0;
-	target.proj_flags = 0;
 }
 
 /**
@@ -397,29 +216,17 @@ void target_fix(void)
 
 /**
  * Release the target
- *
- * Always validates against the current context flags, NOT stored flags.
- * This ensures that if the action context has changed since target_fix(),
- * the target is re-validated under the new rules.
  */
 void target_release(void)
 {
 	target_fixed = false;
 
-	/* If the old target is no longer targetable, cancel its grid */
+	/* If the old target is a now-dead monster, cancel it */
 	if (old_target.midx != 0) {
 		struct monster *mon = cave_monster(cave, old_target.midx);
-		if (!target_able_with_flags(mon, target_context_proj_flags)) {
+		if (!mon || !mon->race || !monster_is_in_view(mon)) {
 			target.grid.y = 0;
 			target.grid.x = 0;
-		}
-	}
-
-	/* Also verify the current target is still valid under current context */
-	if (target.midx != 0) {
-		struct monster *mon = cave_monster(cave, target.midx);
-		if (!target_able_with_flags(mon, target_context_proj_flags)) {
-			target_set_monster(NULL);
 		}
 	}
 }
@@ -603,12 +410,10 @@ struct monster *target_get_monster(void)
 
 /**
  * True if the player's current target is in LOS.
- *
- * Uses pure predicate target_check_okay() to avoid side effects.
  */
 bool target_sighted(void)
 {
-	return target_check_okay(target_context_proj_flags) &&
+	return target_okay() &&
 			panel_contains(target.grid.y, target.grid.x) &&
 			 /* either the target is a grid and is visible, or it is a monster
 			  * that is visible */
@@ -660,18 +465,12 @@ struct point_set *target_get_monsters(int mode, monster_predicate pred,
 			/* Special mode */
 			if (mode & (TARGET_KILL)) {
 				struct monster *mon = square_monster(cave, grid);
-				int proj_flags = target_context_proj_flags;
 
 				/* Must contain a monster */
 				if (mon == NULL) continue;
 
-				/*
-				 * Must be a targettable monster using the current
-				 * context's projectile flags (e.g., PROJECT_STOP
-				 * for bolts, PROJECT_BEAM for beams, PROJECT_JUMP
-				 * for strike effects)
-				 */
-				if (!target_able_with_flags(mon, proj_flags)) continue;
+				/* Must be a targettable monster */
+				if (!target_able(mon)) continue;
 
 				/* Must be the right sort of monster */
 				if (pred && !pred(mon)) continue;
@@ -713,8 +512,8 @@ bool target_set_closest(int mode, monster_predicate pred)
 	/* Find the first monster in the queue */
 	mon = square_monster(cave, targets->pts[0]);
 	
-	/* Target the monster, if possible (using context flags for consistency) */
-	if (!target_able_with_flags(mon, target_context_proj_flags)) {
+	/* Target the monster, if possible */
+	if (!target_able(mon)) {
 		msg("No Available Target.");
 		point_set_dispose(targets);
 		return false;

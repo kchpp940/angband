@@ -34,7 +34,6 @@
 #include "player-calcs.h"
 #include "player-timed.h"
 #include "player-util.h"
-#include "project.h"
 #include "store.h"
 #include "target.h"
 #include "ui-context.h"
@@ -1081,7 +1080,7 @@ void textui_process_click(ui_event e)
 		}
 	} else if (e.mouse.button == 2) {
 		struct monster *m = square_monster(cave, loc(x, y));
-		if (m && target_able_with_flags(m, target_get_context_proj_flags())) {
+		if (m && target_able(m)) {
 			/* Set up target information */
 			monster_race_track(player->upkeep, m->race);
 			health_track(player->upkeep, m);

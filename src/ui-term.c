@@ -3007,8 +3007,9 @@ errr Term_resize(int w, int h)
 	mem_free(hold_old);
 
 	/* Illegal cursor */
-	if (Term->old->cx >= w) Term->old->cu = 1;
-	if (Term->old->cy >= h) Term->old->cu = 1;
+	if (Term->old->cx >= w) Term->old->cx = w - 1;
+	if (Term->old->cy >= h) Term->old->cy = h - 1;
+	Term->old->cu = 0;
 
 	/* Nuke */
 	term_win_nuke(hold_scr);
@@ -3016,9 +3017,10 @@ errr Term_resize(int w, int h)
 	/* Kill */
 	mem_free(hold_scr);
 
-	/* Illegal cursor */
-	if (Term->scr->cx >= w) Term->scr->cu = 1;
-	if (Term->scr->cy >= h) Term->scr->cu = 1;
+	/* Clamp cursor to valid range after resize */
+	if (Term->scr->cx >= w) Term->scr->cx = w - 1;
+	if (Term->scr->cy >= h) Term->scr->cy = h - 1;
+	Term->scr->cu = 0;
 
 	/* If needed */
 	if (hold_tmp) {
@@ -3028,9 +3030,10 @@ errr Term_resize(int w, int h)
 		/* Kill */
 		mem_free(hold_tmp);
 
-		/* Illegal cursor */
-		if (Term->tmp->cx >= w) Term->tmp->cu = 1;
-		if (Term->tmp->cy >= h) Term->tmp->cu = 1;
+		/* Clamp cursor to valid range after resize */
+		if (Term->tmp->cx >= w) Term->tmp->cx = w - 1;
+		if (Term->tmp->cy >= h) Term->tmp->cy = h - 1;
+		Term->tmp->cu = 0;
 	}
 
 	/* Save new size */
@@ -3040,9 +3043,8 @@ errr Term_resize(int w, int h)
 	/* Force "total erase" */
 	Term->total_erase = true;
 
-	/* Assume change */
+	/* Assume change - mark entire window as dirty */
 	for (i = 0; i < h; i++) {
-		/* Assume change */
 		Term->x1[i] = 0;
 		Term->x2[i] = w - 1;
 	}
@@ -3050,6 +3052,22 @@ errr Term_resize(int w, int h)
 	/* Assume change */
 	Term->y1 = 0;
 	Term->y2 = h - 1;
+
+	/* Invalidate old screen contents to force complete redraw */
+	for (i = 0; i < h; i++) {
+		int j;
+		int *old_aa = Term->old->a[i];
+		wchar_t *old_cc = Term->old->c[i];
+		int *old_taa = Term->old->ta[i];
+		wchar_t *old_tcc = Term->old->tc[i];
+		
+		for (j = 0; j < w; j++) {
+			old_aa[j] = ~old_aa[j];
+			old_cc[j] = ~old_cc[j];
+			old_taa[j] = ~old_taa[j];
+			old_tcc[j] = ~old_tcc[j];
+		}
+	}
 
 	/* Push a resize event onto the stack */
 	Term_event_push(&evt);

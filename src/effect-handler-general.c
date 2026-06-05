@@ -2675,8 +2675,8 @@ bool effect_handler_TELEPORT(effect_handler_context_t *context)
 	/* Clear any projection marker to prevent double processing */
 	sqinfo_off(square(cave, spots->grid)->info, SQUARE_PROJECT);
 
-	/* Clear monster target if it's no longer targetable */
-	if (!target_able_with_flags(target_get_monster(), target_get_context_proj_flags())) {
+	/* Clear monster target if it's no longer visible */
+	if (!target_able(target_get_monster())) {
 		target_set_monster(NULL);
 	}
 

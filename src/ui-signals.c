@@ -475,11 +475,14 @@ void signals_perform_deferred_suspend(void)
 	/* Resume the "Term" */
 	Term_xtra(TERM_XTRA_ALIVE, 1);
 
-	/* Redraw the term */
-	Term_redraw();
-
-	/* Flush the term */
-	Term_fresh();
+	/* Trigger complete UI redraw after resume */
+	if (character_dungeon) {
+		do_cmd_redraw();
+	} else {
+		/* Redraw all terminals if not in dungeon */
+		Term_redraw_all();
+		Term_fresh();
+	}
 #else
 	/* Clear the indicator. */
 	terms_suspending = 0;
