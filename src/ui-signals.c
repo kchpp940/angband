@@ -19,6 +19,7 @@
 #include "angband.h"
 #include "game-world.h"
 #include "savefile.h"
+#include "ui-command.h"
 #include "ui-game.h"
 #include "ui-signals.h"
 #include "ui-term.h"
@@ -475,9 +476,9 @@ void signals_perform_deferred_suspend(void)
 	/* Resume the "Term" */
 	Term_xtra(TERM_XTRA_ALIVE, 1);
 
-	/* Trigger complete UI redraw after resume */
+	/* Terminal may have been resized while suspended, use unified invalidation */
 	if (character_dungeon) {
-		do_cmd_redraw();
+		ui_invalidate_on_resize();
 	} else {
 		/* Redraw all terminals if not in dungeon */
 		Term_redraw_all();

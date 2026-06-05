@@ -780,7 +780,12 @@ static void do_gcu_resize(void) {
 		/* Activate the old term */
 		Term_activate(old_t);
 	}
-	do_cmd_redraw();
+	/* Use unified resize invalidation entry point */
+	if (character_dungeon) {
+		ui_invalidate_on_resize();
+	} else {
+		do_cmd_redraw();
+	}
 }
 
 

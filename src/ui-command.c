@@ -63,9 +63,6 @@
  */
 void do_cmd_redraw(void)
 {
-	term *old = Term;
-	int i;
-
 	/* Low level flush */
 	Term_flush();
 
@@ -78,11 +75,81 @@ void do_cmd_redraw(void)
 	/* React to changes */
 	Term_xtra(TERM_XTRA_REACT, 0);
 
-	/* Force total erase and redraw on all terminals first */
+	if (character_dungeon) {
+		/* Combine the pack (later) */
+		player->upkeep->notice |= (PN_COMBINE);
+
+		/* Update torch, gear */
+		player->upkeep->update |= (PU_TORCH | PU_INVEN);
+
+		/* Update stuff */
+		player->upkeep->update |= (PU_BONUS | PU_HP | PU_SPELLS);
+
+		/* Fully update the visuals */
+		player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
+
+		/* Redraw everything */
+		player->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_MAP | PR_INVEN |
+								   PR_EQUIP | PR_MESSAGE | PR_MONSTER |
+								   PR_OBJECT | PR_MONLIST | PR_ITEMLIST);
+	}
+
+	/* Clear screen */
+	Term_clear();
+
+	if (character_dungeon) {
+		/* Update */
+		handle_stuff(player);
+
+		/* Place the cursor on the player */
+		if ((0 != character_dungeon) && OPT(player, show_target) &&
+			target_sighted()) {
+			struct loc target;
+			target_get(&target);
+			move_cursor_relative(target.y, target.x);
+		} else {
+			move_cursor_relative(player->grid.y, player->grid.x);
+		}
+	}
+
+	/* Redraw every window */
+	(void) Term_redraw_all();
+}
+
+
+/**
+ * UI resize/graphics mode change invalidation entry point.
+ *
+ * This function is called specifically when:
+ * 1. Terminal size changes (window resize)
+ * 2. Graphics mode changes (tiles <-> ascii switch)
+ *
+ * It marks all terminals for total erase and sets all necessary redraw flags
+ * to ensure map, message area, status bar, and subwindows are fully refreshed.
+ *
+ * This should NOT be called for normal redraw operations.
+ */
+void ui_invalidate_on_resize(void)
+{
+	term *old = Term;
+	int i;
+
+	/* Low level flush */
+	Term_flush();
+
+	/* Reset "inkey()" */
+	event_signal(EVENT_INPUT_FLUSH);
+
+	if (character_dungeon)
+		verify_panel();
+
+	/* React to changes (graphics mode etc.) */
+	Term_xtra(TERM_XTRA_REACT, 0);
+
+	/* Force total erase on all terminals */
 	for (i = 0; i < ANGBAND_TERM_MAX; i++) {
 		if (angband_term[i]) {
 			Term_activate(angband_term[i]);
-			Term_clear();
 			Term->total_erase = true;
 		}
 	}
@@ -101,23 +168,22 @@ void do_cmd_redraw(void)
 		/* Fully update the visuals */
 		player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
 
-		/* Redraw everything - ensure all flags are set for complete refresh */
+		/* Redraw everything - full refresh after resize/graphics change */
 		player->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_MAP | PR_INVEN |
 								   PR_EQUIP | PR_MESSAGE | PR_MONSTER |
 								   PR_OBJECT | PR_MONLIST | PR_ITEMLIST |
 								   PR_STATUS | PR_SUBWINDOW);
 	}
 
-	/* Clear screen */
+	/* Clear current term */
 	Term_clear();
 
 	if (character_dungeon) {
-		/* Update - this handles most subwindow redraws through event system */
+		/* Process all update/redraw flags */
 		handle_stuff(player);
 
 		/* Place the cursor on the player */
-		if ((0 != character_dungeon) && OPT(player, show_target) &&
-			target_sighted()) {
+		if (OPT(player, show_target) && target_sighted()) {
 			struct loc target;
 			target_get(&target);
 			move_cursor_relative(target.y, target.x);
@@ -126,10 +192,10 @@ void do_cmd_redraw(void)
 		}
 	}
 
-	/* Redraw every window - ensures complete visual refresh */
+	/* Redraw every window */
 	(void) Term_redraw_all();
 
-	/* Final fresh to ensure everything is drawn */
+	/* Final fresh on all terminals to ensure everything is drawn */
 	for (i = 0; i < ANGBAND_TERM_MAX; i++) {
 		if (angband_term[i]) {
 			Term_activate(angband_term[i]);
@@ -138,7 +204,6 @@ void do_cmd_redraw(void)
 	}
 	Term_activate(old);
 }
-
 
 
 /**

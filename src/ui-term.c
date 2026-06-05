@@ -3053,22 +3053,6 @@ errr Term_resize(int w, int h)
 	Term->y1 = 0;
 	Term->y2 = h - 1;
 
-	/* Invalidate old screen contents to force complete redraw */
-	for (i = 0; i < h; i++) {
-		int j;
-		int *old_aa = Term->old->a[i];
-		wchar_t *old_cc = Term->old->c[i];
-		int *old_taa = Term->old->ta[i];
-		wchar_t *old_tcc = Term->old->tc[i];
-		
-		for (j = 0; j < w; j++) {
-			old_aa[j] = ~old_aa[j];
-			old_cc[j] = ~old_cc[j];
-			old_taa[j] = ~old_taa[j];
-			old_tcc[j] = ~old_tcc[j];
-		}
-	}
-
 	/* Push a resize event onto the stack */
 	Term_event_push(&evt);
 

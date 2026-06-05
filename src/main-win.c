@@ -1806,9 +1806,9 @@ static errr Term_xtra_win_react(void)
 		}
 	}
 
-	/* If any terminal was resized, trigger complete UI redraw */
+	/* If any terminal was resized, use unified resize invalidation */
 	if (any_resized && character_dungeon) {
-		do_cmd_redraw();
+		ui_invalidate_on_resize();
 	}
 
 	/* Success */
@@ -3854,8 +3854,8 @@ static void process_menus(WORD wCmd)
 				/* React to changes */
 				Term_xtra_win_react();
 
-				/* Force complete redraw of all UI elements */
-				if (character_dungeon) do_cmd_redraw();
+				/* Use unified resize invalidation entry point */
+				if (character_dungeon) ui_invalidate_on_resize();
 			}
 
 			break;
@@ -3874,8 +3874,8 @@ static void process_menus(WORD wCmd)
 			/* React to changes */
 			Term_xtra_win_react();
 
-			/* Force redraw */
-			Term_key_push(KTRL('R'), 0);
+			/* Use unified graphics mode change invalidation */
+			if (character_dungeon) ui_invalidate_on_resize();
 			
 			break;
 		}
@@ -4844,8 +4844,8 @@ static LRESULT FAR PASCAL AngbandListProc(HWND hWnd, UINT uMsg,
 				/* Redraw later */
 				InvalidateRect(td->w, NULL, true);
 
-				/* HACK - Redraw all windows */
-				if (character_dungeon) do_cmd_redraw();
+				/* Use unified resize invalidation entry point */
+				if (character_dungeon) ui_invalidate_on_resize();
 			}
 
 			td->size_hack = false;

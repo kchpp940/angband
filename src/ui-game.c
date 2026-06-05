@@ -540,7 +540,7 @@ void textui_process_command(void)
 			}
 			textui_quit();
 			return;
-		case EVT_RESIZE: do_cmd_redraw(); return;
+		case EVT_RESIZE: ui_invalidate_on_resize(); return;
 		case EVT_MOUSE: textui_process_click(e); return;
 		case EVT_BUTTON:
 		case EVT_KBRD: done = textui_process_key(e.key, &key, count); break;

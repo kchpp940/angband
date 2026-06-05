@@ -4726,33 +4726,8 @@ static void refresh_angband_terms(struct my_app *a)
 		return;
 	}
 
-	term *old = Term;
-	Term_activate(term_screen);
-
-	Term_flush();
-	verify_panel();
-
-	player->upkeep->notice |= (PN_COMBINE);
-	player->upkeep->update |= (PU_TORCH | PU_INVEN);
-	player->upkeep->update |= (PU_BONUS | PU_HP | PU_SPELLS);
-	player->upkeep->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
-	player->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_MAP | PR_INVEN |
-							   PR_EQUIP | PR_MESSAGE | PR_MONSTER |
-							   PR_OBJECT | PR_MONLIST | PR_ITEMLIST |
-							   PR_STATUS | PR_SUBWINDOW);
-
-	handle_stuff(player);
-	if (OPT(player, show_target) && target_sighted()) {
-		struct loc target;
-		target_get(&target);
-		move_cursor_relative(target.y, target.x);
-	} else {
-		move_cursor_relative(player->grid.y, player->grid.x);
-	}
-
-	Term_redraw_all();
-
-	Term_activate(old);
+	/* Use unified resize/graphics mode change invalidation entry point */
+	ui_invalidate_on_resize();
 
 	redraw_all_windows(a, false);
 }
