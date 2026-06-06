@@ -9,7 +9,9 @@
 #include "effects.h"
 #include "effects-info.h"
 #include "init.h"
+#include "player.h"
 #include "z-dice.h"
+#include "z-textblock.h"
 
 struct test_effects {
 	struct effect *acid_bolt;
@@ -255,11 +257,203 @@ static int test_menu_name(void *state) {
 	ok;
 }
 
+static int test_spell_validate_damage_type0(void *state) {
+	struct class_spell spell;
+
+	memset(&spell, 0, sizeof(spell));
+	spell.damage_type = string_make("invalid_projection_name_xyz");
+	require(!spell_validate_damage_type(&spell));
+	string_free(spell.damage_type);
+	spell.damage_type = NULL;
+
+	spell.damage_type = string_make("fire");
+	require(spell_validate_damage_type(&spell));
+	string_free(spell.damage_type);
+	spell.damage_type = NULL;
+
+	spell.damage_type = string_make("acid");
+	require(spell_validate_damage_type(&spell));
+	string_free(spell.damage_type);
+	spell.damage_type = NULL;
+
+	spell.damage_type = string_make("lightning");
+	require(spell_validate_damage_type(&spell));
+	string_free(spell.damage_type);
+	spell.damage_type = NULL;
+
+	ok;
+}
+
+static int test_spell_explicit_priority0(void *state) {
+	struct test_effects *te = state;
+	struct class_spell spell;
+
+	memset(&spell, 0, sizeof(spell));
+	spell.range = -2;
+	spell.radius = 0;
+	spell.pass_wall = -1;
+	spell.need_los = -1;
+	spell.damage_type = NULL;
+	spell.side_effect = NULL;
+	spell.effect = te->acid_bolt;
+
+	spell.range = 10;
+	spell.radius = 5;
+	spell.pass_wall = 1;
+	spell.need_los = 0;
+	spell.damage_type = string_make("cold");
+	spell.side_effect = string_make("custom explicit side effect");
+
+	spell_derive_spell_defaults(&spell);
+
+	eq(spell.range, 10);
+	eq(spell.radius, 5);
+	eq(spell.pass_wall, 1);
+	eq(spell.need_los, 0);
+	notnull(spell.damage_type);
+	require(streq(spell.damage_type, "cold"));
+	notnull(spell.side_effect);
+	require(streq(spell.side_effect, "custom explicit side effect"));
+
+	string_free(spell.damage_type);
+	string_free(spell.side_effect);
+	ok;
+}
+
+static int test_spell_derive_defaults0(void *state) {
+	struct test_effects *te = state;
+	struct class_spell spell;
+
+	memset(&spell, 0, sizeof(spell));
+	spell.range = -2;
+	spell.radius = 0;
+	spell.pass_wall = -1;
+	spell.need_los = -1;
+	spell.damage_type = NULL;
+	spell.side_effect = NULL;
+	spell.effect = te->acid_bolt;
+
+	spell_derive_spell_defaults(&spell);
+
+	require(spell.range != -2);
+	require(spell.range > 0 || spell.range == -1);
+	require(spell.need_los != -1);
+	notnull(spell.damage_type);
+	require(streq(spell.damage_type, "acid"));
+
+	string_free(spell.damage_type);
+	string_free(spell.side_effect);
+	spell.damage_type = NULL;
+	spell.side_effect = NULL;
+
+	memset(&spell, 0, sizeof(spell));
+	spell.range = -2;
+	spell.radius = 0;
+	spell.pass_wall = -1;
+	spell.need_los = -1;
+	spell.damage_type = NULL;
+	spell.side_effect = NULL;
+	spell.effect = te->lightning_ball;
+
+	spell_derive_spell_defaults(&spell);
+
+	eq(spell.radius, 3);
+	notnull(spell.damage_type);
+	require(streq(spell.damage_type, "lightning"));
+
+	string_free(spell.damage_type);
+	string_free(spell.side_effect);
+	spell.damage_type = NULL;
+	spell.side_effect = NULL;
+
+	memset(&spell, 0, sizeof(spell));
+	spell.range = -2;
+	spell.radius = 0;
+	spell.pass_wall = -1;
+	spell.need_los = -1;
+	spell.damage_type = NULL;
+	spell.side_effect = NULL;
+	spell.effect = te->heal;
+
+	spell_derive_spell_defaults(&spell);
+
+	eq(spell.range, 0);
+	notnull(spell.side_effect);
+	require(strlen(spell.side_effect) > 0);
+
+	string_free(spell.damage_type);
+	string_free(spell.side_effect);
+	ok;
+}
+
+static int test_spell_info_describe0(void *state) {
+	struct test_effects *te = state;
+	struct class_spell spell;
+	struct textblock *tb;
+	const char *text;
+
+	memset(&spell, 0, sizeof(spell));
+	spell.range = 15;
+	spell.radius = 2;
+	spell.pass_wall = 0;
+	spell.need_los = 1;
+	spell.damage_type = string_make("fire");
+	spell.side_effect = string_make("may stun monsters");
+	spell.effect = te->fire_arc;
+
+	tb = textblock_new();
+	require(tb != NULL);
+	spell_info_describe(NULL, &spell, tb);
+	text = textblock_text(tb);
+	notnull(text);
+	require(strlen(text) > 0);
+	require(strstr(text, "15") != NULL);
+	require(strstr(text, "2") != NULL);
+	textblock_free(tb);
+
+	string_free(spell.damage_type);
+	string_free(spell.side_effect);
+	ok;
+}
+
+static int test_spell_info_summary0(void *state) {
+	struct test_effects *te = state;
+	struct class_spell spell;
+	struct textblock *tb;
+	const char *text;
+
+	memset(&spell, 0, sizeof(spell));
+	spell.range = 10;
+	spell.radius = 0;
+	spell.pass_wall = 0;
+	spell.need_los = 1;
+	spell.damage_type = string_make("acid");
+	spell.side_effect = string_make("test side effect");
+	spell.effect = te->acid_bolt;
+
+	tb = textblock_new();
+	require(tb != NULL);
+	spell_info_summary(&spell, tb);
+	text = textblock_text(tb);
+	notnull(text);
+	require(strlen(text) > 0);
+	textblock_free(tb);
+
+	string_free(spell.damage_type);
+	string_free(spell.side_effect);
+	ok;
+}
+
 const char *suite_name = "effects/info";
 struct test tests[] = {
 	{ "damages", test_damages },
 	{ "average damage", test_avg_damage },
 	{ "projection", test_projection },
 	{ "menu name", test_menu_name },
+	{ "spell validate damage type", test_spell_validate_damage_type0 },
+	{ "spell explicit priority", test_spell_explicit_priority0 },
+	{ "spell derive defaults", test_spell_derive_defaults0 },
+	{ "spell info describe", test_spell_info_describe0 },
+	{ "spell info summary", test_spell_info_summary0 },
 	{ NULL, NULL }
 };

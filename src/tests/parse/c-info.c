@@ -1410,6 +1410,8 @@ struct test tests[] = {
 	{ "expr_bad0", test_expr_bad0 },
 	{ "effect_msg0", test_effect_msg0 },
 	{ "desc0", test_desc0 },
+	{ "spell_fields0", test_spell_fields0 },
+	{ "spell_damage_type_side_effect0", test_spell_damage_type_side_effect0 },
 	{ "spell_bad0", test_spell_bad0 },
 	{ "book_bad0", test_book_bad0 },
 	{ "magic_repeated0", test_magic_repeated0 },
