@@ -1471,7 +1471,17 @@ void do_cmd_equip_set_load(struct command *cmd)
 	}
 
 	if (!plan->is_feasible) {
-		prt("  Switch aborted: plan not feasible (cursed items, missing items, or pack full).", j++, 0);
+		if (plan->verify_error[0]) {
+			prt(format("  Switch aborted: %s.", plan->verify_error), j++, 0);
+		} else if (plan->cursed_count > 0) {
+			prt("  Switch aborted: cursed items cannot be removed.", j++, 0);
+		} else if (plan->missing_count > 0) {
+			prt("  Switch aborted: some saved items are missing.", j++, 0);
+		} else if (plan->ambiguous_count > 0) {
+			prt("  Switch aborted: ambiguous matches (see above).", j++, 0);
+		} else {
+			prt("  Switch aborted: plan not feasible.", j++, 0);
+		}
 		get_check("Press return to continue. ");
 		goto cleanup;
 	}

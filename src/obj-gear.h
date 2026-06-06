@@ -91,10 +91,12 @@ struct equip_swap_ambiguous {
  * A complete, validated equipment swap plan.
  * Built once and used for both preview display AND atomic execution.
  * is_feasible is true only when: no missing, no ambiguous, no cursed blockers,
- * all slots assigned, and inventory capacity is verified sufficient.
+ * all slots assigned, inventory capacity verified, and verify_plan() passes.
+ * If is_feasible is false, verify_error (when non-empty) explains why.
  */
 struct equip_swap_plan {
 	bool is_feasible;
+	char verify_error[256];
 
 	/* Ordered list of body-slot-level swaps to execute */
 	struct equip_swap_step *steps;
@@ -124,6 +126,7 @@ int equip_set_find_all_matches(struct player *p, struct equip_set_slot *slot,
 	struct object ***matches_out);
 struct equip_swap_plan *equip_set_build_plan(struct player *p, int index);
 void equip_set_free_plan(struct equip_swap_plan *plan);
+bool equip_set_verify_plan(struct player *p, struct equip_swap_plan *plan);
 bool equip_set_execute_plan(struct player *p, struct equip_swap_plan *plan);
 bool equip_set_switch_preview(struct player *p, int index,
 	struct object ***will_takeoff, int *takeoff_count,

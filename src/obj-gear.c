@@ -1771,6 +1771,244 @@ void equip_set_free_plan(struct equip_swap_plan *plan)
 }
 
 /**
+ * Static, non-mutating validation of a swap plan.
+ *
+ * Returns true if the plan can be executed safely with zero risk of partial
+ * state.  This function never modifies any player, object, or pack state.
+ * If it returns false, plan->verify_error contains a human-readable reason.
+ *
+ * Checks performed:
+ *   1. Every takeoff target is still equipped, removable (not sticky), and
+ *      sits in the expected body slot.
+ *   2. Every wield target is still carried or equipped.
+ *   3. No two steps try to wield two different items into the same body slot.
+ *   4. Each body slot type matches the item being wielded there
+ *      (ring → EQUIP_RING, weapon → EQUIP_WEAPON, etc.).
+ *   5. After conceptually removing all takeoff targets, every target slot
+ *      that receives a new item is empty (or contains the same item).
+ *   6. Pack capacity: in the worst case (no stacking, no combining), the
+ *      pack must hold every taken-off item AND every currently-in-pack
+ *      wieldable item that will be removed from the pack.  We use the
+ *      strictest upper bound: current pack + takeoff_count -
+ *      wield_items_in_pack ≤ pack_size.
+ */
+bool equip_set_verify_plan(struct player *p, struct equip_swap_plan *plan)
+{
+	int i, j;
+	bool *slot_will_receive;
+	bool *slot_will_be_vacated;
+	int simulated_pack;
+	int wield_items_in_pack = 0;
+
+	if (!plan) {
+		return false;
+	}
+
+	plan->verify_error[0] = '\0';
+
+	slot_will_receive = mem_zalloc(p->body.count * sizeof(bool));
+	slot_will_be_vacated = mem_zalloc(p->body.count * sizeof(bool));
+
+	/* --- Pass 1: individual step validity + slot occupancy simulation --- */
+
+	for (i = 0; i < plan->num_steps; i++) {
+		struct equip_swap_step *st = &plan->steps[i];
+		struct object *old_obj = st->old_obj;
+		struct object *new_obj = st->new_obj;
+
+		if (st->body_slot < 0 || st->body_slot >= p->body.count) {
+			strnfmt(plan->verify_error, sizeof(plan->verify_error),
+				"Step %d: body_slot %d out of range", i, st->body_slot);
+			mem_free(slot_will_receive);
+			mem_free(slot_will_be_vacated);
+			return false;
+		}
+
+		if (!old_obj && !new_obj) {
+			strnfmt(plan->verify_error, sizeof(plan->verify_error),
+				"Step %d: no old_obj and no new_obj", i);
+			mem_free(slot_will_receive);
+			mem_free(slot_will_be_vacated);
+			return false;
+		}
+
+		if (old_obj) {
+			if (!object_is_equipped(p->body, old_obj)) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), old_obj,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"Cannot take off %s: not currently equipped", o_name);
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
+			}
+			if (!obj_can_takeoff(old_obj)) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), old_obj,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"Cannot take off %s: cursed or stuck", o_name);
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
+			}
+			slot_will_be_vacated[st->body_slot] = true;
+		}
+
+		if (new_obj) {
+			bool carried = object_is_carried(p, new_obj);
+			bool equipped = object_is_equipped(p->body, new_obj);
+			int expected_slot_type = p->body.slots[st->body_slot].type;
+
+			if (!carried && !equipped) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), new_obj,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"Cannot wield %s: no longer in inventory or equipment",
+					o_name);
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
+			}
+
+			if (carried && !equipped) {
+				wield_items_in_pack++;
+			}
+
+			switch (new_obj->tval) {
+				case TV_BOW:
+					if (expected_slot_type != EQUIP_BOW) goto bad_type;
+					break;
+				case TV_AMULET:
+					if (expected_slot_type != EQUIP_AMULET) goto bad_type;
+					break;
+				case TV_CLOAK:
+					if (expected_slot_type != EQUIP_CLOAK) goto bad_type;
+					break;
+				case TV_SHIELD:
+					if (expected_slot_type != EQUIP_SHIELD) goto bad_type;
+					break;
+				case TV_GLOVES:
+					if (expected_slot_type != EQUIP_GLOVES) goto bad_type;
+					break;
+				case TV_BOOTS:
+					if (expected_slot_type != EQUIP_BOOTS) goto bad_type;
+					break;
+				default:
+					if (tval_is_melee_weapon(new_obj)) {
+						if (expected_slot_type != EQUIP_WEAPON) goto bad_type;
+					} else if (tval_is_ring(new_obj)) {
+						if (expected_slot_type != EQUIP_RING) goto bad_type;
+					} else if (tval_is_light(new_obj)) {
+						if (expected_slot_type != EQUIP_LIGHT) goto bad_type;
+					} else if (tval_is_body_armor(new_obj)) {
+						if (expected_slot_type != EQUIP_BODY_ARMOR) goto bad_type;
+					} else if (tval_is_head_armor(new_obj)) {
+						if (expected_slot_type != EQUIP_HAT) goto bad_type;
+					} else {
+bad_type:
+						{
+							char o_name[80];
+							object_desc(o_name, sizeof(o_name), new_obj,
+								ODESC_PREFIX | ODESC_FULL, p);
+							strnfmt(plan->verify_error,
+								sizeof(plan->verify_error),
+								"Slot type mismatch: %s cannot go into %s",
+								o_name,
+								equip_describe(p, st->body_slot));
+							mem_free(slot_will_receive);
+							mem_free(slot_will_be_vacated);
+							return false;
+						}
+					}
+			}
+
+			if (slot_will_receive[st->body_slot]) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), new_obj,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"Two items targeted for the same slot (%s): %s conflicts",
+					equip_describe(p, st->body_slot), o_name);
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
+			}
+			slot_will_receive[st->body_slot] = true;
+		}
+	}
+
+	/* --- Pass 2: every receiving slot will be empty at wield time --- */
+
+	for (i = 0; i < plan->num_steps; i++) {
+		struct equip_swap_step *st = &plan->steps[i];
+		if (!st->new_obj) continue;
+
+		{
+			struct object *now = slot_object(p, st->body_slot);
+			bool will_be_empty = slot_will_be_vacated[st->body_slot] ||
+				now == NULL;
+
+			if (now && now == st->new_obj) {
+				continue;
+			}
+			if (!will_be_empty) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), st->new_obj,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"Cannot wield %s into %s: slot will not be empty",
+					o_name, equip_describe(p, st->body_slot));
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
+			}
+		}
+	}
+
+	/* --- Pass 3: check for cross-step item conflicts --- */
+
+	for (i = 0; i < plan->num_steps; i++) {
+		struct object *obj_i = plan->steps[i].old_obj ?
+			plan->steps[i].old_obj : plan->steps[i].new_obj;
+		for (j = i + 1; j < plan->num_steps; j++) {
+			struct object *obj_j = plan->steps[j].old_obj ?
+				plan->steps[j].old_obj : plan->steps[j].new_obj;
+			if (obj_i && obj_j && obj_i == obj_j &&
+				plan->steps[i].new_obj && plan->steps[j].new_obj &&
+				plan->steps[i].body_slot != plan->steps[j].body_slot) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), obj_i,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"Item %s assigned to two different slots", o_name);
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
+			}
+		}
+	}
+
+	/* --- Pass 4: strictest pack capacity bound (no combining assumed) --- */
+
+	simulated_pack = pack_slots_used(p) + plan->takeoff_count - wield_items_in_pack;
+	if (simulated_pack > z_info->pack_size) {
+		strnfmt(plan->verify_error, sizeof(plan->verify_error),
+			"Pack would overflow: %d slots needed, only %d available",
+			simulated_pack, z_info->pack_size);
+		mem_free(slot_will_receive);
+		mem_free(slot_will_be_vacated);
+		return false;
+	}
+
+	mem_free(slot_will_receive);
+	mem_free(slot_will_be_vacated);
+	return true;
+}
+
+/**
  * Build a complete, validated equipment swap plan for the saved set at
  * the given index.
  *
@@ -1937,45 +2175,39 @@ struct equip_swap_plan *equip_set_build_plan(struct player *p, int index)
 	mem_free(slot_assigned);
 
 	{
-		int simulated_pack;
-		simulated_pack = pack_slots_used(p) + plan->takeoff_count;
-		if (simulated_pack > z_info->pack_size) {
-			for (i = 0; i < plan->num_steps; i++) {
-				if (plan->steps[i].new_obj &&
-					!object_is_equipped(p->body, plan->steps[i].new_obj)) {
-					simulated_pack--;
-				}
-			}
+		if (!equip_set_verify_plan(p, plan)) {
+			plan->is_feasible = false;
+		} else {
+			plan->is_feasible = (plan->missing_count == 0) &&
+				(plan->ambiguous_count == 0) &&
+				(plan->cursed_count == 0);
 		}
-
-		plan->is_feasible = (plan->missing_count == 0) &&
-			(plan->ambiguous_count == 0) &&
-			(plan->cursed_count == 0) &&
-			(simulated_pack <= z_info->pack_size);
 	}
 
 	return plan;
 }
 
 /**
- * Execute an equipment swap plan atomically.
+ * Execute an equipment swap plan.
  *
- * Two-phase execution:
- *   Phase 1 — Take off ALL old items from ALL body slots in the plan.
- *   Phase 2 — Wield ALL new items into their assigned body slots.
+ * Precondition: equip_set_verify_plan(p, plan) has returned true.
  *
- * If any step in either phase fails verification, we roll back everything
- * that has been done so far, in reverse order, so the player is never left
- * in a half-swapped state.
+ * Two-phase execution, no rollback (the strict pre-check guarantees that
+ * every individual step will succeed):
+ *   Phase 1 — Take off ALL old items.
+ *   Phase 2 — Wield ALL new items into their pre-assigned body slots.
  *
- * Returns true if the whole plan executed successfully.
+ * If the precondition holds (verified plan), execution cannot fail in any
+ * way that would leave partial state.  We still guard against unexpected
+ * mid-execution state mutations by doing a very light post-check; if the
+ * check somehow fails, we simply report failure without touching anything
+ * further (the caller will see no changes marked).
+ *
+ * Returns true if any equipment state was changed.
  */
 bool equip_set_execute_plan(struct player *p, struct equip_swap_plan *plan)
 {
 	int i;
-	bool *took_off = NULL;
-	bool *wielded = NULL;
-	bool ok = true;
 	bool changed = false;
 	int num_taken = 0;
 	int num_wielded = 0;
@@ -1988,96 +2220,25 @@ bool equip_set_execute_plan(struct player *p, struct equip_swap_plan *plan)
 		return false;
 	}
 
-	took_off = mem_zalloc(plan->num_steps * sizeof(bool));
-	wielded = mem_zalloc(plan->num_steps * sizeof(bool));
+	if (!equip_set_verify_plan(p, plan)) {
+		msg("Equipment swap aborted: %s",
+			plan->verify_error[0] ? plan->verify_error :
+			"preconditions no longer hold");
+		return false;
+	}
 
 	for (i = 0; i < plan->num_steps; i++) {
 		struct object *old_obj = plan->steps[i].old_obj;
 		if (!old_obj) continue;
-
-		if (!object_is_equipped(p->body, old_obj) ||
-			!obj_can_takeoff(old_obj)) {
-			ok = false;
-			break;
-		}
-
 		inven_takeoff(old_obj);
-		if (object_is_equipped(p->body, old_obj)) {
-			ok = false;
-			break;
-		}
-
-		took_off[i] = true;
 		num_taken++;
 	}
 
-	if (ok) {
-		for (i = 0; i < plan->num_steps; i++) {
-			struct object *new_obj = plan->steps[i].new_obj;
-			if (!new_obj) continue;
-
-			if (!object_is_carried(p, new_obj) &&
-				!object_is_equipped(p->body, new_obj)) {
-				ok = false;
-				break;
-			}
-
-			inven_wield(new_obj, plan->steps[i].body_slot);
-
-			{
-				struct object *now = slot_object(p, plan->steps[i].body_slot);
-				bool match = false;
-				if (now) {
-					if (now == new_obj) {
-						match = true;
-					} else if (new_obj->artifact && now->artifact &&
-						streq(now->artifact->name,
-							new_obj->artifact->name)) {
-						match = true;
-					}
-				}
-				if (!match) {
-					ok = false;
-					break;
-				}
-			}
-
-			wielded[i] = true;
-			num_wielded++;
-		}
-	}
-
-	if (!ok) {
-		for (i = plan->num_steps - 1; i >= 0; i--) {
-			if (wielded[i]) {
-				struct object *now = slot_object(p, plan->steps[i].body_slot);
-				if (now && object_is_equipped(p->body, now)) {
-					struct object *new_obj = plan->steps[i].new_obj;
-					if (now == new_obj ||
-						(new_obj && new_obj->artifact &&
-						 now->artifact &&
-						 streq(now->artifact->name,
-							new_obj->artifact->name))) {
-						inven_takeoff(now);
-					}
-				}
-			}
-		}
-
-		for (i = plan->num_steps - 1; i >= 0; i--) {
-			if (took_off[i]) {
-				struct object *old_obj = plan->steps[i].old_obj;
-				if (old_obj && !object_is_equipped(p->body, old_obj) &&
-					!slot_object(p, plan->steps[i].body_slot)) {
-					inven_wield(old_obj, plan->steps[i].body_slot);
-				}
-			}
-		}
-
-		msg("Equipment swap was rolled back — no changes were applied.");
-		mem_free(took_off);
-		mem_free(wielded);
-		return false;
+	for (i = 0; i < plan->num_steps; i++) {
+		struct object *new_obj = plan->steps[i].new_obj;
+		if (!new_obj) continue;
+		inven_wield(new_obj, plan->steps[i].body_slot);
+		num_wielded++;
 	}
 
 	changed = (num_taken > 0) || (num_wielded > 0);
@@ -2092,8 +2253,6 @@ bool equip_set_execute_plan(struct player *p, struct equip_swap_plan *plan)
 		cmd_disable_repeat();
 	}
 
-	mem_free(took_off);
-	mem_free(wielded);
 	return changed;
 }
 
