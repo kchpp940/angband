@@ -36,6 +36,23 @@
 #include "floor-obj.h"
 
 /**
+ * Find an objective in a chunk by its objective_id (1-based).
+ * Returns NULL if not found.
+ */
+static struct floor_objective *floor_obj_find_by_id(struct chunk *c, uint16_t obj_id)
+{
+	int i;
+	if (!c || obj_id == 0) return NULL;
+
+	for (i = 0; i < c->floor_obj.count; i++) {
+		if (c->floor_obj.objs[i].objective_id == obj_id) {
+			return &c->floor_obj.objs[i];
+		}
+	}
+	return NULL;
+}
+
+/**
  * Initialize floor objectives for a chunk
  */
 void floor_obj_init(struct chunk *c)
@@ -46,6 +63,7 @@ void floor_obj_init(struct chunk *c)
 
 	c->floor_obj.count = 0;
 	for (i = 0; i < FLOOR_OBJ_MAX_PER_LEVEL; i++) {
+		c->floor_obj.objs[i].objective_id = 0;
 		c->floor_obj.objs[i].type = FLOOR_OBJ_NONE;
 		c->floor_obj.objs[i].state = FLOOR_OBJ_INACTIVE;
 		c->floor_obj.objs[i].description = NULL;
@@ -114,115 +132,94 @@ static int floor_obj_calc_reward_value(int depth, floor_reward_type type)
 }
 
 /**
- * Count monsters in a rectangular area
- */
-static int floor_obj_count_monsters_in_area(struct chunk *c, struct loc g1, struct loc g2,
-										   struct monster_race *race)
-{
-	int count = 0;
-	int x, y;
-	int x1 = MIN(g1.x, g2.x), x2 = MAX(g1.x, g2.x);
-	int y1 = MIN(g1.y, g2.y), y2 = MAX(g1.y, g2.y);
-
-	for (y = y1; y <= y2; y++) {
-		for (x = x1; x <= x2; x++) {
-			struct loc grid = loc(x, y);
-			struct monster *m = square_monster(c, grid);
-			if (m) {
-				if (!race || m->race == race) {
-					count++;
-				}
-			}
-		}
-	}
-	return count;
-}
-
-/**
- * Generate a CLEAR_NEST objective
+ * Generate a CLEAR_NEST objective.
+ * Each spawned monster has its floor_obj_id set to the objective's id.
+ * Only those monsters count toward the kill count.
  */
 static bool floor_obj_gen_clear_nest(struct chunk *c, struct player *p,
 									 struct floor_objective *obj)
 {
-	struct loc grid;
-	int x, y;
+	struct loc center;
 	int nest_half = 5 + randint0(4);
 	int tries = 0;
+	int x, y;
+	int mon_count;
+	struct monster_race *race;
+	struct monster_group_info info = { 0, 0 };
 
 	while (tries < 50) {
-		grid = loc(rand_range(nest_half + 2, c->width - nest_half - 3),
-				   rand_range(nest_half + 2, c->height - nest_half - 3));
+		center = loc(rand_range(nest_half + 2, c->width - nest_half - 3),
+					 rand_range(nest_half + 2, c->height - nest_half - 3));
 
-		if (square_isfloor(c, grid)) break;
+		if (square_isfloor(c, center)) break;
 		tries++;
 	}
 	if (tries >= 50) return false;
 
+	race = get_mon_num(c->depth, c->depth);
+	if (!race) return false;
+
 	obj->type = FLOOR_OBJ_CLEAR_NEST;
-	obj->target_grid = grid;
-	obj->target_grid2 = loc(grid.x + nest_half, grid.y + nest_half);
-	obj->target_grid = loc(grid.x - nest_half, grid.y - nest_half);
-	obj->target_grid2 = loc(grid.x + nest_half, grid.y + nest_half);
+	obj->target_grid = loc(center.x - nest_half, center.y - nest_half);
+	obj->target_grid2 = loc(center.x + nest_half, center.y + nest_half);
+	obj->data.nest.total_kills = 0;
+	obj->data.nest.current_kills = 0;
 
-	{
-		int mon_count = 4 + randint0(4);
-		struct monster_race *race = get_mon_num(c->depth, c->depth);
-		struct monster_group_info info = { 0, 0 };
-
-		if (!race) return false;
-
-		obj->data.nest.race = race;
-		obj->data.nest.total = 0;
-		obj->data.nest.killed = 0;
-
-		for (x = obj->target_grid.x; x <= obj->target_grid2.x; x++) {
-			for (y = obj->target_grid.y; y <= obj->target_grid2.y; y++) {
-				struct loc mg = loc(x, y);
-				if (square_isfloor(c, mg) || square_isempty(c, mg)) {
-					if (one_in_(3)) {
-						square_set_feat(c, mg, FEAT_FLOOR);
-					}
+	for (x = obj->target_grid.x; x <= obj->target_grid2.x; x++) {
+		for (y = obj->target_grid.y; y <= obj->target_grid2.y; y++) {
+			struct loc mg = loc(x, y);
+			if (square_in_bounds(c, mg) && (square_isfloor(c, mg) || square_isempty(c, mg))) {
+				if (one_in_(3)) {
+					square_set_feat(c, mg, FEAT_FLOOR);
 				}
 			}
 		}
-
-		for (tries = 0; tries < mon_count * 3 && obj->data.nest.total < mon_count; tries++) {
-			struct loc mg;
-			mg = loc(rand_range(obj->target_grid.x, obj->target_grid2.x),
-					 rand_range(obj->target_grid.y, obj->target_grid2.y));
-			if (square_isempty(c, mg)) {
-				if (place_new_monster(c, mg, race, true, true, info, ORIGIN_DROP)) {
-					obj->data.nest.total++;
-				}
-			}
-		}
-
-		if (obj->data.nest.total == 0) return false;
 	}
 
-	obj->description = string_make(format("Clear the monster nest (%d creatures)", obj->data.nest.total));
-	obj->hint = string_make("You sense a concentration of monsters nearby...");
+	mon_count = 4 + randint0(4);
+	tries = 0;
+
+	while (tries < mon_count * 4 && obj->data.nest.total_kills < mon_count) {
+		struct loc mg;
+		mg = loc(rand_range(obj->target_grid.x, obj->target_grid2.x),
+				 rand_range(obj->target_grid.y, obj->target_grid2.y));
+		if (square_isempty(c, mg)) {
+			if (place_new_monster(c, mg, race, true, true, info, ORIGIN_DROP)) {
+				struct monster *new_mon = square_monster(c, mg);
+				if (new_mon) {
+					new_mon->floor_obj_id = (int16_t)obj->objective_id;
+					obj->data.nest.total_kills++;
+				}
+			}
+		}
+		tries++;
+	}
+
+	if (obj->data.nest.total_kills == 0) return false;
+
+	obj->description = string_make("清理怪物巢穴");
+	obj->hint = string_make("你隐约感觉到附近有怪物聚集...");
 	return true;
 }
 
 /**
- * Generate a FIND_HIDDEN objective
+ * Generate a FIND_HIDDEN objective.
  */
 static bool floor_obj_gen_find_hidden(struct chunk *c, struct player *p,
 									  struct floor_objective *obj)
 {
-	struct loc grid;
+	struct loc center;
 	int tries = 0;
 	int room_size = 4 + randint0(3);
 
 	while (tries < 30) {
-		grid = loc(rand_range(room_size + 3, c->width - room_size - 4),
-				   rand_range(room_size + 3, c->height - room_size - 4));
+		center = loc(rand_range(room_size + 3, c->width - room_size - 4),
+					 rand_range(room_size + 3, c->height - room_size - 4));
 
 		bool all_rock = true;
 		int x, y;
-		for (y = grid.y - room_size - 1; y <= grid.y + room_size + 1; y++) {
-			for (x = grid.x - room_size - 1; x <= grid.x + room_size + 1; x++) {
+		for (y = center.y - room_size - 1; y <= center.y + room_size + 1; y++) {
+			for (x = center.x - room_size - 1; x <= center.x + room_size + 1; x++) {
 				struct loc rg = loc(x, y);
 				if (square_in_bounds(c, rg) && !square_isrock(c, rg) && !square_isperm(c, rg)) {
 					all_rock = false;
@@ -237,8 +234,8 @@ static bool floor_obj_gen_find_hidden(struct chunk *c, struct player *p,
 	if (tries >= 30) return false;
 
 	obj->type = FLOOR_OBJ_FIND_HIDDEN;
-	obj->target_grid = loc(grid.x - room_size, grid.y - room_size);
-	obj->target_grid2 = loc(grid.x + room_size, grid.y + room_size);
+	obj->target_grid = loc(center.x - room_size, center.y - room_size);
+	obj->target_grid2 = loc(center.x + room_size, center.y + room_size);
 	obj->data.hidden.found = false;
 	obj->data.hidden.room_id = -1;
 
@@ -258,18 +255,10 @@ static bool floor_obj_gen_find_hidden(struct chunk *c, struct player *p,
 			struct loc door_grid;
 			int door_side = randint0(4);
 			switch (door_side) {
-				case 0:
-					door_grid = loc(grid.x, obj->target_grid.y);
-					break;
-				case 1:
-					door_grid = loc(grid.x, obj->target_grid2.y);
-					break;
-				case 2:
-					door_grid = loc(obj->target_grid.x, grid.y);
-					break;
-				default:
-					door_grid = loc(obj->target_grid2.x, grid.y);
-					break;
+				case 0: door_grid = loc(center.x, obj->target_grid.y); break;
+				case 1: door_grid = loc(center.x, obj->target_grid2.y); break;
+				case 2: door_grid = loc(obj->target_grid.x, center.y); break;
+				default: door_grid = loc(obj->target_grid2.x, center.y); break;
 			}
 			square_set_feat(c, door_grid, FEAT_SECRET);
 			sqinfo_on(square(c, door_grid)->info, SQUARE_ROOM);
@@ -277,21 +266,22 @@ static bool floor_obj_gen_find_hidden(struct chunk *c, struct player *p,
 
 		{
 			int obj_level = c->depth > 0 ? c->depth : 1;
-			struct loc item_grid = grid;
-			place_object(c, item_grid, obj_level, one_in_(3), one_in_(6), ORIGIN_SPECIAL, 0);
+			place_object(c, center, obj_level, one_in_(3), one_in_(6), ORIGIN_SPECIAL, 0);
 			if (one_in_(3)) {
-				place_gold(c, item_grid, obj_level, ORIGIN_SPECIAL);
+				place_gold(c, center, obj_level, ORIGIN_SPECIAL);
 			}
 		}
 	}
 
-	obj->description = string_make("Find the hidden chamber");
-	obj->hint = string_make("There might be a concealed room somewhere on this level...");
+	obj->description = string_make("寻找隐藏房间");
+	obj->hint = string_make("这层似乎藏着一间隐秘的房间...");
 	return true;
 }
 
 /**
- * Generate a RETRIEVE_ITEM objective
+ * Generate a RETRIEVE_ITEM objective.
+ * The spawned object has its floor_obj_id set to the objective's id.
+ * Only picking up that specific object (by id) counts as completion.
  */
 static bool floor_obj_gen_retrieve_item(struct chunk *c, struct player *p,
 										struct floor_objective *obj)
@@ -314,23 +304,22 @@ static bool floor_obj_gen_retrieve_item(struct chunk *c, struct player *p,
 	obj->type = FLOOR_OBJ_RETRIEVE_ITEM;
 	obj->target_grid = grid;
 	obj->target_grid2 = grid;
-	obj->data.item.obj = special_obj;
-	obj->data.item.oidx = special_obj->oidx;
 	obj->data.item.picked_up = false;
 
 	special_obj->origin = ORIGIN_SPECIAL;
 	special_obj->origin_depth = c->depth;
+	special_obj->floor_obj_id = (int16_t)obj->objective_id;
 
 	square_set_obj(c, grid, special_obj);
 	list_object(c, special_obj);
 
-	obj->description = string_make("Retrieve the special item");
-	obj->hint = string_make("Something valuable was left somewhere on this level...");
+	obj->description = string_make("回收特殊物品");
+	obj->hint = string_make("有一件珍贵的物品遗落在这层某处...");
 	return true;
 }
 
 /**
- * Generate a REACH_AREA objective
+ * Generate a REACH_AREA objective.
  */
 static bool floor_obj_gen_reach_area(struct chunk *c, struct player *p,
 									 struct floor_objective *obj)
@@ -354,13 +343,15 @@ static bool floor_obj_gen_reach_area(struct chunk *c, struct player *p,
 	obj->data.area.reached = false;
 	obj->data.area.radius = 2;
 
-	obj->description = string_make("Reach the unexplored region");
-	obj->hint = string_make("A distant area beckons to be explored...");
+	obj->description = string_make("抵达指定区域");
+	obj->hint = string_make("远处有一处值得探索的区域...");
 	return true;
 }
 
 /**
- * Generate floor objectives for a level
+ * Generate floor objectives for a level.
+ * Assigns objective_id = count + 1 (1-based) so it matches the floor_obj_id
+ * written into spawned monsters and objects.
  */
 bool floor_obj_generate(struct chunk *c, struct player *p)
 {
@@ -385,6 +376,8 @@ bool floor_obj_generate(struct chunk *c, struct player *p)
 		bool generated = false;
 		int attempts = 0;
 		int obj_type;
+
+		obj->objective_id = (uint16_t)(c->floor_obj.count + 1);
 
 		while (!generated && attempts < 10) {
 			obj_type = FLOOR_OBJ_CLEAR_NEST + randint0(FLOOR_OBJ_MAX - 1);
@@ -418,6 +411,8 @@ bool floor_obj_generate(struct chunk *c, struct player *p)
 			if (obj->hint) {
 				msgt(MSG_GENERIC, "%s", obj->hint);
 			}
+		} else {
+			obj->objective_id = 0;
 		}
 	}
 
@@ -425,83 +420,61 @@ bool floor_obj_generate(struct chunk *c, struct player *p)
 }
 
 /**
- * Check if a grid is within the bounds of a nest area
- */
-static bool grid_in_nest_area(struct loc grid, struct floor_objective *obj)
-{
-	int x1 = MIN(obj->target_grid.x, obj->target_grid2.x);
-	int x2 = MAX(obj->target_grid.x, obj->target_grid2.x);
-	int y1 = MIN(obj->target_grid.y, obj->target_grid2.y);
-	int y2 = MAX(obj->target_grid.y, obj->target_grid2.y);
-
-	return (grid.x >= x1 && grid.x <= x2 && grid.y >= y1 && grid.y <= y2);
-}
-
-/**
- * Check monster kills against floor objectives
+ * Check monster kills against floor objectives.
+ * ONLY counts monsters whose floor_obj_id matches an active objective.
+ * This prevents the player from killing normal monsters of the same race
+ * to satisfy the objective.
  */
 void floor_obj_check_monster_kill(struct player *p, const struct monster *m)
 {
-	int i;
 	struct chunk *c = cave;
+	struct floor_objective *obj;
 
 	if (!c || !p || !m) return;
+	if (m->floor_obj_id <= 0) return;
 
-	for (i = 0; i < c->floor_obj.count; i++) {
-		struct floor_objective *obj = &c->floor_obj.objs[i];
+	obj = floor_obj_find_by_id(c, (uint16_t)m->floor_obj_id);
+	if (!obj) return;
+	if (obj->state != FLOOR_OBJ_ACTIVE) return;
+	if (obj->type != FLOOR_OBJ_CLEAR_NEST) return;
 
-		if (obj->state != FLOOR_OBJ_ACTIVE) continue;
+	obj->data.nest.current_kills++;
 
-		if (obj->type == FLOOR_OBJ_CLEAR_NEST) {
-			if (grid_in_nest_area(m->grid, obj)) {
-				if (!obj->data.nest.race || m->race == obj->data.nest.race) {
-					obj->data.nest.killed++;
-					if (obj->data.nest.killed >= obj->data.nest.total) {
-						int remaining = floor_obj_count_monsters_in_area(
-							c, obj->target_grid, obj->target_grid2, obj->data.nest.race);
-						if (remaining <= 0) {
-							obj->state = FLOOR_OBJ_COMPLETED;
-							msgt(MSG_GENERIC, "You have cleared the monster nest!");
-						}
-					}
-				}
-			}
-		}
+	if (obj->data.nest.current_kills >= obj->data.nest.total_kills) {
+		obj->state = FLOOR_OBJ_COMPLETED;
+		msgt(MSG_GENERIC, "你清理了怪物巢穴！");
 	}
 
 	floor_obj_claim_rewards(p);
 }
 
 /**
- * Check item pickups against floor objectives
+ * Check item pickups against floor objectives.
+ * ONLY counts items whose floor_obj_id matches an active objective.
+ * This prevents the player from picking up normal items to complete objectives.
  */
 void floor_obj_check_item_pickup(struct player *p, const struct object *obj_picked)
 {
-	int i;
 	struct chunk *c = cave;
+	struct floor_objective *obj;
 
 	if (!c || !p || !obj_picked) return;
+	if (obj_picked->floor_obj_id <= 0) return;
 
-	for (i = 0; i < c->floor_obj.count; i++) {
-		struct floor_objective *obj = &c->floor_obj.objs[i];
+	obj = floor_obj_find_by_id(c, (uint16_t)obj_picked->floor_obj_id);
+	if (!obj) return;
+	if (obj->state != FLOOR_OBJ_ACTIVE) return;
+	if (obj->type != FLOOR_OBJ_RETRIEVE_ITEM) return;
 
-		if (obj->state != FLOOR_OBJ_ACTIVE) continue;
-
-		if (obj->type == FLOOR_OBJ_RETRIEVE_ITEM) {
-			if (obj->data.item.obj && (obj->data.item.obj == obj_picked ||
-				obj->data.item.oidx == obj_picked->oidx)) {
-				obj->data.item.picked_up = true;
-				obj->state = FLOOR_OBJ_COMPLETED;
-				msgt(MSG_GENERIC, "You have retrieved the special item!");
-			}
-		}
-	}
+	obj->data.item.picked_up = true;
+	obj->state = FLOOR_OBJ_COMPLETED;
+	msgt(MSG_GENERIC, "你回收了目标物品！");
 
 	floor_obj_claim_rewards(p);
 }
 
 /**
- * Check player movement against floor objectives
+ * Check player movement against area-reach and hidden-room objectives.
  */
 void floor_obj_check_player_move(struct player *p)
 {
@@ -520,12 +493,12 @@ void floor_obj_check_player_move(struct player *p)
 			if (dist <= obj->data.area.radius) {
 				obj->data.area.reached = true;
 				obj->state = FLOOR_OBJ_COMPLETED;
-				msgt(MSG_GENERIC, "You have reached the target area!");
+				msgt(MSG_GENERIC, "你抵达了目标区域！");
 			}
 		}
 
 		if (obj->type == FLOOR_OBJ_FIND_HIDDEN) {
-			if (!obj->data.hidden.found && square_isview(c, p->grid)) {
+			if (!obj->data.hidden.found) {
 				int x1 = MIN(obj->target_grid.x, obj->target_grid2.x);
 				int x2 = MAX(obj->target_grid.x, obj->target_grid2.x);
 				int y1 = MIN(obj->target_grid.y, obj->target_grid2.y);
@@ -535,7 +508,7 @@ void floor_obj_check_player_move(struct player *p)
 					p->grid.y >= y1 && p->grid.y <= y2) {
 					obj->data.hidden.found = true;
 					obj->state = FLOOR_OBJ_COMPLETED;
-					msgt(MSG_GENERIC, "You have discovered the hidden chamber!");
+					msgt(MSG_GENERIC, "你发现了隐藏房间！");
 				}
 			}
 		}
@@ -545,7 +518,7 @@ void floor_obj_check_player_move(struct player *p)
 }
 
 /**
- * Check room discovery (called when player sees a new square)
+ * Check room discovery (called when player sees a new square).
  */
 void floor_obj_check_room_discovery(struct player *p, struct loc grid)
 {
@@ -558,21 +531,21 @@ void floor_obj_check_room_discovery(struct player *p, struct loc grid)
 		struct floor_objective *obj = &c->floor_obj.objs[i];
 
 		if (obj->state != FLOOR_OBJ_ACTIVE) continue;
+		if (obj->type != FLOOR_OBJ_FIND_HIDDEN) continue;
+		if (obj->data.hidden.found) continue;
 
-		if (obj->type == FLOOR_OBJ_FIND_HIDDEN) {
-			if (!obj->data.hidden.found) {
-				int x1 = MIN(obj->target_grid.x, obj->target_grid2.x);
-				int x2 = MAX(obj->target_grid.x, obj->target_grid2.x);
-				int y1 = MIN(obj->target_grid.y, obj->target_grid2.y);
-				int y2 = MAX(obj->target_grid.y, obj->target_grid2.y);
+		{
+			int x1 = MIN(obj->target_grid.x, obj->target_grid2.x);
+			int x2 = MAX(obj->target_grid.x, obj->target_grid2.x);
+			int y1 = MIN(obj->target_grid.y, obj->target_grid2.y);
+			int y2 = MAX(obj->target_grid.y, obj->target_grid2.y);
 
-				if (grid.x >= x1 && grid.x <= x2 &&
-					grid.y >= y1 && grid.y <= y2) {
-					if (square_isview(c, grid)) {
-						obj->data.hidden.found = true;
-						obj->state = FLOOR_OBJ_COMPLETED;
-						msgt(MSG_GENERIC, "You have discovered the hidden chamber!");
-					}
+			if (grid.x >= x1 && grid.x <= x2 &&
+				grid.y >= y1 && grid.y <= y2) {
+				if (square_isview(c, grid)) {
+					obj->data.hidden.found = true;
+					obj->state = FLOOR_OBJ_COMPLETED;
+					msgt(MSG_GENERIC, "你发现了隐藏房间！");
 				}
 			}
 		}
@@ -582,7 +555,7 @@ void floor_obj_check_room_discovery(struct player *p, struct loc grid)
 }
 
 /**
- * Claim all completed floor objective rewards
+ * Claim all completed floor objective rewards.
  */
 void floor_obj_claim_rewards(struct player *p)
 {
@@ -604,13 +577,13 @@ void floor_obj_claim_rewards(struct player *p)
 			{
 				p->au += obj->reward_value;
 				p->upkeep->redraw |= PR_GOLD;
-				msgt(MSG_MONEY1, "You receive %d gold pieces worth of treasure!", obj->reward_value);
+				msgt(MSG_MONEY1, "你获得了 %d 枚金币作为奖励！", obj->reward_value);
 				break;
 			}
 			case FLOOR_REWARD_EXP:
 			{
 				player_exp_gain(p, obj->reward_value);
-				msgt(MSG_LEVEL, "You gain %d experience points!", obj->reward_value);
+				msgt(MSG_LEVEL, "你获得了 %d 点经验！", obj->reward_value);
 				break;
 			}
 			case FLOOR_REWARD_OBJECT:
@@ -628,7 +601,7 @@ void floor_obj_claim_rewards(struct player *p)
 					square_set_obj(c, grid, reward);
 					list_object(c, reward);
 					reward->origin = ORIGIN_SPECIAL;
-					msgt(MSG_GENERIC, "A reward materializes at your feet!");
+					msgt(MSG_GENERIC, "一件奖励出现在你脚边！");
 				}
 				break;
 			}
@@ -640,7 +613,7 @@ void floor_obj_claim_rewards(struct player *p)
 				}
 				p->chp += heal_amt;
 				p->upkeep->redraw |= PR_HP;
-				msgt(MSG_RECOVER, "You feel better! (%d HP recovered)", heal_amt);
+				msgt(MSG_RECOVER, "你感觉好多了！(恢复了 %d 点生命)", heal_amt);
 
 				if (p->csp < p->msp) {
 					int mana_amt = obj->reward_value / 2;
@@ -659,7 +632,8 @@ void floor_obj_claim_rewards(struct player *p)
 }
 
 /**
- * Get status text for a floor objective
+ * Get status text for a floor objective.
+ * VAGUE: never shows coordinates, grid distances, or monster race names.
  */
 const char *floor_obj_get_status_text(struct chunk *c, int idx)
 {
@@ -671,10 +645,12 @@ const char *floor_obj_get_status_text(struct chunk *c, int idx)
 	obj = &c->floor_obj.objs[idx];
 
 	if (obj->state == FLOOR_OBJ_COMPLETED) {
-		if (obj->description) {
-			strnfmt(buf, sizeof(buf), "[Done] %s", obj->description);
+		if (obj->reward_claimed) {
+			strnfmt(buf, sizeof(buf), "[已完成] %s",
+				obj->description ? obj->description : "楼层目标");
 		} else {
-			strnfmt(buf, sizeof(buf), "[Done] Floor objective");
+			strnfmt(buf, sizeof(buf), "[奖励已就绪] %s",
+				obj->description ? obj->description : "楼层目标");
 		}
 		return buf;
 	}
@@ -683,39 +659,33 @@ const char *floor_obj_get_status_text(struct chunk *c, int idx)
 
 	switch (obj->type) {
 		case FLOOR_OBJ_CLEAR_NEST:
-			if (obj->description) {
-				strnfmt(buf, sizeof(buf), "%s (%d/%d)",
-					obj->description, obj->data.nest.killed, obj->data.nest.total);
-			}
+			strnfmt(buf, sizeof(buf), "%s: 已击杀 %d/%d",
+				obj->description ? obj->description : "清理巢穴",
+				obj->data.nest.current_kills,
+				obj->data.nest.total_kills);
 			break;
 		case FLOOR_OBJ_FIND_HIDDEN:
-			strnfmt(buf, sizeof(buf), "%s (searching...)",
-				obj->description ? obj->description : "Find hidden room");
+			strnfmt(buf, sizeof(buf), "%s: 搜索中...",
+				obj->description ? obj->description : "寻找隐藏房间");
 			break;
 		case FLOOR_OBJ_RETRIEVE_ITEM:
-			strnfmt(buf, sizeof(buf), "%s (on floor)",
-				obj->description ? obj->description : "Retrieve item");
+			if (obj->data.item.picked_up) {
+				strnfmt(buf, sizeof(buf), "%s: 已回收",
+					obj->description ? obj->description : "回收物品");
+			} else {
+				strnfmt(buf, sizeof(buf), "%s: 遗落在此层",
+					obj->description ? obj->description : "回收物品");
+			}
 			break;
 		case FLOOR_OBJ_REACH_AREA:
-		{
-			int dist = -1;
-			if (player) {
-				dist = distance(player->grid, obj->target_grid);
-			}
-			if (dist >= 0) {
-				strnfmt(buf, sizeof(buf), "%s (%d grids away)",
-					obj->description ? obj->description : "Reach area", dist);
-			} else {
-				strnfmt(buf, sizeof(buf), "%s",
-					obj->description ? obj->description : "Reach area");
-			}
+			strnfmt(buf, sizeof(buf), "%s: 探索中...",
+				obj->description ? obj->description : "抵达区域");
 			break;
-		}
 		default:
 			if (obj->description) {
 				my_strcpy(buf, obj->description, sizeof(buf));
 			} else {
-				strnfmt(buf, sizeof(buf), "Floor objective");
+				strnfmt(buf, sizeof(buf), "楼层目标");
 			}
 			break;
 	}
@@ -740,90 +710,47 @@ bool floor_obj_has_active(struct chunk *c)
 }
 
 /**
- * Get grids to highlight on the map for active objectives
- * Returns the number of highlight grids filled
+ * Get grids to highlight on the map.
+ * INTENTIONALLY EMPTY: no spoilers via map highlights.
  */
 int floor_obj_get_highlight_grid(struct chunk *c, struct loc *grid)
 {
-	int i;
-	int count = 0;
-
-	if (!c || !grid) return 0;
-
-	for (i = 0; i < c->floor_obj.count && count < FLOOR_OBJ_MAX_PER_LEVEL; i++) {
-		struct floor_objective *obj = &c->floor_obj.objs[i];
-
-		if (obj->state != FLOOR_OBJ_ACTIVE) continue;
-
-		switch (obj->type) {
-			case FLOOR_OBJ_REACH_AREA:
-				grid[count++] = obj->target_grid;
-				break;
-			case FLOOR_OBJ_RETRIEVE_ITEM:
-				if (obj->data.item.obj && !obj->data.item.picked_up) {
-					if (player && los(c, player->grid, obj->target_grid)) {
-						grid[count++] = obj->target_grid;
-					}
-				}
-				break;
-			default:
-				break;
-		}
-	}
-
-	return count;
+	return 0;
 }
 
 /**
- * Check if a single grid should be highlighted on the map
+ * Check if a grid should be highlighted.
+ * INTENTIONALLY RETURNS FALSE: no spoilers via map highlights.
  */
 bool floor_obj_is_highlight_grid(struct chunk *c, struct loc grid)
 {
-	int i;
-
-	if (!c) return false;
-
-	for (i = 0; i < c->floor_obj.count; i++) {
-		struct floor_objective *obj = &c->floor_obj.objs[i];
-
-		if (obj->state != FLOOR_OBJ_ACTIVE) continue;
-
-		switch (obj->type) {
-			case FLOOR_OBJ_REACH_AREA:
-				if (loc_eq(obj->target_grid, grid)) return true;
-				break;
-			case FLOOR_OBJ_RETRIEVE_ITEM:
-				if (obj->data.item.obj && !obj->data.item.picked_up) {
-					if (loc_eq(obj->target_grid, grid)) {
-						if (player && los(c, player->grid, grid)) return true;
-					}
-				}
-				break;
-			case FLOOR_OBJ_CLEAR_NEST:
-			{
-				int x1 = MIN(obj->target_grid.x, obj->target_grid2.x);
-				int x2 = MAX(obj->target_grid.x, obj->target_grid2.x);
-				int y1 = MIN(obj->target_grid.y, obj->target_grid2.y);
-				int y2 = MAX(obj->target_grid.y, obj->target_grid2.y);
-				if (grid.x >= x1 && grid.x <= x2 && grid.y >= y1 && grid.y <= y2) {
-					return true;
-				}
-				break;
-			}
-			default:
-				break;
-		}
-	}
-
 	return false;
 }
 
 /**
- * Write floor objectives to savefile
+ * Write floor objectives to savefile.
+ * Format per objective:
+ *   u16 objective_id
+ *   u8  type
+ *   u8  state
+ *   str description
+ *   str hint
+ *   u8  target_grid.x (internal, not shown to player)
+ *   u8  target_grid.y
+ *   u8  target_grid2.x
+ *   u8  target_grid2.y
+ *   [type-specific data with progress]
+ *   u8  reward_type
+ *   s32 reward_value
+ *   u8  reward_claimed
+ *
+ * The actual monster/object floor_obj_id bindings are saved alongside
+ * each monster and object in the monsters/objects save blocks.
  */
 void wr_floor_obj(struct chunk *c)
 {
 	int i;
+	uint16_t map_count;
 
 	if (!c) {
 		wr_u16b(0);
@@ -835,6 +762,7 @@ void wr_floor_obj(struct chunk *c)
 	for (i = 0; i < FLOOR_OBJ_MAX_PER_LEVEL; i++) {
 		struct floor_objective *obj = &c->floor_obj.objs[i];
 
+		wr_u16b(obj->objective_id);
 		wr_byte(obj->type);
 		wr_byte(obj->state);
 
@@ -848,16 +776,14 @@ void wr_floor_obj(struct chunk *c)
 
 		switch (obj->type) {
 			case FLOOR_OBJ_CLEAR_NEST:
-				wr_s16b(obj->data.nest.total);
-				wr_s16b(obj->data.nest.killed);
-				wr_string(obj->data.nest.race ? obj->data.nest.race->name : "");
+				wr_s16b(obj->data.nest.total_kills);
+				wr_s16b(obj->data.nest.current_kills);
 				break;
 			case FLOOR_OBJ_FIND_HIDDEN:
 				wr_byte(obj->data.hidden.found ? 1 : 0);
 				wr_s16b(obj->data.hidden.room_id);
 				break;
 			case FLOOR_OBJ_RETRIEVE_ITEM:
-				wr_u32b(obj->data.item.oidx);
 				wr_byte(obj->data.item.picked_up ? 1 : 0);
 				break;
 			case FLOOR_OBJ_REACH_AREA:
@@ -872,10 +798,42 @@ void wr_floor_obj(struct chunk *c)
 		wr_s32b(obj->reward_value);
 		wr_byte(obj->reward_claimed ? 1 : 0);
 	}
+
+	/* Save monster -> floor_obj_id mapping (only non-zero) */
+	map_count = 0;
+	for (i = 0; i < c->mon_max; i++) {
+		if (c->monsters[i].floor_obj_id > 0) {
+			map_count++;
+		}
+	}
+	wr_u16b(map_count);
+	for (i = 0; i < c->mon_max; i++) {
+		if (c->monsters[i].floor_obj_id > 0) {
+			wr_u16b(c->monsters[i].midx);
+			wr_s16b(c->monsters[i].floor_obj_id);
+		}
+	}
+
+	/* Save object -> floor_obj_id mapping (only non-zero) */
+	map_count = 0;
+	for (i = 0; i < c->obj_max; i++) {
+		if (c->objects[i] && c->objects[i]->floor_obj_id > 0) {
+			map_count++;
+		}
+	}
+	wr_u16b(map_count);
+	for (i = 0; i < c->obj_max; i++) {
+		if (c->objects[i] && c->objects[i]->floor_obj_id > 0) {
+			wr_u16b(c->objects[i]->oidx);
+			wr_s16b(c->objects[i]->floor_obj_id);
+		}
+	}
 }
 
 /**
- * Read floor objectives from savefile
+ * Read floor objectives from savefile.
+ * The monster/object floor_obj_id bindings are restored from the
+ * monsters/objects save blocks.
  */
 void rd_floor_obj(struct chunk *c)
 {
@@ -883,8 +841,7 @@ void rd_floor_obj(struct chunk *c)
 	uint16_t count;
 	uint8_t tmp8u;
 	int16_t tmp16s;
-	uint32_t tmp32u;
-	char buf[120];
+	uint16_t map_count;
 
 	if (!c) {
 		rd_u16b(&count);
@@ -902,6 +859,11 @@ void rd_floor_obj(struct chunk *c)
 
 	for (i = 0; i < FLOOR_OBJ_MAX_PER_LEVEL; i++) {
 		struct floor_objective *obj = &c->floor_obj.objs[i];
+		char buf[120];
+		uint16_t obj_id;
+
+		rd_u16b(&obj_id);
+		obj->objective_id = obj_id;
 
 		rd_byte(&tmp8u);
 		obj->type = (floor_obj_type)tmp8u;
@@ -931,13 +893,9 @@ void rd_floor_obj(struct chunk *c)
 		switch (obj->type) {
 			case FLOOR_OBJ_CLEAR_NEST:
 				rd_s16b(&tmp16s);
-				obj->data.nest.total = tmp16s;
+				obj->data.nest.total_kills = tmp16s;
 				rd_s16b(&tmp16s);
-				obj->data.nest.killed = tmp16s;
-				rd_string(buf, sizeof(buf));
-				if (buf[0]) {
-					obj->data.nest.race = lookup_monster(buf);
-				}
+				obj->data.nest.current_kills = tmp16s;
 				break;
 			case FLOOR_OBJ_FIND_HIDDEN:
 				rd_byte(&tmp8u);
@@ -946,9 +904,6 @@ void rd_floor_obj(struct chunk *c)
 				obj->data.hidden.room_id = tmp16s;
 				break;
 			case FLOOR_OBJ_RETRIEVE_ITEM:
-				rd_u32b(&tmp32u);
-				obj->data.item.oidx = tmp32u;
-				obj->data.item.obj = NULL;
 				rd_byte(&tmp8u);
 				obj->data.item.picked_up = tmp8u ? true : false;
 				break;
@@ -967,5 +922,29 @@ void rd_floor_obj(struct chunk *c)
 		rd_s32b((int32_t *)&obj->reward_value);
 		rd_byte(&tmp8u);
 		obj->reward_claimed = tmp8u ? true : false;
+	}
+
+	/* Restore monster -> floor_obj_id mapping */
+	rd_u16b(&map_count);
+	for (i = 0; i < map_count; i++) {
+		uint16_t midx;
+		int16_t obj_id;
+		rd_u16b(&midx);
+		rd_s16b(&obj_id);
+		if (midx < c->mon_max) {
+			c->monsters[midx].floor_obj_id = obj_id;
+		}
+	}
+
+	/* Restore object -> floor_obj_id mapping */
+	rd_u16b(&map_count);
+	for (i = 0; i < map_count; i++) {
+		uint16_t oidx;
+		int16_t obj_id;
+		rd_u16b(&oidx);
+		rd_s16b(&obj_id);
+		if (oidx < c->obj_max && c->objects[oidx]) {
+			c->objects[oidx]->floor_obj_id = obj_id;
+		}
 	}
 }

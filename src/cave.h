@@ -218,30 +218,30 @@ struct object;
 
 /**
  * Floor objective structure - stored per chunk (level)
+ * Each objective has objective_id (1-based) that is written into
+ * the floor_obj_id field of generated monsters/objects for explicit binding.
  */
 struct floor_objective {
+	uint16_t objective_id;		/* 1-based id, matches entity floor_obj_id */
 	floor_obj_type type;
 	floor_obj_state state;
 
-	char *description;
-	char *hint;
+	char *description;		/* Short description (vague, no spoilers) */
+	char *hint;			/* Optional hint text */
 
-	struct loc target_grid;
-	struct loc target_grid2;
+	struct loc target_grid;		/* Internal reference (not shown to player) */
+	struct loc target_grid2;	/* Internal reference (area corners, etc) */
 
 	union {
 		struct {
-			int total;
-			int killed;
-			struct monster_race *race;
+			int total_kills;	/* How many monsters to kill */
+			int current_kills;	/* How many killed so far */
 		} nest;
 		struct {
 			bool found;
 			int room_id;
 		} hidden;
 		struct {
-			struct object *obj;
-			uint32_t oidx;
 			bool picked_up;
 		} item;
 		struct {

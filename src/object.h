@@ -470,6 +470,8 @@ struct object {
 	const struct monster_race *origin_race;	/**< Monster race that dropped it */
 
 	quark_t note; 			/**< Inscription index */
+
+	int16_t floor_obj_id;		/**< Floor objective binding (0=none, 1-based idx+1) */
 };
 
 /**
@@ -513,6 +515,7 @@ static struct object const OBJECT_NULL = {
 	.origin_depth = 0,
 	.origin_race = NULL,
 	.note = 0,
+	.floor_obj_id = 0,
 };
 
 struct flavor
