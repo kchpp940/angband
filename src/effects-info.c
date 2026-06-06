@@ -1226,6 +1226,437 @@ size_t spell_info_summary(char *buf, size_t max,
 	return offset;
 }
 
+static char *derive_side_effect_from_effects(struct effect *head)
+{
+	struct effect *e;
+	char buf[512];
+	size_t off = 0;
+	bool first = true;
+	const char *sep;
+
+	buf[0] = '\0';
+
+	for (e = head; e; e = effect_next(e)) {
+		sep = first ? "" : "; ";
+
+		switch (e->index) {
+		case EF_SET_VALUE:
+		case EF_CLEAR_VALUE:
+		case EF_NONE:
+		case EF_RANDOM:
+		case EF_SELECT:
+		case EF_DAMAGE:
+		case EF_BOLT:
+		case EF_BEAM:
+		case EF_BOLT_OR_BEAM:
+		case EF_BALL:
+		case EF_BREATH:
+		case EF_ARC:
+		case EF_SHORT_BEAM:
+		case EF_LINE:
+		case EF_STAR:
+		case EF_STAR_BALL:
+		case EF_SWARM:
+		case EF_STRIKE:
+		case EF_LASH:
+		case EF_SPOT:
+		case EF_SPHERE:
+			break;
+
+		case EF_TIMED_INC:
+		case EF_TIMED_INC_NO_RES:
+		case EF_TIMED_SET:
+			if (e->subtype >= 0 && e->subtype < TMD_MAX
+				&& timed_effects[e->subtype].name) {
+				off += strnfmt(buf + off, sizeof(buf) - off,
+					"%sgrants %s", sep,
+					timed_effects[e->subtype].name);
+				first = false;
+			}
+			break;
+
+		case EF_TIMED_DEC:
+			if (e->subtype >= 0 && e->subtype < TMD_MAX
+				&& timed_effects[e->subtype].name) {
+				off += strnfmt(buf + off, sizeof(buf) - off,
+					"%sreduces %s", sep,
+					timed_effects[e->subtype].name);
+				first = false;
+			}
+			break;
+
+		case EF_CURE:
+			if (e->subtype >= 0 && e->subtype < TMD_MAX
+				&& timed_effects[e->subtype].name) {
+				off += strnfmt(buf + off, sizeof(buf) - off,
+					"%scures %s", sep,
+					timed_effects[e->subtype].name);
+				first = false;
+			}
+			break;
+
+		case EF_TELEPORT:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%steleports randomly", sep);
+			first = false;
+			break;
+
+		case EF_TELEPORT_TO:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%steleports to target", sep);
+			first = false;
+			break;
+
+		case EF_TELEPORT_LEVEL:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%steleports level", sep);
+			first = false;
+			break;
+
+		case EF_CURSE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%scurses target", sep);
+			first = false;
+			break;
+
+		case EF_REMOVE_CURSE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sremoves curses", sep);
+			first = false;
+			break;
+
+		case EF_SUMMON:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%ssummons creatures", sep);
+			first = false;
+			break;
+
+		case EF_BANISH:
+		case EF_MASS_BANISH:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sbanishes creatures", sep);
+			first = false;
+			break;
+
+		case EF_BOLT_STATUS:
+		case EF_BOLT_STATUS_DAM:
+		case EF_BOLT_AWARE:
+			if (e->subtype >= 0 && e->subtype < PROJ_MAX) {
+				const char *pname = proj_idx_to_name(e->subtype);
+				if (pname) {
+					off += strnfmt(buf + off, sizeof(buf) - off,
+						"%sstatus bolt (%s)", sep, pname);
+				} else {
+					off += strnfmt(buf + off, sizeof(buf) - off,
+						"%sstatus bolt", sep);
+				}
+			} else {
+				off += strnfmt(buf + off, sizeof(buf) - off,
+					"%sstatus bolt", sep);
+			}
+			first = false;
+			break;
+
+		case EF_TOUCH:
+		case EF_TOUCH_AWARE:
+			if (e->subtype >= 0 && e->subtype < PROJ_MAX) {
+				const char *pname = proj_idx_to_name(e->subtype);
+				if (pname) {
+					off += strnfmt(buf + off, sizeof(buf) - off,
+						"%stouch effect (%s)", sep, pname);
+				} else {
+					off += strnfmt(buf + off, sizeof(buf) - off,
+						"%stouch effect", sep);
+				}
+			} else {
+				off += strnfmt(buf + off, sizeof(buf) - off,
+					"%stouch effect", sep);
+			}
+			first = false;
+			break;
+
+		case EF_SHAPECHANGE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%schanges shape", sep);
+			first = false;
+			break;
+
+		case EF_IDENTIFY:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sidentifies items", sep);
+			first = false;
+			break;
+
+		case EF_RECHARGE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%srecharges devices", sep);
+			first = false;
+			break;
+
+		case EF_TAP_DEVICE:
+		case EF_TAP_UNLIFE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%staps magical energy", sep);
+			first = false;
+			break;
+
+		case EF_BRAND_WEAPON:
+		case EF_BRAND_AMMO:
+		case EF_BRAND_BOLTS:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sbrands equipment", sep);
+			first = false;
+			break;
+
+		case EF_ENCHANT:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%senchants items", sep);
+			first = false;
+			break;
+
+		case EF_DISENCHANT:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sdisenchants items", sep);
+			first = false;
+			break;
+
+		case EF_MAP_AREA:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%smaps area", sep);
+			first = false;
+			break;
+
+		case EF_LIGHT_LEVEL:
+		case EF_DARKEN_LEVEL:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%saffects entire level", sep);
+			first = false;
+			break;
+
+		case EF_LIGHT_AREA:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%slights area", sep);
+			first = false;
+			break;
+
+		case EF_DARKEN_AREA:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sdarkens area", sep);
+			first = false;
+			break;
+
+		case EF_RECALL:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sword of recall", sep);
+			first = false;
+			break;
+
+		case EF_DEEP_DESCENT:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sdeep descent", sep);
+			first = false;
+			break;
+
+		case EF_ALTER_REALITY:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%salters reality", sep);
+			first = false;
+			break;
+
+		case EF_HEAL_HP:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sheals hitpoints", sep);
+			first = false;
+			break;
+
+		case EF_RESTORE_MANA:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%srestores mana", sep);
+			first = false;
+			break;
+
+		case EF_RESTORE_EXP:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%srestores experience", sep);
+			first = false;
+			break;
+
+		case EF_RESTORE_STAT:
+		case EF_DRAIN_STAT:
+		case EF_GAIN_STAT:
+		case EF_LOSE_RANDOM_STAT:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%saffects stats", sep);
+			first = false;
+			break;
+
+		case EF_NOURISH:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%snourishes", sep);
+			first = false;
+			break;
+
+		case EF_EARTHQUAKE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%scauses earthquake", sep);
+			first = false;
+			break;
+
+		case EF_DESTRUCTION:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%scauses destruction", sep);
+			first = false;
+			break;
+
+		case EF_GLYPH:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%screates glyph", sep);
+			first = false;
+			break;
+
+		case EF_WEB:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%screates webs", sep);
+			first = false;
+			break;
+
+		case EF_WAKE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sawakens monsters", sep);
+			first = false;
+			break;
+
+		case EF_PROBE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sprobes monsters", sep);
+			first = false;
+			break;
+
+		case EF_ACQUIRE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%screates items", sep);
+			first = false;
+			break;
+
+		case EF_COMMAND:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%scommands monsters", sep);
+			first = false;
+			break;
+
+		case EF_SINGLE_COMBAT:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%ssingle combat", sep);
+			first = false;
+			break;
+
+		case EF_PROJECT_LOS:
+		case EF_PROJECT_LOS_AWARE:
+			if (e->subtype >= 0 && e->subtype < PROJ_MAX) {
+				const char *pname = proj_idx_to_name(e->subtype);
+				if (pname) {
+					off += strnfmt(buf + off, sizeof(buf) - off,
+						"%saffects all in LOS (%s)", sep, pname);
+				}
+			}
+			first = false;
+			break;
+
+		case EF_SCRAMBLE_STATS:
+		case EF_UNSCRAMBLE_STATS:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sscrambles stats", sep);
+			first = false;
+			break;
+
+		case EF_CREATE_STAIRS:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%screates stairs", sep);
+			first = false;
+			break;
+
+		case EF_CREATE_ARROWS:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%screates arrows", sep);
+			first = false;
+			break;
+
+		case EF_DRAIN_LIGHT:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sdrains light", sep);
+			first = false;
+			break;
+
+		case EF_DRAIN_MANA:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sdrains mana", sep);
+			first = false;
+			break;
+
+		case EF_CURSE_ARMOR:
+		case EF_CURSE_WEAPON:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%scurses equipment", sep);
+			first = false;
+			break;
+
+		case EF_JUMP_AND_BITE:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%sjump and bite attack", sep);
+			first = false;
+			break;
+
+		case EF_MOVE_ATTACK:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%smove and attack", sep);
+			first = false;
+			break;
+
+		case EF_MELEE_BLOWS:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%smelee blows attack", sep);
+			first = false;
+			break;
+
+		case EF_SWEEP:
+			off += strnfmt(buf + off, sizeof(buf) - off,
+				"%ssweep attack", sep);
+			first = false;
+			break;
+
+		case EF_DETECT_TRAPS:
+		case EF_DETECT_DOORS:
+		case EF_DETECT_STAIRS:
+		case EF_DETECT_ORE:
+		case EF_SENSE_GOLD:
+		case EF_DETECT_GOLD:
+		case EF_SENSE_OBJECTS:
+		case EF_DETECT_OBJECTS:
+		case EF_DETECT_LIVING_MONSTERS:
+		case EF_DETECT_VISIBLE_MONSTERS:
+		case EF_DETECT_INVISIBLE_MONSTERS:
+		case EF_DETECT_FEARFUL_MONSTERS:
+		case EF_DETECT_EVIL:
+		case EF_DETECT_SOUL:
+		case EF_READ_MINDS:
+			if (first) {
+				off += strnfmt(buf + off, sizeof(buf) - off,
+					"%sdetects things", sep);
+				first = false;
+			}
+			break;
+
+		default:
+			break;
+		}
+	}
+
+	if (off > 0) {
+		return string_make(buf);
+	}
+	return NULL;
+}
+
 void spell_derive_spell_defaults(struct class_spell *spell)
 {
 	struct effect *e;
@@ -1258,6 +1689,9 @@ void spell_derive_spell_defaults(struct class_spell *spell)
 		case EF_MELEE_BLOWS:
 		case EF_BIZARRE:
 		case EF_WONDER:
+		case EF_JUMP_AND_BITE:
+		case EF_PROBE:
+		case EF_DRAIN_MANA:
 			if (spell->range == -2) {
 				spell->range = -1;
 			}
@@ -1351,14 +1785,22 @@ void spell_derive_spell_defaults(struct class_spell *spell)
 		case EF_DARKEN_AREA:
 		case EF_TELEPORT:
 		case EF_TELEPORT_LEVEL:
+		case EF_TELEPORT_TO:
 		case EF_RECALL:
 		case EF_HEAL_HP:
 		case EF_RESTORE_MANA:
+		case EF_RESTORE_EXP:
 		case EF_CURE:
 		case EF_TIMED_SET:
 		case EF_TIMED_INC:
+		case EF_TIMED_INC_NO_RES:
 		case EF_TIMED_DEC:
 		case EF_RESTORE_STAT:
+		case EF_DRAIN_STAT:
+		case EF_GAIN_STAT:
+		case EF_LOSE_RANDOM_STAT:
+		case EF_SCRAMBLE_STATS:
+		case EF_UNSCRAMBLE_STATS:
 		case EF_IDENTIFY:
 		case EF_GLYPH:
 		case EF_WEB:
@@ -1366,15 +1808,37 @@ void spell_derive_spell_defaults(struct class_spell *spell)
 		case EF_RECHARGE:
 		case EF_REMOVE_CURSE:
 		case EF_CREATE_STAIRS:
+		case EF_CREATE_ARROWS:
 		case EF_DEEP_DESCENT:
 		case EF_ALTER_REALITY:
 		case EF_LIGHT_LEVEL:
 		case EF_DARKEN_LEVEL:
 		case EF_BRAND_WEAPON:
 		case EF_BRAND_AMMO:
+		case EF_BRAND_BOLTS:
 		case EF_SHAPECHANGE:
+		case EF_TAP_DEVICE:
+		case EF_TAP_UNLIFE:
+		case EF_DRAIN_LIGHT:
+		case EF_NOURISH:
+		case EF_EARTHQUAKE:
+		case EF_DESTRUCTION:
+		case EF_CURSE_ARMOR:
+		case EF_CURSE_WEAPON:
+		case EF_SUMMON:
+		case EF_BANISH:
+		case EF_MASS_BANISH:
+		case EF_SWEEP:
+		case EF_WAKE:
+		case EF_ACQUIRE:
+		case EF_DISENCHANT:
 			if (spell->range == -2) {
 				spell->range = 0;
+			}
+			if (spell->radius == 0) {
+				if (e->radius > 0) {
+					spell->radius = e->radius;
+				}
 			}
 			if (spell->need_los == -1) {
 				spell->need_los = 0;
@@ -1387,6 +1851,10 @@ void spell_derive_spell_defaults(struct class_spell *spell)
 		default:
 			break;
 		}
+	}
+
+	if (!spell->side_effect) {
+		spell->side_effect = derive_side_effect_from_effects(spell->effect);
 	}
 }
 

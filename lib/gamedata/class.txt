@@ -372,6 +372,10 @@ book-graphics:?:R
 book-properties:1600:20:30 to 100
 
 spell:Disable Traps, Destroy Doors:5:5:30:6
+spell-range:0
+spell-radius:1
+spell-need-los:0
+spell-side-effect: disables traps and destroys doors nearby
 effect:TOUCH:KILL_DOOR
 effect:TOUCH:KILL_TRAP
 desc:Disables traps and destroys doors within a 1-square radius of you.
@@ -383,6 +387,9 @@ expr:M:PLAYER_LEVEL:* 9 / 5
 desc:Teleports you randomly within the current level.
 
 spell:Teleport Other:15:10:30:12
+spell-range:-1
+spell-need-los:1
+spell-side-effect: teleports the target away
 effect:BOLT_STATUS:AWAY_ALL
 dice:$B
 expr:B:PLAYER_LEVEL:* 3
@@ -413,11 +420,19 @@ book-graphics:?:r
 book-properties:30000:15:40 to 100
 
 spell:Door Creation:13:9:40:12
+spell-range:0
+spell-radius:1
+spell-need-los:0
+spell-side-effect: creates doors on adjacent floor spaces
 effect:TOUCH:MAKE_DOOR
 desc:A door is created on each empty floor space that is directly
 desc: adjacent to you.  These doors are closed, but not locked.
 
 spell:Mana Bolt:25:8:60:30
+spell-range:-1
+spell-need-los:1
+spell-damage-type:mana
+spell-side-effect: may fire as a beam
 effect:BOLT_OR_BEAM:MISSILE
 dice:$Dd8
 expr:D:PLAYER_LEVEL:- 10
@@ -453,10 +468,17 @@ desc:Detects all traps, doors, stairs, treasure, objects and monsters in the
 desc: immediate area.
 
 spell:Dimension Door:35:30:80:40
+spell-range:0
+spell-need-los:0
+spell-side-effect: teleports you to a chosen location
 effect:TELEPORT_TO
 desc:Teleports you to (or near to) a square of your choice.
 
 spell:Thrust Away:40:12:90:40
+spell-range:10
+spell-need-los:1
+spell-damage-type:force
+spell-side-effect: short range force beam
 effect:SHORT_BEAM:FORCE:1:10
 dice:$Dd8
 expr:D:PLAYER_LEVEL:+ 0
@@ -467,6 +489,11 @@ book-graphics:?:r
 book-properties:50000:10:60 to 100
 
 spell:Shock Wave:20:5:40:16
+spell-range:-1
+spell-radius:2
+spell-need-los:1
+spell-damage-type:sound
+spell-side-effect: may stun monsters in the area
 effect:BALL:SOUND:2
 dice:$B
 expr:B:PLAYER_LEVEL:* 2
@@ -475,6 +502,11 @@ desc:  Apart from doing sound damage, this also has a chance to stun
 desc: each monster in the area of effect.
 
 spell:Explosion:30:10:50:20
+spell-range:-1
+spell-radius:2
+spell-need-los:1
+spell-damage-type:shards
+spell-side-effect: also produces force knockback
 effect:BALL:SHARD:2
 dice:$B
 expr:B:PLAYER_LEVEL:* 2
@@ -485,18 +517,29 @@ desc:Shoots a radius-2 shards ball and throws around anything in the area of
 desc: effect.
 
 spell:Banishment:35:45:95:25
+spell-range:0
+spell-need-los:0
+spell-side-effect: removes all monsters of a chosen symbol; damages caster
 effect:BANISH
 desc:Removes all monsters represented by a chosen symbol from the level.
 desc:  Uniques are not affected.
 desc:  You take 1d4 points of damage for every monster removed.
 
 spell:Mass Banishment:40:75:90:100
+spell-range:0
+spell-radius:20
+spell-need-los:0
+spell-side-effect: removes all nearby monsters; damages caster
 effect:MASS_BANISH
 desc:Removes all monsters within 20 squares of you.
 desc:  Uniques are not affected.
 desc:  You take 1d3 points of damage for every monster removed.
 
 spell:Mana Storm:45:16:85:200
+spell-range:-1
+spell-radius:3
+spell-need-los:1
+spell-damage-type:mana
 effect:BALL:MANA:3
 dice:$B
 expr:B:PLAYER_LEVEL:* 2 + 300
