@@ -241,6 +241,7 @@ add_library(OurCoreLib OBJECT
         src/player-properties.c
         src/player-quest.c
         src/player-race.c
+        src/floor-obj.c
         src/player-spell.c
         src/player-timed.c
         src/player-util.c

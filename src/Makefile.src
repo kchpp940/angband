@@ -235,6 +235,7 @@ ANGFILES0 = \
 	player-properties.o \
 	player-quest.o \
 	player-race.o \
+	floor-obj.o \
 	player-spell.o \
 	player-timed.o \
 	player-util.o \

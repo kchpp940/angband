@@ -277,13 +277,6 @@ struct class_spell {
 	int smana;				/**< Required mana (to cast) */
 	int sfail;				/**< Base chance of failure */
 	int sexp;				/**< Encoded experience bonus */
-
-	int range;				/**< Spell range (-2 = unspecified, -1 = unlimited, 0 = self/touch) */
-	int radius;				/**< Radius of effect (0 for single target) */
-	int pass_wall;			/**< Passes through walls (-1 = unspecified, 0 = no, 1 = yes) */
-	int need_los;			/**< Requires line of sight (-1 = unspecified, 0 = no, 1 = yes) */
-	char *damage_type;		/**< Primary damage type (projection name) */
-	char *side_effect;		/**< Special side effect description */
 };
 
 /**

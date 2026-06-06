@@ -43,6 +43,7 @@
 #include "target.h"
 #include "trap.h"
 #include "ui-birth.h"
+#include "floor-obj.h"
 #include "ui-display.h"
 #include "ui-game.h"
 #include "ui-input.h"
@@ -539,6 +540,32 @@ static void prt_depth(int row, int col)
 	put_str(format("%-13s", depths), row, col);
 }
 
+/**
+ * Prints floor objective(s) in stat area
+ */
+static void prt_floor_obj(int row, int col)
+{
+	int i;
+	int display_row = row;
+
+	if (!floor_obj_has_active(cave)) {
+		put_str(format("%-13s", ""), display_row, col);
+		return;
+	}
+
+	c_put_str(COLOUR_YELLOW, format("%-13s", "目标:"), display_row, col);
+	display_row++;
+
+	for (i = 0; i < cave->floor_obj.count; i++) {
+		const char *text = floor_obj_get_status_text(cave, i);
+		if (text && display_row < Term->hgt - 1) {
+			uint8_t color = (cave->floor_obj.objs[i].state == FLOOR_OBJ_COMPLETED)
+				? COLOUR_L_GREEN : COLOUR_L_WHITE;
+			c_put_str(color, format("%-13s", text), display_row, col);
+			display_row++;
+		}
+	}
+}
 
 
 
@@ -830,6 +857,7 @@ static const struct side_handler_t
 	{ NULL,        22, 0 },
 	{ prt_speed,   13, EVENT_PLAYERSPEED }, /* Slow (-NN) / Fast (+NN) */
 	{ prt_depth,   14, EVENT_DUNGEONLEVEL }, /* Lev NNN / NNNN ft */
+	{ prt_floor_obj, 23, EVENT_DUNGEONLEVEL }, /* Floor objectives */
 };
 
 

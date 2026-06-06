@@ -32,6 +32,7 @@
 #include "object.h"
 #include "player-timed.h"
 #include "trap.h"
+#include "floor-obj.h"
 
 struct feature *f_info;
 struct chunk *cave = NULL;
@@ -372,6 +373,7 @@ struct chunk *cave_new(int height, int width) {
 								   sizeof(struct monster_group*));
 
 	c->turn = turn;
+	floor_obj_init(c);
 	return c;
 }
 
@@ -427,6 +429,7 @@ void cave_free(struct chunk *c) {
 	mem_free(c->monster_groups);
 	if (c->name)
 		string_free(c->name);
+	floor_obj_free(c);
 	mem_free(c);
 }
 

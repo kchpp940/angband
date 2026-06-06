@@ -48,6 +48,7 @@
 #include "player-util.h"
 #include "project.h"
 #include "store.h"
+#include "floor-obj.h"
 #include "trap.h"
 
 /**
@@ -1199,6 +1200,8 @@ void move_player(int dir, bool disarm)
 	}
 
 	player->upkeep->running_firststep = false;
+
+	floor_obj_check_player_move(player);
 }
 
 /**

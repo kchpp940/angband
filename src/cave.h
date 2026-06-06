@@ -178,6 +178,91 @@ struct connector {
 	struct connector *next;
 };
 
+/**
+ * Floor objective types
+ */
+typedef enum {
+	FLOOR_OBJ_NONE = 0,
+	FLOOR_OBJ_CLEAR_NEST,
+	FLOOR_OBJ_FIND_HIDDEN,
+	FLOOR_OBJ_RETRIEVE_ITEM,
+	FLOOR_OBJ_REACH_AREA,
+	FLOOR_OBJ_MAX
+} floor_obj_type;
+
+/**
+ * Floor objective state
+ */
+typedef enum {
+	FLOOR_OBJ_INACTIVE = 0,
+	FLOOR_OBJ_ACTIVE,
+	FLOOR_OBJ_COMPLETED,
+	FLOOR_OBJ_FAILED
+} floor_obj_state;
+
+/**
+ * Floor objective reward types
+ */
+typedef enum {
+	FLOOR_REWARD_GOLD = 0,
+	FLOOR_REWARD_EXP,
+	FLOOR_REWARD_OBJECT,
+	FLOOR_REWARD_HEAL,
+	FLOOR_REWARD_MAX
+} floor_reward_type;
+
+#define FLOOR_OBJ_MAX_PER_LEVEL 2
+
+struct monster_race;
+struct object;
+
+/**
+ * Floor objective structure - stored per chunk (level)
+ */
+struct floor_objective {
+	floor_obj_type type;
+	floor_obj_state state;
+
+	char *description;
+	char *hint;
+
+	struct loc target_grid;
+	struct loc target_grid2;
+
+	union {
+		struct {
+			int total;
+			int killed;
+			struct monster_race *race;
+		} nest;
+		struct {
+			bool found;
+			int room_id;
+		} hidden;
+		struct {
+			struct object *obj;
+			uint32_t oidx;
+			bool picked_up;
+		} item;
+		struct {
+			bool reached;
+			int radius;
+		} area;
+	} data;
+
+	floor_reward_type reward_type;
+	int reward_value;
+	bool reward_claimed;
+};
+
+/**
+ * Chunk floor objectives storage
+ */
+struct chunk_floor_obj {
+	int count;
+	struct floor_objective objs[FLOOR_OBJ_MAX_PER_LEVEL];
+};
+
 struct chunk {
 	char *name;
 	int32_t turn;
@@ -211,6 +296,8 @@ struct chunk {
 	struct monster_group **monster_groups;
 
 	struct connector *join;
+
+	struct chunk_floor_obj floor_obj;
 };
 
 /*** Feature Indexes (see "lib/gamedata/terrain.txt") ***/

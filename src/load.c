@@ -50,6 +50,7 @@
 #include "store.h"
 #include "trap.h"
 #include "ui-term.h"
+#include "floor-obj.h"
 
 /**
  * Setting this to 1 and recompiling gives a chance to recover a savefile 
@@ -1755,6 +1756,27 @@ int rd_history(void)
 		}
 
 		history_add_full(player, type, aidx, dlev, clev, turnno, text);
+	}
+
+	return 0;
+}
+
+int rd_floor_obj_all(void)
+{
+	uint16_t chunk_max;
+	int j;
+
+	if (player->is_dead)
+		return 0;
+
+	rd_floor_obj(cave);
+	rd_floor_obj(player->cave);
+
+	rd_u16b(&chunk_max);
+	for (j = 0; j < chunk_max; j++) {
+		if (j < chunk_list_max) {
+			rd_floor_obj(chunk_list[j]);
+		}
 	}
 
 	return 0;
