@@ -524,17 +524,33 @@ void monster_groups_verify(struct chunk *c)
 }
 
 /**
- * Check if a monster can cooperate (not unique, not controlled, can move)
+ * Check if tactical cooperation is enabled via birth option
+ */
+bool monster_tactical_cooperation_enabled(void)
+{
+	return OPT(player, birth_ai_tactical);
+}
+
+/**
+ * Check if a monster can cooperate (not unique, not controlled, can move, not summoned, not friendly)
  */
 static bool monster_can_cooperate(const struct monster *mon)
 {
 	if (!mon) return false;
 	if (monster_is_unique(mon)) return false;
 	if (rf_has(mon->race->flags, RF_NEVER_MOVE)) return false;
+
 	if (mon->m_timed[MON_TMD_CONF] || mon->m_timed[MON_TMD_FEAR] ||
 		mon->m_timed[MON_TMD_SLEEP] || mon->m_timed[MON_TMD_STUN]) {
 		return false;
 	}
+
+	if (!mflag_has(mon->mflag, MFLAG_AWARE)) return false;
+
+	if (mflag_has(mon->mflag, MFLAG_NICE)) return false;
+
+	if (mon->group_info[SUMMON_GROUP].index > 0) return false;
+
 	return true;
 }
 
@@ -549,23 +565,29 @@ bool monster_is_melee(const struct monster *mon)
 }
 
 /**
- * Check if a monster has ranged attack capabilities (archery or spells)
+ * Check if a monster has ranged attack capabilities (archery or offensive spells)
  */
 bool monster_is_ranged_attacker(const struct monster *mon)
 {
 	if (!mon) return false;
 	if (monster_loves_archery(mon)) return true;
-	if (mon->race->freq_spell > 20) return true;
+	if (mon->race->freq_spell > 0 && !rf_has(mon->race->flags, RF_NEVER_BLOW)) {
+		return true;
+	}
+	if (mon->race->freq_innate > 0) return true;
 	return false;
 }
 
 /**
- * Check if a monster is a spell caster
+ * Check if a monster is a spell caster (has non-innate spells, or a variety of spells)
+ * Excludes monsters whose only ranged ability is archery / simple breath.
  */
 bool monster_is_spell_caster(const struct monster *mon)
 {
 	if (!mon) return false;
-	return (mon->race->freq_spell > 30 || mon->race->freq_innate > 30);
+	if (monster_loves_archery(mon)) return false;
+	if (mon->race->freq_spell > 0) return true;
+	return false;
 }
 
 /**
@@ -679,6 +701,9 @@ struct monster *monster_find_nearby_melee(struct chunk *c, const struct monster 
 struct tactical_context monster_calculate_tactical_context(struct chunk *c, const struct monster *mon)
 {
 	struct tactical_context ctx = { 0 };
+
+	if (!monster_tactical_cooperation_enabled()) return ctx;
+	if (!monster_can_cooperate(mon)) return ctx;
 
 	ctx.nearby_allies_same_race = monster_count_nearby_allies(c, mon, 5, true);
 	ctx.nearby_allies_same_base = monster_count_nearby_allies(c, mon, 5, false);

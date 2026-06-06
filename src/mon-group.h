@@ -44,6 +44,8 @@ struct tactical_context {
 struct tactical_context monster_calculate_tactical_context(struct chunk *c, const struct monster *mon);
 enum monster_tactical_stance monster_determine_tactical_stance(const struct tactical_context *ctx, const struct monster *mon);
 
+bool monster_tactical_cooperation_enabled(void);
+
 int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range, bool same_race_only);
 int monster_measure_corridor_width(struct chunk *c, const struct monster *mon);
 struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range);
