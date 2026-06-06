@@ -20,7 +20,7 @@ int setup_tests(void **state) {
 	set_file_paths();
 	init_angband();
 	player_make_simple(NULL, NULL, "Tester");
-	OPT(player, birth_ai_tactical) = true;
+	OPT(player, ai_tactical_coop) = true;
 	*state = 0;
 	return 0;
 }
@@ -256,24 +256,34 @@ static int test_tactical_sleeping_excluded(void *state)
 }
 
 /*
- * Test 7: summoned monster excluded from ally count
+ * Test 7: lone summons from a different race are not counted as allies;
+ * same-race summons still share alliance with natural kin
  */
-static int test_tactical_summoned_excluded(void *state)
+static int test_tactical_summoned_mixed(void *state)
 {
 	struct chunk *c = t_build_arena(20, 20);
 	player->grid = loc(10, 15);
 
 	struct monster *orc1 = t_add_monster(c, loc(9, 10), "cave orc");
 	struct monster *orc2 = t_add_monster(c, loc(10, 10), "cave orc");
-	struct monster *orc3 = t_add_monster(c, loc(11, 10), "cave orc");
+	struct monster *wolf = t_add_monster(c, loc(11, 10), "wolf");
 
+	make_monster_aware(orc1);
 	make_monster_aware(orc2);
-	orc1->group_info[SUMMON_GROUP].index = 1;
-	orc3->group_info[SUMMON_GROUP].index = 1;
+	make_monster_aware(wolf);
 
-	struct tactical_context ctx = monster_calculate_tactical_context(c, orc2);
+	orc1->group_info[SUMMON_GROUP].index = 7;
+	wolf->group_info[SUMMON_GROUP].index = 7;
 
-	eq(ctx.nearby_allies_same_base, 0);
+	struct tactical_context orc_ctx = monster_calculate_tactical_context(c, orc2);
+
+	require(orc_ctx.nearby_allies_same_base >= 1);
+
+	require(monsters_share_alliance(orc1, orc2));
+
+	require(!monsters_share_alliance(wolf, orc2));
+
+	require(monsters_share_alliance(orc1, wolf));
 
 	wipe_mon_list(c, player);
 	cave_free(c);
@@ -281,7 +291,7 @@ static int test_tactical_summoned_excluded(void *state)
 }
 
 /*
- * Test 8: monster with different base is not counted as ally unless shared base
+ * Test 8: monster with different base is not counted as ally unless shared race flag
  */
 static int test_tactical_different_base(void *state)
 {
@@ -366,7 +376,7 @@ struct test tests[] = {
 	{ "tactical_escort_caster", test_tactical_escort_caster },
 	{ "tactical_focus_fire_caster", test_tactical_focus_fire_caster },
 	{ "tactical_sleeping_excluded", test_tactical_sleeping_excluded },
-	{ "tactical_summoned_excluded", test_tactical_summoned_excluded },
+	{ "tactical_summoned_mixed", test_tactical_summoned_mixed },
 	{ "tactical_different_base", test_tactical_different_base },
 	{ "tactical_corridor_width", test_tactical_corridor_width },
 	{ "tactical_melee_low_hp_retreat", test_tactical_melee_low_hp_retreat },

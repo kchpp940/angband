@@ -55,6 +55,8 @@ OP(notify_recharge,       "Notify on object recharge",
 INTERFACE, false)
 OP(effective_speed,       "Show effective speed as multiplier",
 INTERFACE, false)
+OP(ai_tactical_coop,      "Monsters cooperate in groups with tactical stances",
+INTERFACE, true)
 OP(cheat_hear,            "Cheat: Peek into monster creation",
 CHEAT, false)
 OP(score_hear,            "Score: Peek into monster creation",
@@ -92,8 +94,6 @@ BIRTH, true)
 OP(birth_start_kit,       "Start with a kit of useful gear",
 BIRTH, true)
 OP(birth_ai_learn,        "Monsters learn from their mistakes",
-BIRTH, true)
-OP(birth_ai_tactical,     "Monsters cooperate in groups with tactical stances",
 BIRTH, true)
 OP(birth_know_runes,      "Know all runes on birth",
 BIRTH, false)

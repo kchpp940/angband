@@ -524,17 +524,22 @@ void monster_groups_verify(struct chunk *c)
 }
 
 /**
- * Check if tactical cooperation is enabled via birth option
+ * Check if tactical cooperation is enabled via runtime option
  */
 bool monster_tactical_cooperation_enabled(void)
 {
-	return OPT(player, birth_ai_tactical);
+	return OPT(player, ai_tactical_coop);
 }
 
 /**
- * Check if a monster can cooperate (not unique, not controlled, can move, not summoned, not friendly)
+ * Single-monster eligibility check for tactical cooperation:
+ *  - not unique, not immobile
+ *  - aware of the player, not nice/neutral
+ *  - not confused / sleeping / stunned / terrified
+ *
+ * Does NOT judge whether a monster is an ally; see monsters_share_alliance().
  */
-static bool monster_can_cooperate(const struct monster *mon)
+bool monster_is_tactically_eligible(const struct monster *mon)
 {
 	if (!mon) return false;
 	if (monster_is_unique(mon)) return false;
@@ -549,9 +554,47 @@ static bool monster_can_cooperate(const struct monster *mon)
 
 	if (mflag_has(mon->mflag, MFLAG_NICE)) return false;
 
-	if (mon->group_info[SUMMON_GROUP].index > 0) return false;
-
 	return true;
+}
+
+/**
+ * Check whether two monsters belong to the same tactical alliance.
+ * Hierarchy (strongest to weakest):
+ *   1. Same exact race (family)
+ *   2. Shared summon group (same natural-born kin naturally-spawned kin)
+ *   3. Shared PRIMARY_GROUP (same natural group naturally spawn with shared PRIMARY_GROUP with same base type OR shared race flag identity (orc/troll/demon/undead/animal/evil/nonliving)
+ *
+ * Excludes: cross-ecology clashes (animals vs demons), lone summon members are allowed only when explicitly share a summon group.
+ */
+bool monsters_share_alliance(const struct monster *a, const struct monster *b)
+{
+	if (!a || !b || a == b) return false;
+	if (!monster_is_tactically_eligible(a) ||
+		!monster_is_tactically_eligible(b)) {
+		return false;
+	}
+
+	if (a->race == b->race) return true;
+
+	if (a->group_info[SUMMON_GROUP].index &&
+		b->group_info[SUMMON_GROUP].index &&
+		a->group_info[SUMMON_GROUP].index ==
+		b->group_info[SUMMON_GROUP].index) {
+		return true;
+	}
+
+	if (a->race->base == b->race->base) return true;
+
+	if (rf_has(a->race->flags, RF_ORC)    && rf_has(b->race->flags, RF_ORC))    return true;
+	if (rf_has(a->race->flags, RF_TROLL)  && rf_has(b->race->flags, RF_TROLL))  return true;
+	if (rf_has(a->race->flags, RF_GIANT)  && rf_has(b->race->flags, RF_GIANT))  return true;
+	if (rf_has(a->race->flags, RF_DRAGON) && rf_has(b->race->flags, RF_DRAGON)) return true;
+	if (rf_has(a->race->flags, RF_DEMON)  && rf_has(b->race->flags, RF_DEMON))  return true;
+	if (rf_has(a->race->flags, RF_UNDEAD) && rf_has(b->race->flags, RF_UNDEAD)) return true;
+
+	if (rf_has(a->race->flags, RF_ANIMAL) && rf_has(b->race->flags, RF_ANIMAL)) return true;
+
+	return false;
 }
 
 /**
@@ -591,24 +634,28 @@ bool monster_is_spell_caster(const struct monster *mon)
 }
 
 /**
- * Count nearby allies - same race or same base type
+ * Count nearby allies using the stable alliance check.
  */
 int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range, bool same_race_only)
 {
 	int count = 0;
 	int i;
 
-	if (!monster_can_cooperate(mon)) return 0;
+	if (!monster_is_tactically_eligible(mon)) return 0;
 
 	for (i = 1; i < c->mon_max; i++) {
 		struct monster *other = cave_monster(c, i);
 		if (!other || other == mon) continue;
-		if (!monster_can_cooperate(other)) continue;
 
-		if (distance(mon->grid, other->grid) <= range) {
-			if (other->race == mon->race) {
+		if (distance(mon->grid, other->grid) > range) continue;
+
+		if (same_race_only) {
+			if (monsters_share_alliance(mon, other) &&
+				other->race == mon->race) {
 				count++;
-			} else if (!same_race_only && other->race->base == mon->race->base) {
+			}
+		} else {
+			if (monsters_share_alliance(mon, other)) {
 				count++;
 			}
 		}
@@ -639,7 +686,7 @@ int monster_measure_corridor_width(struct chunk *c, const struct monster *mon)
 }
 
 /**
- * Find a nearby caster to escort (within range)
+ * Find a nearby allied caster to escort (within range)
  */
 struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range)
 {
@@ -652,7 +699,7 @@ struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster
 		int dist;
 
 		if (!other || other == mon) continue;
-		if (!monster_can_cooperate(other)) continue;
+		if (!monsters_share_alliance(mon, other)) continue;
 		if (!monster_is_spell_caster(other)) continue;
 
 		dist = distance(mon->grid, other->grid);
@@ -667,7 +714,7 @@ struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster
 }
 
 /**
- * Find a nearby melee monster (for casters to position behind)
+ * Find a nearby allied melee monster (for casters to position behind)
  */
 struct monster *monster_find_nearby_melee(struct chunk *c, const struct monster *mon, int range)
 {
@@ -680,7 +727,7 @@ struct monster *monster_find_nearby_melee(struct chunk *c, const struct monster 
 		int dist;
 
 		if (!other || other == mon) continue;
-		if (!monster_can_cooperate(other)) continue;
+		if (!monsters_share_alliance(mon, other)) continue;
 		if (!monster_is_melee(other)) continue;
 		if (monster_is_spell_caster(other)) continue;
 
@@ -703,7 +750,7 @@ struct tactical_context monster_calculate_tactical_context(struct chunk *c, cons
 	struct tactical_context ctx = { 0 };
 
 	if (!monster_tactical_cooperation_enabled()) return ctx;
-	if (!monster_can_cooperate(mon)) return ctx;
+	if (!monster_is_tactically_eligible(mon)) return ctx;
 
 	ctx.nearby_allies_same_race = monster_count_nearby_allies(c, mon, 5, true);
 	ctx.nearby_allies_same_base = monster_count_nearby_allies(c, mon, 5, false);
@@ -726,7 +773,7 @@ enum monster_tactical_stance monster_determine_tactical_stance(const struct tact
 {
 	int total_allies = ctx->nearby_allies_same_base;
 
-	if (!monster_can_cooperate(mon)) {
+	if (!monster_is_tactically_eligible(mon)) {
 		return TACTICAL_STANCE_NONE;
 	}
 
