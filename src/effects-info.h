@@ -84,5 +84,7 @@ struct effect_object_property *effect_summarize_properties(
 textblock *spell_info_describe(const struct class_spell *spell, bool show_damage);
 size_t spell_info_summary(char *buf, size_t max,
 	const struct class_spell *spell);
+void spell_derive_spell_defaults(struct class_spell *spell);
+bool spell_validate_damage_type(const struct class_spell *spell);
 
 #endif /* !EFFECTS_INFO_H */

@@ -30,6 +30,7 @@
 #include "cmd-core.h"
 #include "datafile.h"
 #include "effects.h"
+#include "effects-info.h"
 #include "game-event.h"
 #include "game-world.h"
 #include "generate.h"
@@ -3866,8 +3867,8 @@ static enum parser_error parse_class_spell(struct parser *p) {
 	spell->sexp = parser_getint(p, "exp");
 	spell->range = -2;
 	spell->radius = 0;
-	spell->pass_wall = false;
-	spell->need_los = true;
+	spell->pass_wall = -1;
+	spell->need_los = -1;
 	spell->damage_type = NULL;
 	spell->side_effect = NULL;
 	++book->num_spells;
@@ -4187,7 +4188,7 @@ static enum parser_error parse_class_spell_pass_wall(struct parser *p) {
 	}
 	assert(book->spells && book->num_spells <= book_max_spells);
 	spell = &book->spells[book->num_spells - 1];
-	spell->pass_wall = (parser_getint(p, "pass") != 0);
+	spell->pass_wall = parser_getint(p, "pass") ? 1 : 0;
 	return PARSE_ERROR_NONE;
 }
 
@@ -4209,7 +4210,7 @@ static enum parser_error parse_class_spell_need_los(struct parser *p) {
 	}
 	assert(book->spells && book->num_spells <= book_max_spells);
 	spell = &book->spells[book->num_spells - 1];
-	spell->need_los = (parser_getint(p, "los") != 0);
+	spell->need_los = parser_getint(p, "los") ? 1 : 0;
 	return PARSE_ERROR_NONE;
 }
 
@@ -4318,11 +4319,23 @@ static errr run_parse_class(struct parser *p) {
 static errr finish_parse_class(struct parser *p) {
 	struct player_class *c;
 	int num = 0;
+	int i, j;
 	classes = parser_priv(p);
 	for (c = classes; c; c = c->next) num++;
 	for (c = classes; c; c = c->next, num--) {
 		assert(num);
 		c->cidx = num - 1;
+		for (i = 0; i < c->magic.num_books; i++) {
+			struct class_book *book = &c->magic.books[i];
+			for (j = 0; j < book->num_spells; j++) {
+				struct class_spell *spell = &book->spells[j];
+				spell_derive_spell_defaults(spell);
+				if (!spell_validate_damage_type(spell)) {
+					quit_fmt("Invalid spell-damage-type '%s' for spell '%s' in class '%s'",
+						spell->damage_type, spell->name, c->name);
+				}
+			}
+		}
 	}
 	parser_destroy(p);
 	return 0;

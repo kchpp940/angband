@@ -1100,30 +1100,40 @@ textblock *spell_info_describe(const struct class_spell *spell, bool show_damage
 		textblock_append(tb, "%s", spell->text);
 	}
 
-	if (spell->range > -2) {
-		textblock_append(tb, "\n  ");
-		if (spell->range == -1) {
-			textblock_append(tb, "Range: unlimited");
-		} else if (spell->range == 0) {
-			textblock_append(tb, "Range: self/touch");
-		} else {
-			textblock_append(tb, "Range: %d", spell->range);
+	if (spell->range > -2 || spell->radius > 0
+		|| spell->need_los >= 0 || spell->pass_wall >= 0) {
+		if (spell->range > -2) {
+			textblock_append(tb, "\n  ");
+			if (spell->range == -1) {
+				textblock_append(tb, "Range: unlimited");
+			} else if (spell->range == 0) {
+				textblock_append(tb, "Range: self/touch");
+			} else {
+				textblock_append(tb, "Range: %d", spell->range);
+			}
+		}
+
+		if (spell->radius > 0) {
+			textblock_append(tb, "\n  Radius: %d", spell->radius);
+		}
+
+		if (spell->need_los >= 0) {
+			textblock_append(tb, "\n  Line of sight: %s",
+				spell->need_los ? "required" : "not required");
+		}
+		if (spell->pass_wall >= 0) {
+			textblock_append(tb, "\n  Passes through walls: %s",
+				spell->pass_wall ? "yes" : "no");
 		}
 	}
 
-	if (spell->radius > 0) {
-		textblock_append(tb, "\n  Radius: %d", spell->radius);
-	}
-
-	if (spell->range > -2 || spell->radius > 0) {
-		textblock_append(tb, "\n  Line of sight: %s",
-			spell->need_los ? "required" : "not required");
-		textblock_append(tb, "\n  Passes through walls: %s",
-			spell->pass_wall ? "yes" : "no");
-	}
-
 	if (spell->damage_type) {
-		textblock_append(tb, "\n  Damage type: %s", spell->damage_type);
+		int idx = proj_name_to_idx(spell->damage_type);
+		const char *display = spell->damage_type;
+		if (idx >= 0 && projections[idx].player_desc) {
+			display = projections[idx].player_desc;
+		}
+		textblock_append(tb, "\n  Damage type: %s", display);
 	}
 
 	if (spell->side_effect) {
@@ -1201,12 +1211,187 @@ size_t spell_info_summary(char *buf, size_t max,
 	}
 
 	if (spell->damage_type) {
+		int idx = proj_name_to_idx(spell->damage_type);
+		const char *display = spell->damage_type;
+		if (idx >= 0 && projections[idx].player_desc) {
+			display = projections[idx].player_desc;
+		}
 		if (offset > 0) {
 			offset += strnfmt(buf + offset, max - offset, ", ");
 		}
 		offset += strnfmt(buf + offset, max - offset, "%s",
-			spell->damage_type);
+			display);
 	}
 
 	return offset;
+}
+
+void spell_derive_spell_defaults(struct class_spell *spell)
+{
+	struct effect *e;
+
+	if (!spell) return;
+
+	for (e = spell->effect; e != NULL; e = effect_next(e)) {
+		switch (e->index) {
+		case EF_BOLT:
+		case EF_BEAM:
+		case EF_BOLT_OR_BEAM:
+		case EF_LINE:
+		case EF_ALTER:
+		case EF_BOLT_STATUS:
+		case EF_BOLT_STATUS_DAM:
+		case EF_BOLT_AWARE:
+		case EF_BALL:
+		case EF_BREATH:
+		case EF_ARC:
+		case EF_SHORT_BEAM:
+		case EF_LASH:
+		case EF_SWARM:
+		case EF_STRIKE:
+		case EF_STAR:
+		case EF_STAR_BALL:
+		case EF_CURSE:
+		case EF_COMMAND:
+		case EF_MOVE_ATTACK:
+		case EF_SINGLE_COMBAT:
+		case EF_MELEE_BLOWS:
+		case EF_BIZARRE:
+		case EF_WONDER:
+			if (spell->range == -2) {
+				spell->range = -1;
+			}
+			if (spell->radius == 0) {
+				if (e->radius > 0) {
+					spell->radius = e->radius;
+				}
+			}
+			if (spell->need_los == -1) {
+				spell->need_los = 1;
+			}
+			if (spell->pass_wall == -1) {
+				spell->pass_wall = 0;
+			}
+			if (!spell->damage_type && e->subtype >= 0
+				&& e->subtype < PROJ_MAX) {
+				const char *name = proj_idx_to_name(e->subtype);
+				if (name) {
+					spell->damage_type = string_make(name);
+				}
+			}
+			break;
+
+		case EF_SPOT:
+		case EF_SPHERE:
+		case EF_TOUCH:
+		case EF_TOUCH_AWARE:
+			if (spell->range == -2) {
+				spell->range = 0;
+			}
+			if (spell->radius == 0) {
+				if (e->radius > 0) {
+					spell->radius = e->radius;
+				} else if (e->index == EF_TOUCH
+					|| e->index == EF_TOUCH_AWARE) {
+					spell->radius = 1;
+				}
+			}
+			if (spell->need_los == -1) {
+				spell->need_los = 0;
+			}
+			if (spell->pass_wall == -1) {
+				spell->pass_wall = 0;
+			}
+			if (!spell->damage_type && e->subtype >= 0
+				&& e->subtype < PROJ_MAX) {
+				const char *name = proj_idx_to_name(e->subtype);
+				if (name) {
+					spell->damage_type = string_make(name);
+				}
+			}
+			break;
+
+		case EF_PROJECT_LOS:
+		case EF_PROJECT_LOS_AWARE:
+			if (spell->range == -2) {
+				spell->range = -1;
+			}
+			if (spell->need_los == -1) {
+				spell->need_los = 1;
+			}
+			if (spell->pass_wall == -1) {
+				spell->pass_wall = 0;
+			}
+			if (!spell->damage_type && e->subtype >= 0
+				&& e->subtype < PROJ_MAX) {
+				const char *name = proj_idx_to_name(e->subtype);
+				if (name) {
+					spell->damage_type = string_make(name);
+				}
+			}
+			break;
+
+		case EF_MAP_AREA:
+		case EF_READ_MINDS:
+		case EF_DETECT_TRAPS:
+		case EF_DETECT_DOORS:
+		case EF_DETECT_STAIRS:
+		case EF_DETECT_ORE:
+		case EF_SENSE_GOLD:
+		case EF_DETECT_GOLD:
+		case EF_SENSE_OBJECTS:
+		case EF_DETECT_OBJECTS:
+		case EF_DETECT_LIVING_MONSTERS:
+		case EF_DETECT_VISIBLE_MONSTERS:
+		case EF_DETECT_INVISIBLE_MONSTERS:
+		case EF_DETECT_FEARFUL_MONSTERS:
+		case EF_DETECT_EVIL:
+		case EF_DETECT_SOUL:
+		case EF_LIGHT_AREA:
+		case EF_DARKEN_AREA:
+		case EF_TELEPORT:
+		case EF_TELEPORT_LEVEL:
+		case EF_RECALL:
+		case EF_HEAL_HP:
+		case EF_RESTORE_MANA:
+		case EF_CURE:
+		case EF_TIMED_SET:
+		case EF_TIMED_INC:
+		case EF_TIMED_DEC:
+		case EF_RESTORE_STAT:
+		case EF_IDENTIFY:
+		case EF_GLYPH:
+		case EF_WEB:
+		case EF_ENCHANT:
+		case EF_RECHARGE:
+		case EF_REMOVE_CURSE:
+		case EF_CREATE_STAIRS:
+		case EF_DEEP_DESCENT:
+		case EF_ALTER_REALITY:
+		case EF_LIGHT_LEVEL:
+		case EF_DARKEN_LEVEL:
+		case EF_BRAND_WEAPON:
+		case EF_BRAND_AMMO:
+		case EF_SHAPECHANGE:
+			if (spell->range == -2) {
+				spell->range = 0;
+			}
+			if (spell->need_los == -1) {
+				spell->need_los = 0;
+			}
+			if (spell->pass_wall == -1) {
+				spell->pass_wall = 0;
+			}
+			break;
+
+		default:
+			break;
+		}
+	}
+}
+
+bool spell_validate_damage_type(const struct class_spell *spell)
+{
+	if (!spell || !spell->damage_type) return true;
+	return proj_name_to_idx(spell->damage_type) >= 0;
 }
