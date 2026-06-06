@@ -67,6 +67,52 @@ bool pack_is_overfull(void);
 void pack_overflow(struct object *obj);
 int preferred_quiver_slot(const struct object *obj);
 
+/**
+ * A single step in an equipment swap: one body slot, take off the old item,
+ * put on the new item.  Either old_obj or new_obj may be NULL (but not both).
+ */
+struct equip_swap_step {
+	int body_slot;              /**< index into player->body.slots */
+	struct object *old_obj;     /**< item currently equipped (NULL if empty) */
+	struct object *new_obj;     /**< item to wield (NULL if just taking off) */
+};
+
+/**
+ * An ambiguous slot in a saved set: multiple inventory/equipment items
+ * match the slot's identifying criteria, so we cannot safely auto-select.
+ */
+struct equip_swap_ambiguous {
+	struct equip_set_slot *set_slot;    /**< the saved slot spec */
+	struct object **matches;            /**< all items matching the spec */
+	int match_count;
+};
+
+/**
+ * A complete, validated equipment swap plan.
+ * Built once and used for both preview display AND atomic execution.
+ * is_feasible is true only when: no missing, no ambiguous, no cursed blockers,
+ * all slots assigned, and inventory capacity is verified sufficient.
+ */
+struct equip_swap_plan {
+	bool is_feasible;
+
+	/* Ordered list of body-slot-level swaps to execute */
+	struct equip_swap_step *steps;
+	int num_steps;
+
+	/* Display-oriented classifications (shared with preview UI) */
+	struct object **will_takeoff;
+	int takeoff_count;
+	struct object **will_wield;
+	int wield_count;
+	struct object **cursed_objs;
+	int cursed_count;
+	struct equip_set_slot **missing_slots;
+	int missing_count;
+	struct equip_swap_ambiguous *ambiguous;
+	int ambiguous_count;
+};
+
 void equip_set_init(struct player *p);
 void equip_set_free(struct player *p);
 bool equip_set_save(struct player *p, int index, const char *name);
@@ -76,6 +122,9 @@ const char *equip_set_name(struct player *p, int index);
 struct object *equip_set_find_match(struct player *p, struct equip_set_slot *slot);
 int equip_set_find_all_matches(struct player *p, struct equip_set_slot *slot,
 	struct object ***matches_out);
+struct equip_swap_plan *equip_set_build_plan(struct player *p, int index);
+void equip_set_free_plan(struct equip_swap_plan *plan);
+bool equip_set_execute_plan(struct player *p, struct equip_swap_plan *plan);
 bool equip_set_switch_preview(struct player *p, int index,
 	struct object ***will_takeoff, int *takeoff_count,
 	struct object ***will_wield, struct equip_set_slot ***will_wield_slots, int *wield_count,

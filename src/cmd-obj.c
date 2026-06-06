@@ -1349,18 +1349,12 @@ void do_cmd_equip_set_save(struct command *cmd)
 
 /**
  * Load (switch to) a saved equipment set, with preview.
+ * Preview and execution share a single plan to guarantee consistency.
  */
 void do_cmd_equip_set_load(struct command *cmd)
 {
 	int index;
-	struct object **will_takeoff = NULL;
-	struct object **will_wield = NULL;
-	struct equip_set_slot **will_wield_slots = NULL;
-	struct equip_set_slot **missing_slots = NULL;
-	struct object **cursed_slots = NULL;
-	struct equip_set_slot **ambiguous_slots = NULL;
-	struct object **ambiguous_matches = NULL;
-	int takeoff_count, wield_count, missing_count, cursed_count, ambiguous_count;
+	struct equip_swap_plan *plan = NULL;
 	int i, j;
 	char o_name[80];
 
@@ -1378,41 +1372,37 @@ void do_cmd_equip_set_load(struct command *cmd)
 		return;
 	}
 
-	if (!equip_set_switch_preview(player, index,
-			&will_takeoff, &takeoff_count,
-			&will_wield, &will_wield_slots, &wield_count,
-			&missing_slots, &missing_count,
-			&cursed_slots, &cursed_count,
-			&ambiguous_slots, &ambiguous_matches, &ambiguous_count)) {
-		msg("Failed to preview equipment set.");
-		goto cleanup;
+	plan = equip_set_build_plan(player, index);
+	if (!plan) {
+		msg("Failed to build equipment swap plan.");
+		return;
 	}
 
 	prt("Equipment Set Preview:", 0, 0);
 	j = 1;
 
-	if (takeoff_count > 0) {
-		prt(format("  Will take off (%d):", takeoff_count), j++, 0);
-		for (i = 0; i < takeoff_count; i++) {
-			object_desc(o_name, sizeof(o_name), will_takeoff[i],
+	if (plan->takeoff_count > 0) {
+		prt(format("  Will take off (%d):", plan->takeoff_count), j++, 0);
+		for (i = 0; i < plan->takeoff_count; i++) {
+			object_desc(o_name, sizeof(o_name), plan->will_takeoff[i],
 				ODESC_PREFIX | ODESC_FULL, player);
 			prt(format("    - %s", o_name), j++, 0);
 		}
 	}
 
-	if (wield_count > 0) {
-		prt(format("  Will wield (%d):", wield_count), j++, 0);
-		for (i = 0; i < wield_count; i++) {
-			object_desc(o_name, sizeof(o_name), will_wield[i],
+	if (plan->wield_count > 0) {
+		prt(format("  Will wield (%d):", plan->wield_count), j++, 0);
+		for (i = 0; i < plan->wield_count; i++) {
+			object_desc(o_name, sizeof(o_name), plan->will_wield[i],
 				ODESC_PREFIX | ODESC_FULL, player);
 			prt(format("    + %s", o_name), j++, 0);
 		}
 	}
 
-	if (missing_count > 0) {
-		prt(format("  Missing items (%d):", missing_count), j++, 0);
-		for (i = 0; i < missing_count; i++) {
-			struct equip_set_slot *sslot = missing_slots[i];
+	if (plan->missing_count > 0) {
+		prt(format("  Missing items (%d):", plan->missing_count), j++, 0);
+		for (i = 0; i < plan->missing_count; i++) {
+			struct equip_set_slot *sslot = plan->missing_slots[i];
 			if (sslot->artifact_name) {
 				prt(format("    ! %s (artifact)", sslot->artifact_name), j++, 0);
 			} else {
@@ -1433,22 +1423,23 @@ void do_cmd_equip_set_load(struct command *cmd)
 		}
 	}
 
-	if (cursed_count > 0) {
-		prt(format("  Cursed, cannot remove (%d):", cursed_count), j++, 0);
-		for (i = 0; i < cursed_count; i++) {
-			object_desc(o_name, sizeof(o_name), cursed_slots[i],
+	if (plan->cursed_count > 0) {
+		prt(format("  Cursed, cannot remove (%d):", plan->cursed_count), j++, 0);
+		for (i = 0; i < plan->cursed_count; i++) {
+			object_desc(o_name, sizeof(o_name), plan->cursed_objs[i],
 				ODESC_PREFIX | ODESC_FULL, player);
 			prt(format("    X %s", o_name), j++, 0);
 		}
 	}
 
-	if (ambiguous_count > 0) {
-		prt(format("  Ambiguous matches (%d):", ambiguous_count), j++, 0);
-		for (i = 0; i < ambiguous_count; i++) {
-			struct equip_set_slot *sslot = ambiguous_slots[i];
+	if (plan->ambiguous_count > 0) {
+		prt(format("  Ambiguous matches (%d):", plan->ambiguous_count), j++, 0);
+		for (i = 0; i < plan->ambiguous_count; i++) {
+			struct equip_swap_ambiguous *am = &plan->ambiguous[i];
+			struct equip_set_slot *sslot = am->set_slot;
 			if (sslot->artifact_name) {
-				prt(format("    ? %s (artifact) - multiple candidates",
-					sslot->artifact_name), j++, 0);
+				prt(format("    ? %s (artifact) - %d candidates",
+					sslot->artifact_name, am->match_count), j++, 0);
 			} else {
 				char buf[80];
 				struct object_kind *kind = lookup_kind(sslot->tval, sslot->sval);
@@ -1459,22 +1450,28 @@ void do_cmd_equip_set_load(struct command *cmd)
 						my_strcat(buf, sslot->ego_name, sizeof(buf));
 						my_strcat(buf, ")", sizeof(buf));
 					}
-					prt(format("    ? %s - multiple candidates", buf), j++, 0);
+					prt(format("    ? %s - %d candidates", buf, am->match_count), j++, 0);
 				} else {
-					prt("    ? unknown item - multiple candidates", j++, 0);
+					prt(format("    ? unknown item - %d candidates", am->match_count), j++, 0);
 				}
 			}
 		}
 		prt("  (Inscribe unique @-tags on each saved item to disambiguate.)", j++, 0);
 	}
 
-	if (takeoff_count == 0 && wield_count == 0
-		&& missing_count == 0 && ambiguous_count == 0) {
+	if (plan->takeoff_count == 0 && plan->wield_count == 0
+		&& plan->missing_count == 0 && plan->ambiguous_count == 0) {
 		prt("  (no changes needed)", j++, 0);
 	}
 
-	if (ambiguous_count > 0) {
+	if (plan->ambiguous_count > 0) {
 		prt("  Switch aborted: ambiguous matches would pick the wrong item.", j++, 0);
+		get_check("Press return to continue. ");
+		goto cleanup;
+	}
+
+	if (!plan->is_feasible) {
+		prt("  Switch aborted: plan not feasible (cursed items, missing items, or pack full).", j++, 0);
 		get_check("Press return to continue. ");
 		goto cleanup;
 	}
@@ -1483,7 +1480,7 @@ void do_cmd_equip_set_load(struct command *cmd)
 		goto cleanup;
 	}
 
-	if (equip_set_apply(player, index)) {
+	if (equip_set_execute_plan(player, plan)) {
 		msg("Equipment set %s activated.",
 			equip_set_name(player, index) ?
 			equip_set_name(player, index) : "");
@@ -1493,13 +1490,7 @@ void do_cmd_equip_set_load(struct command *cmd)
 	}
 
 cleanup:
-	if (will_takeoff) mem_free(will_takeoff);
-	if (will_wield) mem_free(will_wield);
-	if (will_wield_slots) mem_free(will_wield_slots);
-	if (missing_slots) mem_free(missing_slots);
-	if (cursed_slots) mem_free(cursed_slots);
-	if (ambiguous_slots) mem_free(ambiguous_slots);
-	if (ambiguous_matches) mem_free(ambiguous_matches);
+	equip_set_free_plan(plan);
 }
 
 /**

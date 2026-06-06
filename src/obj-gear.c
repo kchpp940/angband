@@ -1744,9 +1744,363 @@ int equip_set_find_all_matches(struct player *p, struct equip_set_slot *slot,
 }
 
 /**
- * Preview what would happen when switching to an equipment set.
- * Returns arrays of items that would be taken off, wielded, missing, cursed,
- * and ambiguous (multiple matches).  The caller must free all arrays.
+ * Free all memory owned by an equipment swap plan.
+ */
+void equip_set_free_plan(struct equip_swap_plan *plan)
+{
+	int i;
+
+	if (!plan) return;
+
+	if (plan->steps) mem_free(plan->steps);
+	if (plan->will_takeoff) mem_free(plan->will_takeoff);
+	if (plan->will_wield) mem_free(plan->will_wield);
+	if (plan->cursed_objs) mem_free(plan->cursed_objs);
+	if (plan->missing_slots) mem_free(plan->missing_slots);
+
+	if (plan->ambiguous) {
+		for (i = 0; i < plan->ambiguous_count; i++) {
+			if (plan->ambiguous[i].matches) {
+				mem_free(plan->ambiguous[i].matches);
+			}
+		}
+		mem_free(plan->ambiguous);
+	}
+
+	mem_free(plan);
+}
+
+/**
+ * Build a complete, validated equipment swap plan for the saved set at
+ * the given index.
+ *
+ * The plan contains:
+ *   - per-body-slot swap steps (pre-assigned unique slots for each wield)
+ *   - classified display lists (takeoff, wield, cursed, missing, ambiguous)
+ *   - an is_feasible flag which is true ONLY if the swap can be executed
+ *     atomically with no rollback expected
+ *
+ * The caller must call equip_set_free_plan() when done.
+ */
+struct equip_swap_plan *equip_set_build_plan(struct player *p, int index)
+{
+	struct equip_swap_plan *plan;
+	struct equip_set *set;
+	int i, j;
+	int max_items;
+	bool *slot_assigned;
+
+	if (index < 0 || index >= EQUIP_SET_MAX) return NULL;
+	set = &p->equip_sets[index];
+	if (!set->valid) return NULL;
+
+	plan = mem_zalloc(sizeof(struct equip_swap_plan));
+	max_items = p->body.count;
+
+	plan->steps = mem_zalloc(max_items * sizeof(struct equip_swap_step));
+	plan->will_takeoff = mem_zalloc(max_items * sizeof(struct object *));
+	plan->will_wield = mem_zalloc(max_items * sizeof(struct object *));
+	plan->cursed_objs = mem_zalloc(max_items * sizeof(struct object *));
+	plan->missing_slots = mem_zalloc(max_items * sizeof(struct equip_set_slot *));
+	plan->ambiguous = mem_zalloc(max_items * sizeof(struct equip_swap_ambiguous));
+
+	slot_assigned = mem_zalloc(max_items * sizeof(bool));
+
+	for (i = 0; i < set->num_slots && i < p->body.count; i++) {
+		struct equip_set_slot *sslot = &set->slots[i];
+		struct object *current_obj = slot_object(p, i);
+		struct object **match_arr = NULL;
+		int match_n;
+
+		if (!sslot->used) {
+			if (current_obj) {
+				if (!obj_can_takeoff(current_obj)) {
+					plan->cursed_objs[plan->cursed_count++] = current_obj;
+				} else {
+					struct equip_swap_step *st = &plan->steps[plan->num_steps++];
+					st->body_slot = i;
+					st->old_obj = current_obj;
+					st->new_obj = NULL;
+					plan->will_takeoff[plan->takeoff_count++] = current_obj;
+					slot_assigned[i] = true;
+				}
+			}
+			continue;
+		}
+
+		if (current_obj && equip_set_object_matches(current_obj, sslot)) {
+			slot_assigned[i] = true;
+			continue;
+		}
+
+		match_n = equip_set_find_all_matches(p, sslot, &match_arr);
+
+		if (match_n == 0) {
+			plan->missing_slots[plan->missing_count++] = sslot;
+			if (current_obj) {
+				if (!obj_can_takeoff(current_obj)) {
+					plan->cursed_objs[plan->cursed_count++] = current_obj;
+				} else {
+					struct equip_swap_step *st = &plan->steps[plan->num_steps++];
+					st->body_slot = i;
+					st->old_obj = current_obj;
+					st->new_obj = NULL;
+					plan->will_takeoff[plan->takeoff_count++] = current_obj;
+					slot_assigned[i] = true;
+				}
+			}
+			continue;
+		}
+
+		if (match_n > 1) {
+			struct equip_swap_ambiguous *am = &plan->ambiguous[plan->ambiguous_count++];
+			am->set_slot = sslot;
+			am->matches = match_arr;
+			am->match_count = match_n;
+			if (current_obj) {
+				if (!obj_can_takeoff(current_obj)) {
+					plan->cursed_objs[plan->cursed_count++] = current_obj;
+				} else {
+					struct equip_swap_step *st = &plan->steps[plan->num_steps++];
+					st->body_slot = i;
+					st->old_obj = current_obj;
+					st->new_obj = NULL;
+					plan->will_takeoff[plan->takeoff_count++] = current_obj;
+					slot_assigned[i] = true;
+				}
+			}
+			continue;
+		}
+
+		{
+			struct object *match_obj = match_arr[0];
+			bool match_already_equipped = false;
+			int match_equipped_slot = -1;
+
+			if (match_arr) mem_free(match_arr);
+
+			if (object_is_equipped(p->body, match_obj)) {
+				match_already_equipped = true;
+				match_equipped_slot = object_slot(p->body, match_obj);
+			}
+
+			if (current_obj) {
+				if (!obj_can_takeoff(current_obj)) {
+					plan->cursed_objs[plan->cursed_count++] = current_obj;
+					continue;
+				}
+			}
+
+			if (match_already_equipped && match_equipped_slot == i) {
+				slot_assigned[i] = true;
+				continue;
+			}
+
+			{
+				struct equip_swap_step *st = &plan->steps[plan->num_steps++];
+				st->body_slot = i;
+				st->old_obj = current_obj;
+				st->new_obj = match_obj;
+				slot_assigned[i] = true;
+
+				if (current_obj) {
+					plan->will_takeoff[plan->takeoff_count++] = current_obj;
+				}
+				if (!match_already_equipped) {
+					plan->will_wield[plan->wield_count++] = match_obj;
+				}
+			}
+
+			if (match_already_equipped && match_equipped_slot != i) {
+				for (j = 0; j < plan->num_steps - 1; j++) {
+					if (plan->steps[j].body_slot == match_equipped_slot) {
+						break;
+					}
+				}
+				if (j == plan->num_steps - 1) {
+					struct equip_swap_step *st2 = &plan->steps[plan->num_steps++];
+					st2->body_slot = match_equipped_slot;
+					st2->old_obj = match_obj;
+					st2->new_obj = NULL;
+					if (!obj_can_takeoff(match_obj)) {
+						plan->cursed_objs[plan->cursed_count++] = match_obj;
+						plan->num_steps--;
+					} else {
+						plan->will_takeoff[plan->takeoff_count++] = match_obj;
+						slot_assigned[match_equipped_slot] = true;
+					}
+				}
+			}
+		}
+	}
+
+	mem_free(slot_assigned);
+
+	{
+		int simulated_pack;
+		simulated_pack = pack_slots_used(p) + plan->takeoff_count;
+		if (simulated_pack > z_info->pack_size) {
+			for (i = 0; i < plan->num_steps; i++) {
+				if (plan->steps[i].new_obj &&
+					!object_is_equipped(p->body, plan->steps[i].new_obj)) {
+					simulated_pack--;
+				}
+			}
+		}
+
+		plan->is_feasible = (plan->missing_count == 0) &&
+			(plan->ambiguous_count == 0) &&
+			(plan->cursed_count == 0) &&
+			(simulated_pack <= z_info->pack_size);
+	}
+
+	return plan;
+}
+
+/**
+ * Execute an equipment swap plan atomically.
+ *
+ * Two-phase execution:
+ *   Phase 1 — Take off ALL old items from ALL body slots in the plan.
+ *   Phase 2 — Wield ALL new items into their assigned body slots.
+ *
+ * If any step in either phase fails verification, we roll back everything
+ * that has been done so far, in reverse order, so the player is never left
+ * in a half-swapped state.
+ *
+ * Returns true if the whole plan executed successfully.
+ */
+bool equip_set_execute_plan(struct player *p, struct equip_swap_plan *plan)
+{
+	int i;
+	bool *took_off = NULL;
+	bool *wielded = NULL;
+	bool ok = true;
+	bool changed = false;
+	int num_taken = 0;
+	int num_wielded = 0;
+
+	if (!plan || !plan->is_feasible) {
+		return false;
+	}
+
+	if (plan->num_steps == 0) {
+		return false;
+	}
+
+	took_off = mem_zalloc(plan->num_steps * sizeof(bool));
+	wielded = mem_zalloc(plan->num_steps * sizeof(bool));
+
+	for (i = 0; i < plan->num_steps; i++) {
+		struct object *old_obj = plan->steps[i].old_obj;
+		if (!old_obj) continue;
+
+		if (!object_is_equipped(p->body, old_obj) ||
+			!obj_can_takeoff(old_obj)) {
+			ok = false;
+			break;
+		}
+
+		inven_takeoff(old_obj);
+		if (object_is_equipped(p->body, old_obj)) {
+			ok = false;
+			break;
+		}
+
+		took_off[i] = true;
+		num_taken++;
+	}
+
+	if (ok) {
+		for (i = 0; i < plan->num_steps; i++) {
+			struct object *new_obj = plan->steps[i].new_obj;
+			if (!new_obj) continue;
+
+			if (!object_is_carried(p, new_obj) &&
+				!object_is_equipped(p->body, new_obj)) {
+				ok = false;
+				break;
+			}
+
+			inven_wield(new_obj, plan->steps[i].body_slot);
+
+			{
+				struct object *now = slot_object(p, plan->steps[i].body_slot);
+				bool match = false;
+				if (now) {
+					if (now == new_obj) {
+						match = true;
+					} else if (new_obj->artifact && now->artifact &&
+						streq(now->artifact->name,
+							new_obj->artifact->name)) {
+						match = true;
+					}
+				}
+				if (!match) {
+					ok = false;
+					break;
+				}
+			}
+
+			wielded[i] = true;
+			num_wielded++;
+		}
+	}
+
+	if (!ok) {
+		for (i = plan->num_steps - 1; i >= 0; i--) {
+			if (wielded[i]) {
+				struct object *now = slot_object(p, plan->steps[i].body_slot);
+				if (now && object_is_equipped(p->body, now)) {
+					struct object *new_obj = plan->steps[i].new_obj;
+					if (now == new_obj ||
+						(new_obj && new_obj->artifact &&
+						 now->artifact &&
+						 streq(now->artifact->name,
+							new_obj->artifact->name))) {
+						inven_takeoff(now);
+					}
+				}
+			}
+		}
+
+		for (i = plan->num_steps - 1; i >= 0; i--) {
+			if (took_off[i]) {
+				struct object *old_obj = plan->steps[i].old_obj;
+				if (old_obj && !object_is_equipped(p->body, old_obj) &&
+					!slot_object(p, plan->steps[i].body_slot)) {
+					inven_wield(old_obj, plan->steps[i].body_slot);
+				}
+			}
+		}
+
+		msg("Equipment swap was rolled back — no changes were applied.");
+		mem_free(took_off);
+		mem_free(wielded);
+		return false;
+	}
+
+	changed = (num_taken > 0) || (num_wielded > 0);
+
+	if (changed) {
+		combine_pack(p);
+		p->upkeep->notice |= (PN_IGNORE);
+		p->upkeep->update |= (PU_BONUS | PU_INVEN | PU_UPDATE_VIEW);
+		p->upkeep->redraw |= (PR_INVEN | PR_EQUIP | PR_ARMOR);
+		p->upkeep->redraw |= (PR_STATS | PR_HP | PR_MANA | PR_SPEED);
+		update_stuff(p);
+		cmd_disable_repeat();
+	}
+
+	mem_free(took_off);
+	mem_free(wielded);
+	return changed;
+}
+
+/**
+ * Backwards-compatible preview wrapper.
+ * Builds a plan internally, then copies the display lists out.
+ * The caller must still free all returned arrays as before.
  */
 bool equip_set_switch_preview(struct player *p, int index,
 	struct object ***will_takeoff, int *takeoff_count,
@@ -1755,8 +2109,8 @@ bool equip_set_switch_preview(struct player *p, int index,
 	struct object ***cursed_slots, int *cursed_count,
 	struct equip_set_slot ***ambiguous_slots, struct object ***ambiguous_matches, int *ambiguous_count)
 {
-	struct equip_set *set;
-	int i;
+	struct equip_swap_plan *plan;
+	int i, j;
 	int max_items;
 
 	*takeoff_count = 0;
@@ -1765,9 +2119,10 @@ bool equip_set_switch_preview(struct player *p, int index,
 	*cursed_count = 0;
 	*ambiguous_count = 0;
 
-	if (index < 0 || index >= EQUIP_SET_MAX) return false;
-	set = &p->equip_sets[index];
-	if (!set->valid) return false;
+	plan = equip_set_build_plan(p, index);
+	if (!plan) {
+		return false;
+	}
 
 	max_items = p->body.count;
 
@@ -1779,100 +2134,75 @@ bool equip_set_switch_preview(struct player *p, int index,
 	*ambiguous_slots = mem_zalloc(max_items * sizeof(struct equip_set_slot *));
 	*ambiguous_matches = mem_zalloc(max_items * sizeof(struct object *));
 
-	for (i = 0; i < set->num_slots && i < p->body.count; i++) {
-		struct equip_set_slot *sslot = &set->slots[i];
-		struct object *current_obj = slot_object(p, i);
-		struct object **match_arr = NULL;
-		int match_n;
-
-		if (!sslot->used) {
-			if (current_obj) {
-				if (!obj_can_takeoff(current_obj)) {
-					(*cursed_slots)[(*cursed_count)++] = current_obj;
-				} else {
-					(*will_takeoff)[(*takeoff_count)++] = current_obj;
-				}
-			}
-			continue;
-		}
-
-		if (current_obj && equip_set_object_matches(current_obj, sslot)) {
-			continue;
-		}
-
-		match_n = equip_set_find_all_matches(p, sslot, &match_arr);
-
-		if (match_n == 0) {
-			(*missing_slots)[(*missing_count)++] = sslot;
-			continue;
-		}
-
-		if (match_n > 1) {
-			(*ambiguous_slots)[*ambiguous_count] = sslot;
-			(*ambiguous_matches)[*ambiguous_count] = match_arr[0];
-			(*ambiguous_count)++;
-			if (match_arr) mem_free(match_arr);
-			continue;
-		}
-
-		{
-			struct object *match_obj = match_arr[0];
-			if (match_arr) mem_free(match_arr);
-
-			if (current_obj) {
-				if (!obj_can_takeoff(current_obj)) {
-					(*cursed_slots)[(*cursed_count)++] = current_obj;
-					continue;
-				}
-				(*will_takeoff)[(*takeoff_count)++] = current_obj;
-			}
-
-			if (!object_is_equipped(p->body, match_obj)) {
-				(*will_wield)[*wield_count] = match_obj;
-				(*will_wield_slots)[*wield_count] = sslot;
-				(*wield_count)++;
-			}
-		}
+	*takeoff_count = plan->takeoff_count;
+	for (i = 0; i < plan->takeoff_count; i++) {
+		(*will_takeoff)[i] = plan->will_takeoff[i];
 	}
 
+	{
+		int wc = 0;
+		for (j = 0; j < plan->num_steps; j++) {
+			if (plan->steps[j].new_obj) {
+				(*will_wield)[wc] = plan->steps[j].new_obj;
+				(*will_wield_slots)[wc] = NULL;
+				for (i = 0; i < p->equip_sets[index].num_slots; i++) {
+					if (p->equip_sets[index].slots[i].slot_type ==
+						p->body.slots[plan->steps[j].body_slot].type &&
+						p->equip_sets[index].slots[i].used &&
+						equip_set_object_matches(plan->steps[j].new_obj,
+							&p->equip_sets[index].slots[i])) {
+						(*will_wield_slots)[wc] = &p->equip_sets[index].slots[i];
+						break;
+					}
+				}
+				wc++;
+			}
+		}
+		*wield_count = wc;
+	}
+
+	*missing_count = plan->missing_count;
+	for (i = 0; i < plan->missing_count; i++) {
+		(*missing_slots)[i] = plan->missing_slots[i];
+	}
+
+	*cursed_count = plan->cursed_count;
+	for (i = 0; i < plan->cursed_count; i++) {
+		(*cursed_slots)[i] = plan->cursed_objs[i];
+	}
+
+	*ambiguous_count = plan->ambiguous_count;
+	for (i = 0; i < plan->ambiguous_count; i++) {
+		(*ambiguous_slots)[i] = plan->ambiguous[i].set_slot;
+		(*ambiguous_matches)[i] = plan->ambiguous[i].matches[0];
+	}
+
+	equip_set_free_plan(plan);
 	return true;
 }
 
 /**
- * Actually apply (switch to) an equipment set.
- * Aborts if any slot has ambiguous matches (multiple candidates).
- * Returns true if any changes were made.
+ * Switch to a saved equipment set using the atomic plan pipeline.
+ * This refactored version builds a plan, reports any blockers (ambiguous /
+ * cursed / missing), and then executes the plan atomically with full rollback.
  */
 bool equip_set_apply(struct player *p, int index)
 {
-	struct equip_set *set;
-	bool changed = false;
-	struct object **will_takeoff = NULL;
-	struct object **will_wield = NULL;
-	struct equip_set_slot **will_wield_slots = NULL;
-	struct equip_set_slot **missing_slots = NULL;
-	struct object **cursed_slots = NULL;
-	struct equip_set_slot **ambiguous_slots = NULL;
-	struct object **ambiguous_matches = NULL;
-	int takeoff_count, wield_count, missing_count, cursed_count, ambiguous_count;
+	struct equip_swap_plan *plan;
 	int j;
+	bool changed;
 
 	if (index < 0 || index >= EQUIP_SET_MAX) return false;
-	set = &p->equip_sets[index];
-	if (!set->valid) return false;
+	if (!p->equip_sets[index].valid) return false;
 
-	if (!equip_set_switch_preview(p, index,
-		&will_takeoff, &takeoff_count,
-		&will_wield, &will_wield_slots, &wield_count,
-		&missing_slots, &missing_count,
-		&cursed_slots, &cursed_count,
-		&ambiguous_slots, &ambiguous_matches, &ambiguous_count)) {
-		goto cleanup;
+	plan = equip_set_build_plan(p, index);
+	if (!plan) {
+		return false;
 	}
 
-	if (ambiguous_count > 0) {
-		for (j = 0; j < ambiguous_count; j++) {
-			struct equip_set_slot *sslot = ambiguous_slots[j];
+	if (plan->ambiguous_count > 0) {
+		for (j = 0; j < plan->ambiguous_count; j++) {
+			struct equip_set_slot *sslot = plan->ambiguous[j].set_slot;
 			if (sslot->artifact_name) {
 				msg("Multiple items match the artifact %s; cannot switch safely.",
 					sslot->artifact_name);
@@ -1893,21 +2223,22 @@ bool equip_set_apply(struct player *p, int index)
 			}
 			msg("  Tip: inscribe a unique @-tag on each saved piece to disambiguate.");
 		}
-		goto cleanup;
+		equip_set_free_plan(plan);
+		return false;
 	}
 
-	if (cursed_count > 0) {
-		for (j = 0; j < cursed_count; j++) {
+	if (plan->cursed_count > 0) {
+		for (j = 0; j < plan->cursed_count; j++) {
 			char o_name[80];
-			object_desc(o_name, sizeof(o_name), cursed_slots[j],
+			object_desc(o_name, sizeof(o_name), plan->cursed_objs[j],
 				ODESC_PREFIX | ODESC_FULL, p);
 			msg("You cannot remove the cursed %s.", o_name);
 		}
 	}
 
-	if (missing_count > 0) {
-		for (j = 0; j < missing_count; j++) {
-			struct equip_set_slot *sslot = missing_slots[j];
+	if (plan->missing_count > 0) {
+		for (j = 0; j < plan->missing_count; j++) {
+			struct equip_set_slot *sslot = plan->missing_slots[j];
 			if (sslot->artifact_name) {
 				msg("You are missing the artifact %s.", sslot->artifact_name);
 			} else {
@@ -1928,57 +2259,7 @@ bool equip_set_apply(struct player *p, int index)
 		}
 	}
 
-	for (j = 0; j < takeoff_count; j++) {
-		struct object *obj = will_takeoff[j];
-		if (obj && object_is_equipped(p->body, obj)) {
-			inven_takeoff(obj);
-			changed = true;
-		}
-	}
-
-	for (j = 0; j < wield_count; j++) {
-		struct object *obj = will_wield[j];
-		struct equip_set_slot *sslot = will_wield_slots[j];
-		int body_slot = -1;
-		int k;
-
-		for (k = 0; k < p->body.count; k++) {
-			if (p->body.slots[k].type == sslot->slot_type) {
-				if (!p->body.slots[k].obj) {
-					body_slot = k;
-					break;
-				}
-			}
-		}
-
-		if (body_slot < 0) {
-			body_slot = wield_slot(obj);
-		}
-
-		if (body_slot >= 0) {
-			inven_wield(obj, body_slot);
-			changed = true;
-		}
-	}
-
-	if (changed) {
-		combine_pack(p);
-		p->upkeep->notice |= (PN_IGNORE);
-		p->upkeep->update |= (PU_BONUS | PU_INVEN | PU_UPDATE_VIEW);
-		p->upkeep->redraw |= (PR_INVEN | PR_EQUIP | PR_ARMOR);
-		p->upkeep->redraw |= (PR_STATS | PR_HP | PR_MANA | PR_SPEED);
-		update_stuff(p);
-		cmd_disable_repeat();
-	}
-
-cleanup:
-	if (will_takeoff) mem_free(will_takeoff);
-	if (will_wield) mem_free(will_wield);
-	if (will_wield_slots) mem_free(will_wield_slots);
-	if (missing_slots) mem_free(missing_slots);
-	if (cursed_slots) mem_free(cursed_slots);
-	if (ambiguous_slots) mem_free(ambiguous_slots);
-	if (ambiguous_matches) mem_free(ambiguous_matches);
-
+	changed = equip_set_execute_plan(p, plan);
+	equip_set_free_plan(plan);
 	return changed;
 }
