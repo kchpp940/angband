@@ -3,6 +3,7 @@
 #include "unit-test.h"
 
 #include "effects.h"
+#include "effects-info.h"
 #include "init.h"
 #include "obj-properties.h"
 #include "object.h"
@@ -99,6 +100,8 @@ int teardown_tests(void *state) {
 		for (j = 0; j < c->magic.books[i].num_spells; ++j) {
 			string_free(c->magic.books[i].spells[j].name);
 			string_free(c->magic.books[i].spells[j].text);
+			string_free(c->magic.books[i].spells[j].damage_type);
+			string_free(c->magic.books[i].spells[j].side_effect);
 			free_effect(c->magic.books[i].spells[j].effect);
 		}
 		mem_free(c->magic.books[i].spells);
@@ -1217,6 +1220,78 @@ static int test_desc0(void *state) {
 	notnull(s->text);
 	require(streq(s->text, "Shoots a bolt of frost that always hits "
 		"its target.  Sometimes a beam is fired instead."));
+	ok;
+}
+
+static int test_spell_fields0(void *state) {
+	struct parser *p = (struct parser*) state;
+	struct player_class *c = (struct player_class*) parser_priv(p);
+	struct class_book *b;
+	struct class_spell *s;
+	enum parser_error r;
+
+	null(c);
+	r = parser_parse(p, "class:Test Class");
+	eq(r, PARSE_ERROR_NONE);
+	notnull(c);
+	r = parser_parse(p, "book:spell book:dungeon:book of test spells:1:arcane");
+	eq(r, PARSE_ERROR_NONE);
+	require(c->magic.num_books > 0);
+	b = &c->magic.books[c->magic.num_books - 1];
+	r = parser_parse(p, "spell:Test Spell:1:1:1:1");
+	eq(r, PARSE_ERROR_NONE);
+	require(b->num_spells > 0);
+	s = &b->spells[b->num_spells - 1];
+
+	r = parser_parse(p, "spell-range:15");
+	eq(r, PARSE_ERROR_NONE);
+	eq(s->range, 15);
+
+	r = parser_parse(p, "spell-radius:3");
+	eq(r, PARSE_ERROR_NONE);
+	eq(s->radius, 3);
+
+	r = parser_parse(p, "spell-pass-wall:yes");
+	eq(r, PARSE_ERROR_NONE);
+	eq(s->pass_wall, 1);
+
+	r = parser_parse(p, "spell-need-los:no");
+	eq(r, PARSE_ERROR_NONE);
+	eq(s->need_los, 0);
+
+	ok;
+}
+
+static int test_spell_damage_type_side_effect0(void *state) {
+	struct parser *p = (struct parser*) state;
+	struct player_class *c = (struct player_class*) parser_priv(p);
+	struct class_book *b;
+	struct class_spell *s;
+	enum parser_error r;
+
+	null(c);
+	r = parser_parse(p, "class:Test Class");
+	eq(r, PARSE_ERROR_NONE);
+	notnull(c);
+	r = parser_parse(p, "book:spell book:dungeon:book of test spells:1:arcane");
+	eq(r, PARSE_ERROR_NONE);
+	require(c->magic.num_books > 0);
+	b = &c->magic.books[c->magic.num_books - 1];
+	r = parser_parse(p, "spell:Test Spell:1:1:1:1");
+	eq(r, PARSE_ERROR_NONE);
+	require(b->num_spells > 0);
+	s = &b->spells[b->num_spells - 1];
+
+	r = parser_parse(p, "spell-damage-type:fire");
+	eq(r, PARSE_ERROR_NONE);
+	notnull(s->damage_type);
+	require(streq(s->damage_type, "fire"));
+
+	r = parser_parse(p, "spell-side-effect: may stun the target");
+	eq(r, PARSE_ERROR_NONE);
+	notnull(s->side_effect);
+	require(streq(s->side_effect, "may stun the target"));
+
 	ok;
 }
 
