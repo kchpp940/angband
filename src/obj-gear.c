@@ -332,38 +332,141 @@ const char *equip_describe(struct player *p, int slot)
 }
 
 /**
- * Determine which equipment slot (if any) an item likes. The slot might (or
- * might not) be open, but it is a slot which the object could be equipped in.
+ * Map an object's tval to its corresponding EQUIP_* slot type.
  *
- * For items where multiple slots could work (e.g. rings), the function
- * will try to return an open slot if possible.
+ * This is the single source of truth for "what kind of equipment is this".
+ * No player state is consulted — this is a pure function of the object's
+ * tval and the tval category helpers.  Returns -1 if the object is not
+ * wearable equipment at all.
+ *
+ * This function MUST be kept in sync with the TV_* definitions and the
+ * tval_is_*() predicates.  wield_slot(), resolve_equip_slot(), and the
+ * equip_set verify logic all delegate to it, so there is never a
+ * divergent hand-written type switch anywhere else.
+ */
+int item_slot_type(const struct object *obj)
+{
+	switch (obj->tval) {
+		case TV_BOW:       return EQUIP_BOW;
+		case TV_AMULET:    return EQUIP_AMULET;
+		case TV_CLOAK:     return EQUIP_CLOAK;
+		case TV_SHIELD:    return EQUIP_SHIELD;
+		case TV_GLOVES:    return EQUIP_GLOVES;
+		case TV_BOOTS:     return EQUIP_BOOTS;
+	}
+	if (tval_is_melee_weapon(obj))  return EQUIP_WEAPON;
+	if (tval_is_ring(obj))          return EQUIP_RING;
+	if (tval_is_light(obj))         return EQUIP_LIGHT;
+	if (tval_is_body_armor(obj))    return EQUIP_BODY_ARMOR;
+	if (tval_is_head_armor(obj))    return EQUIP_HAT;
+	return -1;
+}
+
+/**
+ * Validate that an item can be equipped, and resolve which body slot it
+ * should go into.
+ *
+ * \param p            the player (used for the body plan — different races
+ *                     or classes could expose different slot layouts).
+ * \param obj          the item to validate / resolve.
+ * \param allow_occupied
+ *                     if true, a currently-occupied slot is acceptable as a
+ *                     fallback (matching wield_slot()'s behaviour of returning
+ *                     the first slot of the right type even when full).
+ *                     if false, only an empty slot is acceptable.
+ * \param errbuf       buffer to receive a human-readable reason on failure;
+ *                     may be NULL if the caller doesn't need the reason.
+ * \param errlen       size of errbuf in bytes.
+ *
+ * \return the body slot index (0 <= slot < p->body.count) on success, or
+ *         -1 on failure with errbuf filled in when provided.
+ *
+ * This is a pure read-only validation: it never modifies player, object,
+ * or pack state.  It is used by both verify_plan (dry-run) and by the
+ * actual wield pipeline to guarantee consistent behaviour.
+ */
+int resolve_equip_slot(struct player *p, const struct object *obj,
+	bool allow_occupied, char *errbuf, size_t errlen)
+{
+	int type;
+	int slot;
+
+	type = item_slot_type(obj);
+	if (type < 0) {
+		if (errbuf) {
+			char o_name[80];
+			object_desc(o_name, sizeof(o_name), obj,
+				ODESC_PREFIX | ODESC_FULL, p);
+			strnfmt(errbuf, errlen, "%s is not wearable equipment", o_name);
+		}
+		return -1;
+	}
+
+	/*
+	 * slot_by_type(p, type, false) means:
+	 *   - prefer the first EMPTY slot of the matching type
+	 *   - if no empty slot exists, fall back to the first slot of the
+	 *     matching type regardless of occupancy.
+	 * This exactly matches wield_slot()'s historic behaviour.
+	 */
+	slot = slot_by_type(p, type, false);
+	if (slot >= p->body.count) {
+		if (errbuf) {
+			char o_name[80];
+			const char *type_name = "equipment";
+			object_desc(o_name, sizeof(o_name), obj,
+				ODESC_PREFIX | ODESC_FULL, p);
+			switch (type) {
+				case EQUIP_WEAPON:      type_name = "weapon"; break;
+				case EQUIP_BOW:         type_name = "bow"; break;
+				case EQUIP_RING:        type_name = "ring"; break;
+				case EQUIP_AMULET:      type_name = "amulet"; break;
+				case EQUIP_LIGHT:       type_name = "light"; break;
+				case EQUIP_BODY_ARMOR:  type_name = "body armor"; break;
+				case EQUIP_CLOAK:       type_name = "cloak"; break;
+				case EQUIP_SHIELD:      type_name = "shield"; break;
+				case EQUIP_HAT:         type_name = "headgear"; break;
+				case EQUIP_GLOVES:      type_name = "gloves"; break;
+				case EQUIP_BOOTS:       type_name = "boots"; break;
+				default: break;
+			}
+			strnfmt(errbuf, errlen,
+				"the current body plan has no %s slot for %s",
+				type_name, o_name);
+		}
+		return -1;
+	}
+
+	if (!allow_occupied && p->body.slots[slot].obj != NULL) {
+		if (errbuf) {
+			char o_name[80];
+			object_desc(o_name, sizeof(o_name), obj,
+				ODESC_PREFIX | ODESC_FULL, p);
+			strnfmt(errbuf, errlen,
+				"all %s slots are occupied; cannot place %s",
+				equip_describe(p, slot), o_name);
+		}
+		return -1;
+	}
+
+	return slot;
+}
+
+/**
+ * Return the best body slot index for wielding an object.
+ *
+ * Thin, backward-compatible wrapper around resolve_equip_slot() with
+ * allow_occupied = true (matching the historical behaviour: if every slot
+ * of the right type is full, return the first one anyway so the caller
+ * can choose to replace what's there).
  */
 int wield_slot(const struct object *obj)
 {
-	/* Slot for equipment */
-	switch (obj->tval)
-	{
-		case TV_BOW: return slot_by_type(player, EQUIP_BOW, false);
-		case TV_AMULET: return slot_by_type(player, EQUIP_AMULET, false);
-		case TV_CLOAK: return slot_by_type(player, EQUIP_CLOAK, false);
-		case TV_SHIELD: return slot_by_type(player, EQUIP_SHIELD, false);
-		case TV_GLOVES: return slot_by_type(player, EQUIP_GLOVES, false);
-		case TV_BOOTS: return slot_by_type(player, EQUIP_BOOTS, false);
-	}
-
-	if (tval_is_melee_weapon(obj))
-		return slot_by_type(player, EQUIP_WEAPON, false);
-	else if (tval_is_ring(obj))
-		return slot_by_type(player, EQUIP_RING, false);
-	else if (tval_is_light(obj))
-		return slot_by_type(player, EQUIP_LIGHT, false);
-	else if (tval_is_body_armor(obj))
-		return slot_by_type(player, EQUIP_BODY_ARMOR, false);
-	else if (tval_is_head_armor(obj))
-		return slot_by_type(player, EQUIP_HAT, false);
-
-	/* No slot available */
-	return -1;
+	int slot = resolve_equip_slot(player, obj, true, NULL, 0);
+	/* resolve_equip_slot can't return >= p->body.count because
+	 * slot_by_type clamps its return value.  Translate any other
+	 * failure (-1) to -1 to match the historic API. */
+	return slot;
 }
 
 
@@ -926,15 +1029,44 @@ void inven_carry(struct player *p, struct object *obj, bool absorb,
 
 
 /**
- * Wield or wear a single item from the pack or floor
+ * Wield or wear a single item from the pack or floor.
+ *
+ * The slot parameter is normally the result of wield_slot() /
+ * resolve_equip_slot().  As a defence against callers that have computed a
+ * slot from stale / divergent logic, we validate (and if necessary
+ * re-resolve) the slot against the single shared source of truth
+ * (item_slot_type + slot_by_type) before touching any state.
  */
 void inven_wield(struct object *obj, int slot)
 {
-	struct object *wielded, *old = player->body.slots[slot].obj;
+	struct object *wielded, *old;
 
 	const char *fmt;
 	char o_name[80];
 	bool dummy = false;
+
+	{
+		int resolved;
+		int expected_type = item_slot_type(obj);
+		bool slot_ok = false;
+
+		if (slot >= 0 && slot < player->body.count) {
+			if (expected_type < 0) {
+				slot_ok = true;
+			} else if (player->body.slots[slot].type == expected_type) {
+				slot_ok = true;
+			}
+		}
+
+		if (!slot_ok) {
+			resolved = resolve_equip_slot(player, obj, true, NULL, 0);
+			if (resolved >= 0) {
+				slot = resolved;
+			}
+		}
+	}
+
+	old = player->body.slots[slot].obj;
 
 	/* Increase equipment counter if empty slot */
 	if (old == NULL)
@@ -1859,7 +1991,8 @@ bool equip_set_verify_plan(struct player *p, struct equip_swap_plan *plan)
 		if (new_obj) {
 			bool carried = object_is_carried(p, new_obj);
 			bool equipped = object_is_equipped(p->body, new_obj);
-			int expected_slot_type = p->body.slots[st->body_slot].type;
+			int expected_type = item_slot_type(new_obj);
+			int actual_type = p->body.slots[st->body_slot].type;
 
 			if (!carried && !equipped) {
 				char o_name[80];
@@ -1877,52 +2010,27 @@ bool equip_set_verify_plan(struct player *p, struct equip_swap_plan *plan)
 				wield_items_in_pack++;
 			}
 
-			switch (new_obj->tval) {
-				case TV_BOW:
-					if (expected_slot_type != EQUIP_BOW) goto bad_type;
-					break;
-				case TV_AMULET:
-					if (expected_slot_type != EQUIP_AMULET) goto bad_type;
-					break;
-				case TV_CLOAK:
-					if (expected_slot_type != EQUIP_CLOAK) goto bad_type;
-					break;
-				case TV_SHIELD:
-					if (expected_slot_type != EQUIP_SHIELD) goto bad_type;
-					break;
-				case TV_GLOVES:
-					if (expected_slot_type != EQUIP_GLOVES) goto bad_type;
-					break;
-				case TV_BOOTS:
-					if (expected_slot_type != EQUIP_BOOTS) goto bad_type;
-					break;
-				default:
-					if (tval_is_melee_weapon(new_obj)) {
-						if (expected_slot_type != EQUIP_WEAPON) goto bad_type;
-					} else if (tval_is_ring(new_obj)) {
-						if (expected_slot_type != EQUIP_RING) goto bad_type;
-					} else if (tval_is_light(new_obj)) {
-						if (expected_slot_type != EQUIP_LIGHT) goto bad_type;
-					} else if (tval_is_body_armor(new_obj)) {
-						if (expected_slot_type != EQUIP_BODY_ARMOR) goto bad_type;
-					} else if (tval_is_head_armor(new_obj)) {
-						if (expected_slot_type != EQUIP_HAT) goto bad_type;
-					} else {
-bad_type:
-						{
-							char o_name[80];
-							object_desc(o_name, sizeof(o_name), new_obj,
-								ODESC_PREFIX | ODESC_FULL, p);
-							strnfmt(plan->verify_error,
-								sizeof(plan->verify_error),
-								"Slot type mismatch: %s cannot go into %s",
-								o_name,
-								equip_describe(p, st->body_slot));
-							mem_free(slot_will_receive);
-							mem_free(slot_will_be_vacated);
-							return false;
-						}
-					}
+			if (expected_type < 0) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), new_obj,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"%s is not wearable equipment", o_name);
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
+			}
+
+			if (expected_type != actual_type) {
+				char o_name[80];
+				object_desc(o_name, sizeof(o_name), new_obj,
+					ODESC_PREFIX | ODESC_FULL, p);
+				strnfmt(plan->verify_error, sizeof(plan->verify_error),
+					"Slot type mismatch: %s cannot go into %s",
+					o_name, equip_describe(p, st->body_slot));
+				mem_free(slot_will_receive);
+				mem_free(slot_will_be_vacated);
+				return false;
 			}
 
 			if (slot_will_receive[st->body_slot]) {

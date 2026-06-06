@@ -47,6 +47,9 @@ int pack_slots_used(const struct player *p);
 const char *equip_mention(struct player *p, int slot);
 const char *equip_describe(struct player *p, int slot);
 int wield_slot(const struct object *obj);
+int item_slot_type(const struct object *obj);
+int resolve_equip_slot(struct player *p, const struct object *obj, bool allow_occupied,
+	char *errbuf, size_t errlen);
 bool minus_ac(struct player *p);
 char gear_to_label(struct player *p, struct object *obj);
 struct object *gear_last_item(struct player *p);
