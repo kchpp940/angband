@@ -418,9 +418,6 @@ bool make_ranged_attack(struct monster *mon)
 		ignore_spells(f, RST_DAMAGE);
 	}
 
-	/* Apply tactical spell bias based on group stance */
-	tactical_apply_spell_bias(cave, mon, f);
-
 	/* Non-stupid monsters do some filtering */
 	if (!monster_is_stupid(mon)) {
 		struct loc tgrid;

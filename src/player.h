@@ -167,6 +167,39 @@ struct player_body {
 };
 
 /**
+ * Maximum number of equipment sets a player can save
+ */
+#define EQUIP_SET_MAX 10
+
+/**
+ * A single equipment slot reference within a set.
+ * Stores identifying information to match an object later.
+ */
+struct equip_set_slot {
+	bool used;
+	int slot_type;
+	uint8_t tval;
+	uint8_t sval;
+	int16_t to_h;
+	int16_t to_d;
+	int16_t to_a;
+	uint8_t dd;
+	uint8_t ds;
+	char *artifact_name;
+	char *ego_name;
+};
+
+/**
+ * A saved equipment configuration (a "set").
+ */
+struct equip_set {
+	bool valid;
+	char *name;
+	struct equip_set_slot *slots;
+	int num_slots;
+};
+
+/**
  * Player race info
  */
 struct player_race {
@@ -593,6 +626,8 @@ struct player {
 
 	struct player_body body;			/* Equipment slots available */
 	struct player_shape *shape;			/* Current player shape */
+
+	struct equip_set equip_sets[EQUIP_SET_MAX];	/* Saved equipment sets */
 
 	struct object *gear;				/* Real gear */
 	struct object *gear_k;				/* Known gear */

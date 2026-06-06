@@ -20,43 +20,6 @@
 
 #include "monster.h"
 
-enum monster_tactical_stance {
-	TACTICAL_STANCE_NONE = 0,
-	TACTICAL_STANCE_SURROUND,
-	TACTICAL_STANCE_RETREAT,
-	TACTICAL_STANCE_ESCORT_CASTER,
-	TACTICAL_STANCE_FOCUS_FIRE,
-	TACTICAL_STANCE_MAX
-};
-
-struct tactical_context {
-	int nearby_allies_same_race;
-	int nearby_allies_same_base;
-	int player_hp_percent;
-	int corridor_width;
-	bool is_ranged;
-	bool is_caster;
-	bool has_melee;
-	int hp_percent;
-	int distance_to_player;
-};
-
-struct tactical_context monster_calculate_tactical_context(struct chunk *c, const struct monster *mon);
-enum monster_tactical_stance monster_determine_tactical_stance(const struct tactical_context *ctx, const struct monster *mon);
-
-bool monster_tactical_cooperation_enabled(void);
-
-bool monster_is_tactically_eligible(const struct monster *mon);
-bool monsters_share_alliance(const struct monster *a, const struct monster *b);
-
-int monster_count_nearby_allies(struct chunk *c, const struct monster *mon, int range, bool same_race_only);
-int monster_measure_corridor_width(struct chunk *c, const struct monster *mon);
-struct monster *monster_find_nearby_caster(struct chunk *c, const struct monster *mon, int range);
-struct monster *monster_find_nearby_melee(struct chunk *c, const struct monster *mon, int range);
-bool monster_is_melee(const struct monster *mon);
-bool monster_is_ranged_attacker(const struct monster *mon);
-bool monster_is_spell_caster(const struct monster *mon);
-
 struct mon_group_list_entry {
 	int midx;
 	struct mon_group_list_entry *next;

@@ -20,7 +20,6 @@
 #include "init.h"
 #include "mon-attack.h"
 #include "mon-desc.h"
-#include "mon-group.h"
 #include "mon-lore.h"
 #include "mon-make.h"
 #include "mon-predicate.h"
@@ -31,48 +30,6 @@
 #include "player-timed.h"
 #include "player-util.h"
 #include "project.h"
-
-void tactical_apply_spell_bias(struct chunk *c, const struct monster *mon, bitflag *spells)
-{
-	struct tactical_context ctx = monster_calculate_tactical_context(c, mon);
-	enum monster_tactical_stance stance = monster_determine_tactical_stance(&ctx, mon);
-
-	if (stance == TACTICAL_STANCE_NONE) return;
-
-	if (stance == TACTICAL_STANCE_FOCUS_FIRE) {
-		bitflag damage_spells[RSF_SIZE];
-		rsf_wipe(damage_spells);
-		create_mon_spell_mask(damage_spells, RST_DAMAGE, RST_NONE);
-		if (!rsf_is_empty(damage_spells)) {
-			rsf_inter(spells, damage_spells);
-		}
-	} else if (stance == TACTICAL_STANCE_ESCORT_CASTER) {
-		if (monster_is_spell_caster(mon)) {
-			if (ctx.hp_percent < 60) {
-				bitflag heal_spells[RSF_SIZE];
-				rsf_wipe(heal_spells);
-				create_mon_spell_mask(heal_spells, RST_HEAL, RST_HASTE, RST_NONE);
-				if (!rsf_is_empty(heal_spells)) {
-					rsf_inter(spells, heal_spells);
-				}
-			}
-		} else {
-			bitflag support_spells[RSF_SIZE];
-			rsf_wipe(support_spells);
-			create_mon_spell_mask(support_spells, RST_HEAL_OTHER, RST_HASTE, RST_TACTIC, RST_NONE);
-			if (!rsf_is_empty(support_spells)) {
-				rsf_inter(spells, support_spells);
-			}
-		}
-	} else if (stance == TACTICAL_STANCE_RETREAT) {
-		bitflag escape_spells[RSF_SIZE];
-		rsf_wipe(escape_spells);
-		create_mon_spell_mask(escape_spells, RST_ESCAPE, RST_HEAL, RST_NONE);
-		if (!rsf_is_empty(escape_spells)) {
-			rsf_inter(spells, escape_spells);
-		}
-	}
-}
 
 /**
  * ------------------------------------------------------------------------

@@ -38,6 +38,7 @@
 #include "player-spell.h"
 #include "player-timed.h"
 #include "player-util.h"
+#include "ui-output.h"
 #include "target.h"
 #include "trap.h"
 
@@ -1252,4 +1253,261 @@ void do_cmd_study(struct command *cmd)
 		do_cmd_study_spell(cmd);
 	else
 		do_cmd_study_book(cmd);
+}
+
+/**
+ * Display a list of all saved equipment sets.
+ */
+static void equip_set_display_list(void)
+{
+	int i;
+	bool found = false;
+
+	prt("Equipment Sets:", 0, 0);
+	for (i = 0; i < EQUIP_SET_MAX; i++) {
+		if (equip_set_is_valid(player, i)) {
+			const char *name = equip_set_name(player, i);
+			prt(format("  %d: %s", i + 1, name ? name : "(unnamed)"), i + 1, 0);
+			found = true;
+		}
+	}
+	if (!found) {
+		prt("  (no equipment sets saved)", 1, 0);
+	}
+}
+
+/**
+ * Prompt the user to select an equipment set index.
+ * Returns true if a valid index was selected, false otherwise.
+ */
+static bool equip_set_pick_index(int *index, const char *prompt, bool show_list)
+{
+	char out_val[5] = "1 ";
+	int i;
+
+	if (show_list) {
+		equip_set_display_list();
+	}
+
+	if (!get_string(prompt, out_val, sizeof(out_val))) {
+		return false;
+	}
+
+	i = atoi(out_val) - 1;
+	if (i < 0 || i >= EQUIP_SET_MAX) {
+		msg("Invalid equipment set number.");
+		return false;
+	}
+
+	*index = i;
+	return true;
+}
+
+/**
+ * Save the current equipment configuration to a set.
+ */
+void do_cmd_equip_set_save(struct command *cmd)
+{
+	int index;
+	const char *name_str;
+	char name_buf[80];
+	char prompt[120];
+
+	if (!player_get_resume_normal_shape(player, cmd)) {
+		return;
+	}
+
+	if (!equip_set_pick_index(&index,
+			"Save equipment to which set? (1-10) ", true)) {
+		return;
+	}
+
+	if (equip_set_is_valid(player, index)) {
+		const char *existing = equip_set_name(player, index);
+		strnfmt(prompt, sizeof(prompt),
+			"Overwrite existing set '%s'? ",
+			existing ? existing : "(unnamed)");
+		if (!get_check(prompt)) {
+			return;
+		}
+	}
+
+	my_strcpy(name_buf, "", sizeof(name_buf));
+	if (!get_string("Name for this equipment set (optional): ",
+			name_buf, sizeof(name_buf))) {
+		my_strcpy(name_buf, "", sizeof(name_buf));
+	}
+
+	name_str = (name_buf[0] != '\0') ? name_buf : NULL;
+
+	if (equip_set_save(player, index, name_str)) {
+		msg("Equipment saved to set %d.", index + 1);
+	} else {
+		msg("Failed to save equipment set.");
+	}
+}
+
+/**
+ * Load (switch to) a saved equipment set, with preview.
+ */
+void do_cmd_equip_set_load(struct command *cmd)
+{
+	int index;
+	struct object **will_takeoff = NULL;
+	struct object **will_wield = NULL;
+	struct equip_set_slot **will_wield_slots = NULL;
+	struct equip_set_slot **missing_slots = NULL;
+	struct object **cursed_slots = NULL;
+	int takeoff_count, wield_count, missing_count, cursed_count;
+	int i, j;
+	char o_name[80];
+
+	if (!player_get_resume_normal_shape(player, cmd)) {
+		return;
+	}
+
+	if (!equip_set_pick_index(&index,
+			"Load which equipment set? (1-10) ", true)) {
+		return;
+	}
+
+	if (!equip_set_is_valid(player, index)) {
+		msg("That equipment set is empty.");
+		return;
+	}
+
+	if (!equip_set_switch_preview(player, index,
+			&will_takeoff, &takeoff_count,
+			&will_wield, &will_wield_slots, &wield_count,
+			&missing_slots, &missing_count,
+			&cursed_slots, &cursed_count)) {
+		msg("Failed to preview equipment set.");
+		goto cleanup;
+	}
+
+	prt("Equipment Set Preview:", 0, 0);
+	j = 1;
+
+	if (takeoff_count > 0) {
+		prt(format("  Will take off (%d):", takeoff_count), j++, 0);
+		for (i = 0; i < takeoff_count; i++) {
+			object_desc(o_name, sizeof(o_name), will_takeoff[i],
+				ODESC_PREFIX | ODESC_FULL, player);
+			prt(format("    - %s", o_name), j++, 0);
+		}
+	}
+
+	if (wield_count > 0) {
+		prt(format("  Will wield (%d):", wield_count), j++, 0);
+		for (i = 0; i < wield_count; i++) {
+			object_desc(o_name, sizeof(o_name), will_wield[i],
+				ODESC_PREFIX | ODESC_FULL, player);
+			prt(format("    + %s", o_name), j++, 0);
+		}
+	}
+
+	if (missing_count > 0) {
+		prt(format("  Missing items (%d):", missing_count), j++, 0);
+		for (i = 0; i < missing_count; i++) {
+			struct equip_set_slot *sslot = missing_slots[i];
+			if (sslot->artifact_name) {
+				prt(format("    ! %s (artifact)", sslot->artifact_name), j++, 0);
+			} else {
+				char buf[80];
+				struct object_kind *kind = lookup_kind(sslot->tval, sslot->sval);
+				if (kind) {
+					strnfmt(buf, sizeof(buf), "%s", kind->name);
+					if (sslot->ego_name) {
+						my_strcat(buf, " (", sizeof(buf));
+						my_strcat(buf, sslot->ego_name, sizeof(buf));
+						my_strcat(buf, ")", sizeof(buf));
+					}
+					prt(format("    ! %s", buf), j++, 0);
+				} else {
+					prt("    ! unknown item", j++, 0);
+				}
+			}
+		}
+	}
+
+	if (cursed_count > 0) {
+		prt(format("  Cursed, cannot remove (%d):", cursed_count), j++, 0);
+		for (i = 0; i < cursed_count; i++) {
+			object_desc(o_name, sizeof(o_name), cursed_slots[i],
+				ODESC_PREFIX | ODESC_FULL, player);
+			prt(format("    X %s", o_name), j++, 0);
+		}
+	}
+
+	if (takeoff_count == 0 && wield_count == 0) {
+		prt("  (no changes needed)", j++, 0);
+	}
+
+	if (!get_check("Proceed with equipment swap? ")) {
+		goto cleanup;
+	}
+
+	if (equip_set_apply(player, index)) {
+		msg("Equipment set %s activated.",
+			equip_set_name(player, index) ?
+			equip_set_name(player, index) : "");
+		player->upkeep->energy_use = z_info->move_energy;
+	} else {
+		msg("No equipment changes were made.");
+	}
+
+cleanup:
+	if (will_takeoff) mem_free(will_takeoff);
+	if (will_wield) mem_free(will_wield);
+	if (will_wield_slots) mem_free(will_wield_slots);
+	if (missing_slots) mem_free(missing_slots);
+	if (cursed_slots) mem_free(cursed_slots);
+}
+
+/**
+ * Delete a saved equipment set.
+ */
+void do_cmd_equip_set_delete(struct command *cmd)
+{
+	int index;
+
+	if (!player_get_resume_normal_shape(player, cmd)) {
+		return;
+	}
+
+	if (!equip_set_pick_index(&index,
+			"Delete which equipment set? (1-10) ", true)) {
+		return;
+	}
+
+	if (!equip_set_is_valid(player, index)) {
+		msg("That equipment set is already empty.");
+		return;
+	}
+
+	{
+		const char *name = equip_set_name(player, index);
+		char prompt[120];
+		strnfmt(prompt, sizeof(prompt),
+			"Really delete equipment set '%s'? ",
+			name ? name : "(unnamed)");
+		if (!get_check(prompt)) {
+			return;
+		}
+	}
+
+	if (equip_set_delete(player, index)) {
+		msg("Equipment set deleted.");
+	} else {
+		msg("Failed to delete equipment set.");
+	}
+}
+
+/**
+ * Display the list of equipment sets.
+ */
+void do_cmd_equip_set_list(struct command *cmd)
+{
+	(void)cmd;
+	equip_set_display_list();
 }

@@ -67,5 +67,19 @@ bool pack_is_overfull(void);
 void pack_overflow(struct object *obj);
 int preferred_quiver_slot(const struct object *obj);
 
+void equip_set_init(struct player *p);
+void equip_set_free(struct player *p);
+bool equip_set_save(struct player *p, int index, const char *name);
+bool equip_set_delete(struct player *p, int index);
+bool equip_set_is_valid(struct player *p, int index);
+const char *equip_set_name(struct player *p, int index);
+struct object *equip_set_find_match(struct player *p, struct equip_set_slot *slot);
+bool equip_set_switch_preview(struct player *p, int index,
+	struct object ***will_takeoff, int *takeoff_count,
+	struct object ***will_wield, struct equip_set_slot ***will_wield_slots, int *wield_count,
+	struct equip_set_slot ***missing_slots, int *missing_count,
+	struct object ***cursed_slots, int *cursed_count);
+bool equip_set_apply(struct player *p, int index);
+
 
 #endif /* OBJECT_GEAR_H */

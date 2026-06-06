@@ -1425,3 +1425,410 @@ int preferred_quiver_slot(const struct object *obj)
 
 	return desired_slot;
 }
+
+/**
+ * Initialize all equipment sets for a player.
+ */
+void equip_set_init(struct player *p)
+{
+	int i;
+
+	for (i = 0; i < EQUIP_SET_MAX; i++) {
+		p->equip_sets[i].valid = false;
+		p->equip_sets[i].name = NULL;
+		p->equip_sets[i].slots = NULL;
+		p->equip_sets[i].num_slots = 0;
+	}
+}
+
+/**
+ * Free all equipment sets for a player.
+ */
+void equip_set_free(struct player *p)
+{
+	int i, j;
+
+	for (i = 0; i < EQUIP_SET_MAX; i++) {
+		if (p->equip_sets[i].name) {
+			mem_free(p->equip_sets[i].name);
+			p->equip_sets[i].name = NULL;
+		}
+		if (p->equip_sets[i].slots) {
+			for (j = 0; j < p->equip_sets[i].num_slots; j++) {
+				if (p->equip_sets[i].slots[j].artifact_name) {
+					mem_free(p->equip_sets[i].slots[j].artifact_name);
+				}
+				if (p->equip_sets[i].slots[j].ego_name) {
+					mem_free(p->equip_sets[i].slots[j].ego_name);
+				}
+			}
+			mem_free(p->equip_sets[i].slots);
+			p->equip_sets[i].slots = NULL;
+		}
+		p->equip_sets[i].num_slots = 0;
+		p->equip_sets[i].valid = false;
+	}
+}
+
+/**
+ * Save the current equipment configuration to a set.
+ */
+bool equip_set_save(struct player *p, int index, const char *name)
+{
+	int i, slot_count;
+	struct equip_set *set;
+
+	if (index < 0 || index >= EQUIP_SET_MAX) {
+		return false;
+	}
+
+	set = &p->equip_sets[index];
+
+	equip_set_delete(p, index);
+
+	set->name = name ? string_make(name) : string_make(format("Set %d", index + 1));
+	set->num_slots = p->body.count;
+	set->slots = mem_zalloc(set->num_slots * sizeof(struct equip_set_slot));
+
+	slot_count = 0;
+	for (i = 0; i < p->body.count; i++) {
+		struct object *obj = slot_object(p, i);
+		struct equip_set_slot *sslot = &set->slots[i];
+
+		sslot->slot_type = p->body.slots[i].type;
+
+		if (obj) {
+			sslot->used = true;
+			sslot->tval = obj->tval;
+			sslot->sval = obj->sval;
+			sslot->to_h = obj->to_h;
+			sslot->to_d = obj->to_d;
+			sslot->to_a = obj->to_a;
+			sslot->dd = obj->dd;
+			sslot->ds = obj->ds;
+			if (obj->artifact) {
+				sslot->artifact_name = string_make(obj->artifact->name);
+			} else {
+				sslot->artifact_name = NULL;
+			}
+			if (obj->ego) {
+				sslot->ego_name = string_make(obj->ego->name);
+			} else {
+				sslot->ego_name = NULL;
+			}
+			slot_count++;
+		} else {
+			sslot->used = false;
+			sslot->tval = 0;
+			sslot->sval = 0;
+			sslot->to_h = 0;
+			sslot->to_d = 0;
+			sslot->to_a = 0;
+			sslot->dd = 0;
+			sslot->ds = 0;
+			sslot->artifact_name = NULL;
+			sslot->ego_name = NULL;
+		}
+	}
+
+	set->valid = (slot_count > 0);
+	return set->valid;
+}
+
+/**
+ * Delete a saved equipment set.
+ */
+bool equip_set_delete(struct player *p, int index)
+{
+	int j;
+	struct equip_set *set;
+
+	if (index < 0 || index >= EQUIP_SET_MAX) {
+		return false;
+	}
+
+	set = &p->equip_sets[index];
+
+	if (set->name) {
+		mem_free(set->name);
+		set->name = NULL;
+	}
+	if (set->slots) {
+		for (j = 0; j < set->num_slots; j++) {
+			if (set->slots[j].artifact_name) {
+				mem_free(set->slots[j].artifact_name);
+			}
+			if (set->slots[j].ego_name) {
+				mem_free(set->slots[j].ego_name);
+			}
+		}
+		mem_free(set->slots);
+		set->slots = NULL;
+	}
+	set->num_slots = 0;
+	set->valid = false;
+
+	return true;
+}
+
+/**
+ * Check if an equipment set is valid (exists/saved).
+ */
+bool equip_set_is_valid(struct player *p, int index)
+{
+	if (index < 0 || index >= EQUIP_SET_MAX) {
+		return false;
+	}
+	return p->equip_sets[index].valid;
+}
+
+/**
+ * Get the name of an equipment set.
+ */
+const char *equip_set_name(struct player *p, int index)
+{
+	if (index < 0 || index >= EQUIP_SET_MAX) {
+		return NULL;
+	}
+	return p->equip_sets[index].name;
+}
+
+/**
+ * Check if an object matches the criteria in a set slot.
+ */
+static bool equip_set_object_matches(struct object *obj, struct equip_set_slot *slot)
+{
+	if (!obj || !slot) return false;
+
+	if (slot->artifact_name) {
+		if (!obj->artifact) return false;
+		if (!streq(obj->artifact->name, slot->artifact_name)) return false;
+		return true;
+	}
+
+	if (obj->tval != slot->tval) return false;
+	if (obj->sval != slot->sval) return false;
+
+	if (slot->ego_name) {
+		if (!obj->ego) return false;
+		if (!streq(obj->ego->name, slot->ego_name)) return false;
+	} else if (obj->ego) {
+		return false;
+	}
+
+	if (obj->to_h != slot->to_h) return false;
+	if (obj->to_d != slot->to_d) return false;
+	if (obj->to_a != slot->to_a) return false;
+	if (obj->dd != slot->dd) return false;
+	if (obj->ds != slot->ds) return false;
+
+	return true;
+}
+
+/**
+ * Find a matching object in the player's inventory or equipment for a set slot.
+ */
+struct object *equip_set_find_match(struct player *p, struct equip_set_slot *slot)
+{
+	struct object *obj;
+
+	if (!slot || !slot->used) return NULL;
+
+	for (obj = p->gear; obj; obj = obj->next) {
+		if (equip_set_object_matches(obj, slot)) {
+			return obj;
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * Preview what would happen when switching to an equipment set.
+ * Returns arrays of items that would be taken off, wielded, missing, or cursed.
+ * The caller is responsible for freeing the arrays.
+ */
+bool equip_set_switch_preview(struct player *p, int index,
+	struct object ***will_takeoff, int *takeoff_count,
+	struct object ***will_wield, struct equip_set_slot ***will_wield_slots, int *wield_count,
+	struct equip_set_slot ***missing_slots, int *missing_count,
+	struct object ***cursed_slots, int *cursed_count)
+{
+	struct equip_set *set;
+	int i;
+	int max_items;
+
+	*takeoff_count = 0;
+	*wield_count = 0;
+	*missing_count = 0;
+	*cursed_count = 0;
+
+	if (index < 0 || index >= EQUIP_SET_MAX) return false;
+	set = &p->equip_sets[index];
+	if (!set->valid) return false;
+
+	max_items = p->body.count;
+
+	*will_takeoff = mem_zalloc(max_items * sizeof(struct object *));
+	*will_wield = mem_zalloc(max_items * sizeof(struct object *));
+	*will_wield_slots = mem_zalloc(max_items * sizeof(struct equip_set_slot *));
+	*missing_slots = mem_zalloc(max_items * sizeof(struct equip_set_slot *));
+	*cursed_slots = mem_zalloc(max_items * sizeof(struct object *));
+
+	for (i = 0; i < set->num_slots && i < p->body.count; i++) {
+		struct equip_set_slot *sslot = &set->slots[i];
+		struct object *current_obj = slot_object(p, i);
+		struct object *match_obj;
+
+		if (!sslot->used) {
+			if (current_obj) {
+				if (!obj_can_takeoff(current_obj)) {
+					(*cursed_slots)[(*cursed_count)++] = current_obj;
+				} else {
+					(*will_takeoff)[(*takeoff_count)++] = current_obj;
+				}
+			}
+			continue;
+		}
+
+		if (current_obj && equip_set_object_matches(current_obj, sslot)) {
+			continue;
+		}
+
+		match_obj = equip_set_find_match(p, sslot);
+		if (!match_obj) {
+			(*missing_slots)[(*missing_count)++] = sslot;
+			continue;
+		}
+
+		if (current_obj) {
+			if (!obj_can_takeoff(current_obj)) {
+				(*cursed_slots)[(*cursed_count)++] = current_obj;
+				continue;
+			}
+			(*will_takeoff)[(*takeoff_count)++] = current_obj;
+		}
+
+		if (!object_is_equipped(p->body, match_obj)) {
+			(*will_wield)[*wield_count] = match_obj;
+			(*will_wield_slots)[*wield_count] = sslot;
+			(*wield_count)++;
+		}
+	}
+
+	return true;
+}
+
+/**
+ * Actually apply (switch to) an equipment set.
+ * Returns true if any changes were made.
+ */
+bool equip_set_apply(struct player *p, int index)
+{
+	struct equip_set *set;
+	int i;
+	bool changed = false;
+	struct object **will_takeoff = NULL;
+	struct object **will_wield = NULL;
+	struct equip_set_slot **will_wield_slots = NULL;
+	struct equip_set_slot **missing_slots = NULL;
+	struct object **cursed_slots = NULL;
+	int takeoff_count, wield_count, missing_count, cursed_count;
+	int j;
+
+	if (index < 0 || index >= EQUIP_SET_MAX) return false;
+	set = &p->equip_sets[index];
+	if (!set->valid) return false;
+
+	if (!equip_set_switch_preview(p, index,
+		&will_takeoff, &takeoff_count,
+		&will_wield, &will_wield_slots, &wield_count,
+		&missing_slots, &missing_count,
+		&cursed_slots, &cursed_count)) {
+		goto cleanup;
+	}
+
+	if (cursed_count > 0) {
+		for (j = 0; j < cursed_count; j++) {
+			char o_name[80];
+			object_desc(o_name, sizeof(o_name), cursed_slots[j],
+				ODESC_PREFIX | ODESC_FULL, p);
+			msg("You cannot remove the cursed %s.", o_name);
+		}
+	}
+
+	if (missing_count > 0) {
+		for (j = 0; j < missing_count; j++) {
+			struct equip_set_slot *sslot = missing_slots[j];
+			if (sslot->artifact_name) {
+				msg("You are missing the artifact %s.", sslot->artifact_name);
+			} else {
+				char buf[80];
+				struct object_kind *kind = lookup_kind(sslot->tval, sslot->sval);
+				if (kind) {
+					strnfmt(buf, sizeof(buf), "%s", kind->name);
+					if (sslot->ego_name) {
+						my_strcat(buf, " (", sizeof(buf));
+						my_strcat(buf, sslot->ego_name, sizeof(buf));
+						my_strcat(buf, ")", sizeof(buf));
+					}
+					msg("You are missing %s.", buf);
+				} else {
+					msg("You are missing an item for a slot.");
+				}
+			}
+		}
+	}
+
+	for (j = 0; j < takeoff_count; j++) {
+		struct object *obj = will_takeoff[j];
+		if (obj && object_is_equipped(p->body, obj)) {
+			inven_takeoff(obj);
+			changed = true;
+		}
+	}
+
+	for (j = 0; j < wield_count; j++) {
+		struct object *obj = will_wield[j];
+		struct equip_set_slot *sslot = will_wield_slots[j];
+		int body_slot = -1;
+		int k;
+
+		for (k = 0; k < p->body.count; k++) {
+			if (p->body.slots[k].type == sslot->slot_type) {
+				if (!p->body.slots[k].obj) {
+					body_slot = k;
+					break;
+				}
+			}
+		}
+
+		if (body_slot < 0) {
+			body_slot = wield_slot(obj);
+		}
+
+		if (body_slot >= 0) {
+			inven_wield(obj, body_slot);
+			changed = true;
+		}
+	}
+
+	if (changed) {
+		combine_pack(p);
+		p->upkeep->notice |= (PN_IGNORE);
+		p->upkeep->update |= (PU_BONUS | PU_INVEN | PU_UPDATE_VIEW);
+		p->upkeep->redraw |= (PR_INVEN | PR_EQUIP | PR_ARMOR);
+		p->upkeep->redraw |= (PR_STATS | PR_HP | PR_MANA | PR_SPEED);
+		update_stuff(p);
+		cmd_disable_repeat();
+	}
+
+cleanup:
+	if (will_takeoff) mem_free(will_takeoff);
+	if (will_wield) mem_free(will_wield);
+	if (will_wield_slots) mem_free(will_wield_slots);
+	if (missing_slots) mem_free(missing_slots);
+	if (cursed_slots) mem_free(cursed_slots);
+
+	return changed;
+}

@@ -1760,6 +1760,74 @@ int rd_history(void)
 	return 0;
 }
 
+int rd_equip_sets(void)
+{
+	int i, j;
+	uint16_t max_sets;
+	char buf[1024];
+
+	rd_u16b(&max_sets);
+	if (max_sets > EQUIP_SET_MAX) {
+		max_sets = EQUIP_SET_MAX;
+	}
+
+	equip_set_init(player);
+
+	for (i = 0; i < max_sets; i++) {
+		uint8_t valid;
+		rd_byte(&valid);
+		if (valid) {
+			uint16_t num_slots;
+			struct equip_set *set = &player->equip_sets[i];
+
+			rd_string(buf, sizeof(buf));
+			if (buf[0] != '\0') {
+				set->name = string_make(buf);
+			} else {
+				set->name = string_make(format("Set %d", i + 1));
+			}
+
+			rd_u16b(&num_slots);
+			set->num_slots = num_slots;
+			set->slots = mem_zalloc(num_slots * sizeof(struct equip_set_slot));
+
+			for (j = 0; j < num_slots; j++) {
+				uint8_t used;
+				struct equip_set_slot *slot = &set->slots[j];
+
+				rd_byte(&used);
+				slot->used = (used != 0);
+				rd_u16b((uint16_t *)&slot->slot_type);
+				rd_byte(&slot->tval);
+				rd_byte(&slot->sval);
+				rd_s16b(&slot->to_h);
+				rd_s16b(&slot->to_d);
+				rd_s16b(&slot->to_a);
+				rd_byte(&slot->dd);
+				rd_byte(&slot->ds);
+
+				rd_string(buf, sizeof(buf));
+				if (buf[0] != '\0') {
+					slot->artifact_name = string_make(buf);
+				} else {
+					slot->artifact_name = NULL;
+				}
+
+				rd_string(buf, sizeof(buf));
+				if (buf[0] != '\0') {
+					slot->ego_name = string_make(buf);
+				} else {
+					slot->ego_name = NULL;
+				}
+			}
+
+			set->valid = true;
+		}
+	}
+
+	return 0;
+}
+
 /**
  * For blocks that don't need loading anymore.
  */
