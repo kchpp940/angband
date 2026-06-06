@@ -149,8 +149,12 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 	struct spell_menu_data *d = data;
 	int spell_index = d->spells[oid];
 	const struct class_spell *spell = spell_by_index(player, spell_index);
+	bool show_damage = (player->spell_flags[spell_index] & PY_SPELL_WORKED)
+		&& !(player->spell_flags[spell_index] & PY_SPELL_FORGOTTEN);
 
 	if (d->show_description) {
+		textblock *tb;
+
 		/* Redirect output to the screen */
 		text_out_hook = text_out_to_screen;
 		text_out_wrap = 0;
@@ -158,48 +162,12 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 		text_out_pad = 1;
 
 		Term_gotoxy(loc->col, loc->row + loc->page_rows);
-		/* Spell description */
-		text_out("\n%s", spell->text);
 
-		/* To summarize average damage, count the damaging effects */
-		int num_damaging = 0;
-		for (struct effect *e = spell->effect; e != NULL; e = effect_next(e)) {
-			if (effect_damages(e)) {
-				num_damaging++;
-			}
-		}
-		/* Now enumerate the effects' damage and type if not forgotten */
-		if (num_damaging > 0
-			&& (player->spell_flags[spell_index] & PY_SPELL_WORKED)
-			&& !(player->spell_flags[spell_index] & PY_SPELL_FORGOTTEN)) {
-			dice_t *shared_dice = NULL;
-			int i = 0;
+		tb = spell_info_describe(spell, show_damage);
+		text_out("\n%s", textblock_text(tb));
+		textblock_free(tb);
 
-			text_out("  Inflicts an average of");
-			for (struct effect *e = spell->effect; e != NULL; e = effect_next(e)) {
-				if (e->index == EF_SET_VALUE) {
-					shared_dice = e->dice;
-				} else if (e->index == EF_CLEAR_VALUE) {
-					shared_dice = NULL;
-				}
-				if (effect_damages(e)) {
-					if (num_damaging > 2 && i > 0) {
-						text_out(",");
-					}
-					if (num_damaging > 1 && i == num_damaging - 1) {
-						text_out(" and");
-					}
-					text_out_c(COLOUR_L_GREEN, " %d", effect_avg_damage(e, shared_dice));
-					const char *projection = effect_projection(e);
-					if (strlen(projection) > 0) {
-						text_out(" %s", projection);
-					}
-					i++;
-				}
-			}
-			text_out(" damage.");
-		}
-		text_out("\n\n");
+		text_out("\n");
 
 		/* XXX */
 		text_out_pad = 0;

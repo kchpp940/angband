@@ -20,6 +20,7 @@
 #include "cave.h"
 #include "cmd-core.h"
 #include "effects.h"
+#include "effects-info.h"
 #include "init.h"
 #include "monster.h"
 #include "obj-tval.h"
@@ -707,11 +708,14 @@ static void spell_effect_append_value_info(const struct effect *effect,
 
 void get_spell_info(int spell_index, char *p, size_t len)
 {
-	struct effect *effect = spell_by_index(player, spell_index)->effect;
+	const struct class_spell *spell = spell_by_index(player, spell_index);
+	struct effect *effect = spell->effect;
 	struct spell_info_iteration_state ist = {
 		NULL, "", { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, false };
 
 	p[0] = '\0';
+
+	spell_info_summary(p, len, spell);
 
 	while (effect) {
 		spell_effect_append_value_info(effect, p, len, &ist);

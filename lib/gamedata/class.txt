@@ -35,6 +35,12 @@
 # book-graphics:symbol:color
 # book-properties:cost:commonness:min to max
 # spell:name:level:mana:fail:exp
+# spell-range:range
+# spell-radius:radius
+# spell-pass-wall:0_or_1
+# spell-need-los:0_or_1
+# spell-damage-type:projection_name
+# spell-side-effect:description
 # effect:effect:subtype (if needed):radius (if needed):parameter (if needed)
 # effect-yx:yrange:xrange
 # dice:dice string
@@ -130,6 +136,30 @@
 # ends or the beginning of the next line to prevent words from running
 # together.
 
+# The following spell metadata fields are optional, but provide structured
+# information that is displayed consistently across spell browsing,
+# casting confirmation, and the character learning interface:
+
+# 'spell-range' is the maximum range of the spell in grids.
+# Use -1 for unlimited range, 0 for self/touch-only spells.
+# If this field is not specified, range information will not be shown.
+
+# 'spell-radius' is the radius of effect for area spells (balls,
+# spheres, etc.) in grids.  Use 0 for single-target spells.
+
+# 'spell-pass-wall' indicates whether the effect passes through walls.
+# Use 1 for yes, 0 for no.  Default is 0 (does not pass walls).
+
+# 'spell-need-los' indicates whether the spell requires line of sight.
+# Use 1 for yes, 0 for no.  Default is 1 (requires line of sight).
+
+# 'spell-damage-type' names the primary damage projection type
+# (see projection.txt for valid names, e.g. "fire", "cold", "lightning").
+
+# 'spell-side-effect' describes any special secondary effect of the
+# spell (e.g. "may confuse", "slows target").  Multiple spell-side-effect
+# lines may be used and will be concatenated.
+
 
 
 ############### WARRIOR ###############
@@ -209,6 +239,9 @@ book-properties:25:40:1 to 100
 equip:magic book:[First Spells]:1:1:none
 
 spell:Magic Missile:1:1:22:4
+spell-range:-1
+spell-damage-type:magic missiles
+spell-side-effect:may fire as a beam
 effect:BOLT_OR_BEAM:MISSILE:0:-10
 dice:$Dd4
 expr:D:PLAYER_LEVEL:- 1 / 5 + 3
@@ -219,6 +252,10 @@ desc: in its path.
 desc:  The chance to get a beam goes up with your character level.
 
 spell:Light Room:1:2:26:4
+spell-range:0
+spell-radius:2
+spell-need-los:0
+spell-damage-type:light
 effect:LIGHT_AREA
 effect:SPHERE:LIGHT_WEAK:2
 dice:1
@@ -227,6 +264,8 @@ desc: all light-sensitive monsters in the area of effect.
 desc:  If you are in a room, the entire room will be lit up as well.
 
 spell:Find Traps, Doors & Stairs:1:1:20:2
+spell-range:0
+spell-need-los:0
 effect:DETECT_TRAPS
 effect-yx:22:40
 effect:DETECT_DOORS
@@ -236,11 +275,18 @@ effect-yx:22:40
 desc:Detects all traps, doors, and stairs in the immediate area.
 
 spell:Phase Door:2:2:22:4
+spell-range:0
+spell-need-los:0
+spell-side-effect:teleports you randomly up to 10 squares
 effect:TELEPORT
 dice:10
 desc:Teleports you randomly up to 10 squares away.
 
 spell:Electric Arc:2:2:34:4
+spell-range:0
+spell-need-los:0
+spell-damage-type:lightning
+spell-side-effect:destroys vulnerable items
 effect:SHORT_BEAM:ELEC:0:1
 dice:$Dd6
 expr:D:PLAYER_LEVEL:- 1 / 5 + 3
@@ -249,12 +295,17 @@ desc: vulnerable items in its path.  Length of the effect increases
 desc: with player level.
 
 spell:Detect Monsters:3:2:24:4
+spell-range:0
+spell-need-los:0
 effect:DETECT_VISIBLE_MONSTERS
 effect-yx:22:40
 desc:Detects all non-invisible monsters in the immediate area,
 desc: for one turn only.
 
 spell:Fire Ball:6:5:33:5
+spell-range:-1
+spell-radius:2
+spell-damage-type:fire
 effect:BALL:FIRE:2
 dice:$B
 expr:B:PLAYER_LEVEL:* 2
@@ -287,6 +338,9 @@ effect-yx:22:40
 desc:Detects gold and senses objects in the immediate area.
 
 spell:Frost Bolt:13:5:40:6
+spell-range:-1
+spell-damage-type:cold
+spell-side-effect:may fire as a beam
 effect:BOLT_OR_BEAM:COLD
 dice:$Dd8
 expr:D:PLAYER_LEVEL:- 5 / 3 + 6
@@ -296,6 +350,8 @@ desc: in its path.
 desc:  The chance to get a beam goes up with your character level.
 
 spell:Reveal Monsters:15:6:40:8
+spell-range:0
+spell-need-los:0
 effect:DETECT_INVISIBLE_MONSTERS
 effect-yx:22:40
 effect:DETECT_VISIBLE_MONSTERS
@@ -303,6 +359,9 @@ effect-yx:22:40
 desc:Detects all monsters in the immediate area, for one turn only.
 
 spell:Acid Spray:20:5:30:12
+spell-range:10
+spell-radius:0
+spell-damage-type:acid
 effect:ARC:ACID:10:60
 dice:$Dd8
 expr:D:PLAYER_LEVEL:/ 2

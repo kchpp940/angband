@@ -1068,39 +1068,3 @@ void wr_history(void)
 		wr_string(history_list[i].event);
 	}
 }
-
-void wr_equip_sets(void)
-{
-	int i, j;
-
-	wr_u16b(EQUIP_SET_MAX);
-	for (i = 0; i < EQUIP_SET_MAX; i++) {
-		struct equip_set *set = &player->equip_sets[i];
-
-		wr_byte(set->valid ? 1 : 0);
-		if (set->valid) {
-			wr_string(set->name ? set->name : "");
-			wr_u16b(set->num_slots);
-			for (j = 0; j < set->num_slots; j++) {
-				struct equip_set_slot *slot = &set->slots[j];
-				wr_byte(slot->used ? 1 : 0);
-				wr_u16b(slot->slot_type);
-				wr_byte(slot->tval);
-				wr_byte(slot->sval);
-				wr_s16b(slot->pval);
-				wr_s16b(slot->ac);
-				wr_s16b(slot->weight);
-				wr_s16b(slot->to_h);
-				wr_s16b(slot->to_d);
-				wr_s16b(slot->to_a);
-				wr_byte(slot->dd);
-				wr_byte(slot->ds);
-				wr_byte(slot->origin);
-				wr_byte(slot->origin_depth);
-				wr_string(slot->inscription ? slot->inscription : "");
-				wr_string(slot->artifact_name ? slot->artifact_name : "");
-				wr_string(slot->ego_name ? slot->ego_name : "");
-			}
-		}
-	}
-}

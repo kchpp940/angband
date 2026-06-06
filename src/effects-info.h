@@ -10,6 +10,7 @@
 #include "z-textblock.h"
 
 struct effect;
+struct class_spell;
 
 /**
  * Flags for effect descriptions
@@ -79,5 +80,9 @@ int effect_avg_damage(const struct effect *effect, const dice_t *shared_dice);
 const char *effect_projection(const struct effect *effect);
 struct effect_object_property *effect_summarize_properties(
 	const struct effect *ef, int *unsummarized_count);
+
+textblock *spell_info_describe(const struct class_spell *spell, bool show_damage);
+size_t spell_info_summary(char *buf, size_t max,
+	const struct class_spell *spell);
 
 #endif /* !EFFECTS_INFO_H */

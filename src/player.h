@@ -167,45 +167,6 @@ struct player_body {
 };
 
 /**
- * Maximum number of equipment sets a player can save
- */
-#define EQUIP_SET_MAX 10
-
-/**
- * A single equipment slot reference within a set.
- * Stores identifying information to match an object later.
- */
-struct equip_set_slot {
-	bool used;
-	int slot_type;
-	uint8_t tval;
-	uint8_t sval;
-	int16_t pval;
-	int16_t ac;
-	int16_t weight;
-	int16_t to_h;
-	int16_t to_d;
-	int16_t to_a;
-	uint8_t dd;
-	uint8_t ds;
-	uint8_t origin;
-	uint8_t origin_depth;
-	char *inscription;
-	char *artifact_name;
-	char *ego_name;
-};
-
-/**
- * A saved equipment configuration (a "set").
- */
-struct equip_set {
-	bool valid;
-	char *name;
-	struct equip_set_slot *slots;
-	int num_slots;
-};
-
-/**
  * Player race info
  */
 struct player_race {
@@ -316,6 +277,13 @@ struct class_spell {
 	int smana;				/**< Required mana (to cast) */
 	int sfail;				/**< Base chance of failure */
 	int sexp;				/**< Encoded experience bonus */
+
+	int range;				/**< Spell range (0 for self/touch, -1 for unlimited) */
+	int radius;				/**< Radius of effect (0 for single target) */
+	bool pass_wall;			/**< Whether the spell passes through walls */
+	bool need_los;			/**< Whether the spell requires line of sight */
+	char *damage_type;		/**< Primary damage type (projection name) */
+	char *side_effect;		/**< Special side effect description */
 };
 
 /**
@@ -632,8 +600,6 @@ struct player {
 
 	struct player_body body;			/* Equipment slots available */
 	struct player_shape *shape;			/* Current player shape */
-
-	struct equip_set equip_sets[EQUIP_SET_MAX];	/* Saved equipment sets */
 
 	struct object *gear;				/* Real gear */
 	struct object *gear_k;				/* Known gear */

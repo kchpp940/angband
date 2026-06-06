@@ -125,7 +125,6 @@ static const struct {
 	{ "traps", wr_traps, 1 },
 	{ "chunks", wr_chunks, 1 },
 	{ "history", wr_history, 1 },
-	{ "equip sets", wr_equip_sets, 2 },
 };
 
 /**
@@ -153,8 +152,6 @@ static const struct blockinfo loaders[] = {
 	{ "traps", rd_traps, 1 },
 	{ "chunks", rd_chunks, 1 },
 	{ "history", rd_history, 1 },
-	{ "equip sets", rd_equip_sets_v1, 1 },
-	{ "equip sets", rd_equip_sets, 2 },
 };
 
 

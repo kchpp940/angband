@@ -104,8 +104,6 @@ int rd_monsters(void);
 int rd_monster_groups(void);
 int rd_history(void);
 int rd_traps(void);
-int rd_equip_sets_v1(void);
-int rd_equip_sets(void);
 int rd_null(void);
 
 /* save.c */
@@ -133,7 +131,6 @@ void wr_monster_groups(void);
 void wr_ghost(void);
 void wr_history(void);
 void wr_traps(void);
-void wr_equip_sets(void);
 
 
 #endif /* INCLUDED_SAVEFILE_H */

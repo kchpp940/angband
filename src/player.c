@@ -18,7 +18,6 @@
 
 #include "effects.h"
 #include "init.h"
-#include "obj-gear.h"
 #include "obj-pile.h"
 #include "obj-util.h"
 #include "player-birth.h"
@@ -468,8 +467,6 @@ void player_cleanup_members(struct player *p)
 		cave_free(p->cave);
 		p->cave = NULL;
 	}
-
-	equip_set_free(p);
 }
 
 
@@ -492,7 +489,6 @@ static void init_player(void) {
 									   sizeof(struct curse_data));
 
 	options_init_defaults(&player->opts);
-	equip_set_init(player);
 }
 
 /**

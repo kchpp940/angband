@@ -69,10 +69,6 @@ typedef enum cmd_code {
 	CMD_TAKEOFF,
 	CMD_WIELD,
 	CMD_DROP,
-	CMD_EQUIP_SET_SAVE,
-	CMD_EQUIP_SET_LOAD,
-	CMD_EQUIP_SET_DELETE,
-	CMD_EQUIP_SET_LIST,
 	CMD_BROWSE_SPELL,
 	CMD_STUDY,
 	CMD_CAST, /* Casting a spell /or/ praying. */

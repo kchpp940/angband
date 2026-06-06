@@ -24,6 +24,7 @@
 #include "message.h"
 #include "mon-summon.h"
 #include "obj-info.h"
+#include "player.h"
 #include "player-timed.h"
 #include "project.h"
 #include "z-color.h"
@@ -1084,4 +1085,128 @@ struct effect_object_property *effect_summarize_properties(
 
 	if (unsummarized_count) *unsummarized_count = unsummarized;
 	return summaries;
+}
+
+textblock *spell_info_describe(const struct class_spell *spell, bool show_damage)
+{
+	textblock *tb = textblock_new();
+	int num_damaging = 0;
+	dice_t *shared_dice = NULL;
+	int i = 0;
+
+	if (!spell) return tb;
+
+	if (spell->text) {
+		textblock_append(tb, "%s", spell->text);
+	}
+
+	if (spell->range > -2) {
+		textblock_append(tb, "\n  ");
+		if (spell->range == -1) {
+			textblock_append(tb, "Range: unlimited");
+		} else if (spell->range == 0) {
+			textblock_append(tb, "Range: self/touch");
+		} else {
+			textblock_append(tb, "Range: %d", spell->range);
+		}
+	}
+
+	if (spell->radius > 0) {
+		textblock_append(tb, "\n  Radius: %d", spell->radius);
+	}
+
+	if (spell->range > -2 || spell->radius > 0) {
+		textblock_append(tb, "\n  Line of sight: %s",
+			spell->need_los ? "required" : "not required");
+		textblock_append(tb, "\n  Passes through walls: %s",
+			spell->pass_wall ? "yes" : "no");
+	}
+
+	if (spell->damage_type) {
+		textblock_append(tb, "\n  Damage type: %s", spell->damage_type);
+	}
+
+	if (spell->side_effect) {
+		textblock_append(tb, "\n  Side effect: %s", spell->side_effect);
+	}
+
+	if (!show_damage) {
+		textblock_append(tb, "\n");
+		return tb;
+	}
+
+	for (struct effect *e = spell->effect; e != NULL; e = effect_next(e)) {
+		if (effect_damages(e)) {
+			num_damaging++;
+		}
+	}
+
+	if (num_damaging > 0) {
+		textblock_append(tb, "\n  Inflicts an average of");
+		for (struct effect *e = spell->effect; e != NULL; e = effect_next(e)) {
+			if (e->index == EF_SET_VALUE) {
+				shared_dice = e->dice;
+			} else if (e->index == EF_CLEAR_VALUE) {
+				shared_dice = NULL;
+			}
+			if (effect_damages(e)) {
+				if (num_damaging > 2 && i > 0) {
+					textblock_append(tb, ",");
+				}
+				if (num_damaging > 1 && i == num_damaging - 1) {
+					textblock_append(tb, " and");
+				}
+				textblock_append_c(tb, COLOUR_L_GREEN, " %d",
+					effect_avg_damage(e, shared_dice));
+				const char *proj = effect_projection(e);
+				if (strlen(proj) > 0) {
+					textblock_append(tb, " %s", proj);
+				}
+				i++;
+			}
+		}
+		textblock_append(tb, " damage.");
+	}
+
+	textblock_append(tb, "\n");
+	return tb;
+}
+
+size_t spell_info_summary(char *buf, size_t max,
+	const struct class_spell *spell)
+{
+	size_t offset = 0;
+
+	if (!spell || !buf || max == 0) return 0;
+
+	buf[0] = '\0';
+
+	if (spell->range > -2) {
+		if (spell->range == -1) {
+			offset += strnfmt(buf + offset, max - offset, "range inf");
+		} else if (spell->range == 0) {
+			offset += strnfmt(buf + offset, max - offset, "self");
+		} else {
+			offset += strnfmt(buf + offset, max - offset, "range %d",
+				spell->range);
+		}
+	}
+
+	if (spell->radius > 0) {
+		if (offset > 0) {
+			offset += strnfmt(buf + offset, max - offset, ", ");
+		}
+		offset += strnfmt(buf + offset, max - offset, "rad %d",
+			spell->radius);
+	}
+
+	if (spell->damage_type) {
+		if (offset > 0) {
+			offset += strnfmt(buf + offset, max - offset, ", ");
+		}
+		offset += strnfmt(buf + offset, max - offset, "%s",
+			spell->damage_type);
+	}
+
+	return offset;
 }
