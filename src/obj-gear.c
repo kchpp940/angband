@@ -1455,6 +1455,9 @@ void equip_set_free(struct player *p)
 		}
 		if (p->equip_sets[i].slots) {
 			for (j = 0; j < p->equip_sets[i].num_slots; j++) {
+				if (p->equip_sets[i].slots[j].inscription) {
+					mem_free(p->equip_sets[i].slots[j].inscription);
+				}
 				if (p->equip_sets[i].slots[j].artifact_name) {
 					mem_free(p->equip_sets[i].slots[j].artifact_name);
 				}
@@ -1498,14 +1501,28 @@ bool equip_set_save(struct player *p, int index, const char *name)
 		sslot->slot_type = p->body.slots[i].type;
 
 		if (obj) {
+			const char *inscr = (obj->note != 0) ? quark_str(obj->note) : NULL;
+
 			sslot->used = true;
 			sslot->tval = obj->tval;
 			sslot->sval = obj->sval;
+			sslot->pval = obj->pval;
+			sslot->ac = obj->ac;
+			sslot->weight = obj->weight;
 			sslot->to_h = obj->to_h;
 			sslot->to_d = obj->to_d;
 			sslot->to_a = obj->to_a;
 			sslot->dd = obj->dd;
 			sslot->ds = obj->ds;
+			sslot->origin = obj->origin;
+			sslot->origin_depth = obj->origin_depth;
+
+			if (inscr && inscr[0] != '\0') {
+				sslot->inscription = string_make(inscr);
+			} else {
+				sslot->inscription = NULL;
+			}
+
 			if (obj->artifact) {
 				sslot->artifact_name = string_make(obj->artifact->name);
 			} else {
@@ -1521,11 +1538,17 @@ bool equip_set_save(struct player *p, int index, const char *name)
 			sslot->used = false;
 			sslot->tval = 0;
 			sslot->sval = 0;
+			sslot->pval = 0;
+			sslot->ac = 0;
+			sslot->weight = 0;
 			sslot->to_h = 0;
 			sslot->to_d = 0;
 			sslot->to_a = 0;
 			sslot->dd = 0;
 			sslot->ds = 0;
+			sslot->origin = 0;
+			sslot->origin_depth = 0;
+			sslot->inscription = NULL;
 			sslot->artifact_name = NULL;
 			sslot->ego_name = NULL;
 		}
@@ -1555,6 +1578,9 @@ bool equip_set_delete(struct player *p, int index)
 	}
 	if (set->slots) {
 		for (j = 0; j < set->num_slots; j++) {
+			if (set->slots[j].inscription) {
+				mem_free(set->slots[j].inscription);
+			}
 			if (set->slots[j].artifact_name) {
 				mem_free(set->slots[j].artifact_name);
 			}
@@ -1594,7 +1620,20 @@ const char *equip_set_name(struct player *p, int index)
 }
 
 /**
+ * Check if two inscription strings are effectively equal (both NULL or same content).
+ */
+static bool equip_set_inscription_eq(const char *a, const char *b)
+{
+	if (!a && !b) return true;
+	if (!a || !b) return false;
+	return streq(a, b);
+}
+
+/**
  * Check if an object matches the criteria in a set slot.
+ * Uses strong matching: inscription must match if present; otherwise all
+ * stable identifying fields (pval, ac, weight, origin, plus the standard
+ * to_h/to_d/to_a/dd/ds, tval/sval, artifact/ego) must match.
  */
 static bool equip_set_object_matches(struct object *obj, struct equip_set_slot *slot)
 {
@@ -1603,6 +1642,11 @@ static bool equip_set_object_matches(struct object *obj, struct equip_set_slot *
 	if (slot->artifact_name) {
 		if (!obj->artifact) return false;
 		if (!streq(obj->artifact->name, slot->artifact_name)) return false;
+		if (!equip_set_inscription_eq(
+				slot->inscription,
+				(obj->note != 0) ? quark_str(obj->note) : NULL)) {
+			return false;
+		}
 		return true;
 	}
 
@@ -1616,43 +1660,100 @@ static bool equip_set_object_matches(struct object *obj, struct equip_set_slot *
 		return false;
 	}
 
+	if (obj->pval != slot->pval) return false;
+	if (obj->ac != slot->ac) return false;
+	if (obj->weight != slot->weight) return false;
+	if (obj->origin != slot->origin) return false;
+	if (obj->origin_depth != slot->origin_depth) return false;
+
 	if (obj->to_h != slot->to_h) return false;
 	if (obj->to_d != slot->to_d) return false;
 	if (obj->to_a != slot->to_a) return false;
 	if (obj->dd != slot->dd) return false;
 	if (obj->ds != slot->ds) return false;
 
+	if (!equip_set_inscription_eq(
+			slot->inscription,
+			(obj->note != 0) ? quark_str(obj->note) : NULL)) {
+		return false;
+	}
+
 	return true;
 }
 
 /**
- * Find a matching object in the player's inventory or equipment for a set slot.
+ * Find a single matching object in the player's inventory or equipment
+ * for a set slot.  Returns NULL if there is not exactly one match.
+ * Use equip_set_find_all_matches() for ambiguity detection.
  */
 struct object *equip_set_find_match(struct player *p, struct equip_set_slot *slot)
 {
 	struct object *obj;
+	struct object *found = NULL;
 
 	if (!slot || !slot->used) return NULL;
 
 	for (obj = p->gear; obj; obj = obj->next) {
 		if (equip_set_object_matches(obj, slot)) {
-			return obj;
+			if (found) {
+				return NULL;
+			}
+			found = obj;
 		}
 	}
 
-	return NULL;
+	return found;
+}
+
+/**
+ * Find ALL matching objects in the player's inventory/equipment for a slot.
+ * Returns the count of matches; *matches_out is set to a newly-allocated
+ * array of matching object pointers (caller must mem_free() it).
+ * Returns 0 if no match and sets *matches_out = NULL.
+ */
+int equip_set_find_all_matches(struct player *p, struct equip_set_slot *slot,
+	struct object ***matches_out)
+{
+	struct object *obj;
+	struct object **matches;
+	int count = 0;
+	int cap = 8;
+
+	*matches_out = NULL;
+	if (!slot || !slot->used) return 0;
+
+	matches = mem_zalloc(cap * sizeof(struct object *));
+
+	for (obj = p->gear; obj; obj = obj->next) {
+		if (equip_set_object_matches(obj, slot)) {
+			if (count >= cap) {
+				cap *= 2;
+				matches = mem_realloc(matches, cap * sizeof(struct object *));
+			}
+			matches[count++] = obj;
+		}
+	}
+
+	if (count == 0) {
+		mem_free(matches);
+		return 0;
+	}
+
+	*matches_out = matches;
+	return count;
 }
 
 /**
  * Preview what would happen when switching to an equipment set.
- * Returns arrays of items that would be taken off, wielded, missing, or cursed.
- * The caller is responsible for freeing the arrays.
+ * Returns arrays of items that would be taken off, wielded, missing, cursed,
+ * and ambiguous (multiple matches).  The caller must free all arrays.
  */
 bool equip_set_switch_preview(struct player *p, int index,
 	struct object ***will_takeoff, int *takeoff_count,
 	struct object ***will_wield, struct equip_set_slot ***will_wield_slots, int *wield_count,
 	struct equip_set_slot ***missing_slots, int *missing_count,
-	struct object ***cursed_slots, int *cursed_count)
+	struct object ***cursed_slots, int *cursed_count,
+	struct equip_set_slot ***ambiguous_slots, struct object ***ambiguous_matches, int *ambiguous_count)
 {
 	struct equip_set *set;
 	int i;
@@ -1662,6 +1763,7 @@ bool equip_set_switch_preview(struct player *p, int index,
 	*wield_count = 0;
 	*missing_count = 0;
 	*cursed_count = 0;
+	*ambiguous_count = 0;
 
 	if (index < 0 || index >= EQUIP_SET_MAX) return false;
 	set = &p->equip_sets[index];
@@ -1674,11 +1776,14 @@ bool equip_set_switch_preview(struct player *p, int index,
 	*will_wield_slots = mem_zalloc(max_items * sizeof(struct equip_set_slot *));
 	*missing_slots = mem_zalloc(max_items * sizeof(struct equip_set_slot *));
 	*cursed_slots = mem_zalloc(max_items * sizeof(struct object *));
+	*ambiguous_slots = mem_zalloc(max_items * sizeof(struct equip_set_slot *));
+	*ambiguous_matches = mem_zalloc(max_items * sizeof(struct object *));
 
 	for (i = 0; i < set->num_slots && i < p->body.count; i++) {
 		struct equip_set_slot *sslot = &set->slots[i];
 		struct object *current_obj = slot_object(p, i);
-		struct object *match_obj;
+		struct object **match_arr = NULL;
+		int match_n;
 
 		if (!sslot->used) {
 			if (current_obj) {
@@ -1695,24 +1800,38 @@ bool equip_set_switch_preview(struct player *p, int index,
 			continue;
 		}
 
-		match_obj = equip_set_find_match(p, sslot);
-		if (!match_obj) {
+		match_n = equip_set_find_all_matches(p, sslot, &match_arr);
+
+		if (match_n == 0) {
 			(*missing_slots)[(*missing_count)++] = sslot;
 			continue;
 		}
 
-		if (current_obj) {
-			if (!obj_can_takeoff(current_obj)) {
-				(*cursed_slots)[(*cursed_count)++] = current_obj;
-				continue;
-			}
-			(*will_takeoff)[(*takeoff_count)++] = current_obj;
+		if (match_n > 1) {
+			(*ambiguous_slots)[*ambiguous_count] = sslot;
+			(*ambiguous_matches)[*ambiguous_count] = match_arr[0];
+			(*ambiguous_count)++;
+			if (match_arr) mem_free(match_arr);
+			continue;
 		}
 
-		if (!object_is_equipped(p->body, match_obj)) {
-			(*will_wield)[*wield_count] = match_obj;
-			(*will_wield_slots)[*wield_count] = sslot;
-			(*wield_count)++;
+		{
+			struct object *match_obj = match_arr[0];
+			if (match_arr) mem_free(match_arr);
+
+			if (current_obj) {
+				if (!obj_can_takeoff(current_obj)) {
+					(*cursed_slots)[(*cursed_count)++] = current_obj;
+					continue;
+				}
+				(*will_takeoff)[(*takeoff_count)++] = current_obj;
+			}
+
+			if (!object_is_equipped(p->body, match_obj)) {
+				(*will_wield)[*wield_count] = match_obj;
+				(*will_wield_slots)[*wield_count] = sslot;
+				(*wield_count)++;
+			}
 		}
 	}
 
@@ -1721,19 +1840,21 @@ bool equip_set_switch_preview(struct player *p, int index,
 
 /**
  * Actually apply (switch to) an equipment set.
+ * Aborts if any slot has ambiguous matches (multiple candidates).
  * Returns true if any changes were made.
  */
 bool equip_set_apply(struct player *p, int index)
 {
 	struct equip_set *set;
-	int i;
 	bool changed = false;
 	struct object **will_takeoff = NULL;
 	struct object **will_wield = NULL;
 	struct equip_set_slot **will_wield_slots = NULL;
 	struct equip_set_slot **missing_slots = NULL;
 	struct object **cursed_slots = NULL;
-	int takeoff_count, wield_count, missing_count, cursed_count;
+	struct equip_set_slot **ambiguous_slots = NULL;
+	struct object **ambiguous_matches = NULL;
+	int takeoff_count, wield_count, missing_count, cursed_count, ambiguous_count;
 	int j;
 
 	if (index < 0 || index >= EQUIP_SET_MAX) return false;
@@ -1744,7 +1865,34 @@ bool equip_set_apply(struct player *p, int index)
 		&will_takeoff, &takeoff_count,
 		&will_wield, &will_wield_slots, &wield_count,
 		&missing_slots, &missing_count,
-		&cursed_slots, &cursed_count)) {
+		&cursed_slots, &cursed_count,
+		&ambiguous_slots, &ambiguous_matches, &ambiguous_count)) {
+		goto cleanup;
+	}
+
+	if (ambiguous_count > 0) {
+		for (j = 0; j < ambiguous_count; j++) {
+			struct equip_set_slot *sslot = ambiguous_slots[j];
+			if (sslot->artifact_name) {
+				msg("Multiple items match the artifact %s; cannot switch safely.",
+					sslot->artifact_name);
+			} else {
+				char buf[80];
+				struct object_kind *kind = lookup_kind(sslot->tval, sslot->sval);
+				if (kind) {
+					strnfmt(buf, sizeof(buf), "%s", kind->name);
+					if (sslot->ego_name) {
+						my_strcat(buf, " (", sizeof(buf));
+						my_strcat(buf, sslot->ego_name, sizeof(buf));
+						my_strcat(buf, ")", sizeof(buf));
+					}
+					msg("Multiple items match %s; cannot switch safely.", buf);
+				} else {
+					msg("Multiple items match a slot; cannot switch safely.");
+				}
+			}
+			msg("  Tip: inscribe a unique @-tag on each saved piece to disambiguate.");
+		}
 		goto cleanup;
 	}
 
@@ -1829,6 +1977,8 @@ cleanup:
 	if (will_wield_slots) mem_free(will_wield_slots);
 	if (missing_slots) mem_free(missing_slots);
 	if (cursed_slots) mem_free(cursed_slots);
+	if (ambiguous_slots) mem_free(ambiguous_slots);
+	if (ambiguous_matches) mem_free(ambiguous_matches);
 
 	return changed;
 }

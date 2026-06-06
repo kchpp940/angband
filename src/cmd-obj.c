@@ -1358,7 +1358,9 @@ void do_cmd_equip_set_load(struct command *cmd)
 	struct equip_set_slot **will_wield_slots = NULL;
 	struct equip_set_slot **missing_slots = NULL;
 	struct object **cursed_slots = NULL;
-	int takeoff_count, wield_count, missing_count, cursed_count;
+	struct equip_set_slot **ambiguous_slots = NULL;
+	struct object **ambiguous_matches = NULL;
+	int takeoff_count, wield_count, missing_count, cursed_count, ambiguous_count;
 	int i, j;
 	char o_name[80];
 
@@ -1380,7 +1382,8 @@ void do_cmd_equip_set_load(struct command *cmd)
 			&will_takeoff, &takeoff_count,
 			&will_wield, &will_wield_slots, &wield_count,
 			&missing_slots, &missing_count,
-			&cursed_slots, &cursed_count)) {
+			&cursed_slots, &cursed_count,
+			&ambiguous_slots, &ambiguous_matches, &ambiguous_count)) {
 		msg("Failed to preview equipment set.");
 		goto cleanup;
 	}
@@ -1439,8 +1442,41 @@ void do_cmd_equip_set_load(struct command *cmd)
 		}
 	}
 
-	if (takeoff_count == 0 && wield_count == 0) {
+	if (ambiguous_count > 0) {
+		prt(format("  Ambiguous matches (%d):", ambiguous_count), j++, 0);
+		for (i = 0; i < ambiguous_count; i++) {
+			struct equip_set_slot *sslot = ambiguous_slots[i];
+			if (sslot->artifact_name) {
+				prt(format("    ? %s (artifact) - multiple candidates",
+					sslot->artifact_name), j++, 0);
+			} else {
+				char buf[80];
+				struct object_kind *kind = lookup_kind(sslot->tval, sslot->sval);
+				if (kind) {
+					strnfmt(buf, sizeof(buf), "%s", kind->name);
+					if (sslot->ego_name) {
+						my_strcat(buf, " (", sizeof(buf));
+						my_strcat(buf, sslot->ego_name, sizeof(buf));
+						my_strcat(buf, ")", sizeof(buf));
+					}
+					prt(format("    ? %s - multiple candidates", buf), j++, 0);
+				} else {
+					prt("    ? unknown item - multiple candidates", j++, 0);
+				}
+			}
+		}
+		prt("  (Inscribe unique @-tags on each saved item to disambiguate.)", j++, 0);
+	}
+
+	if (takeoff_count == 0 && wield_count == 0
+		&& missing_count == 0 && ambiguous_count == 0) {
 		prt("  (no changes needed)", j++, 0);
+	}
+
+	if (ambiguous_count > 0) {
+		prt("  Switch aborted: ambiguous matches would pick the wrong item.", j++, 0);
+		get_check("Press return to continue. ");
+		goto cleanup;
 	}
 
 	if (!get_check("Proceed with equipment swap? ")) {
@@ -1462,6 +1498,8 @@ cleanup:
 	if (will_wield_slots) mem_free(will_wield_slots);
 	if (missing_slots) mem_free(missing_slots);
 	if (cursed_slots) mem_free(cursed_slots);
+	if (ambiguous_slots) mem_free(ambiguous_slots);
+	if (ambiguous_matches) mem_free(ambiguous_matches);
 }
 
 /**

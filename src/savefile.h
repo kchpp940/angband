@@ -104,6 +104,7 @@ int rd_monsters(void);
 int rd_monster_groups(void);
 int rd_history(void);
 int rd_traps(void);
+int rd_equip_sets_v1(void);
 int rd_equip_sets(void);
 int rd_null(void);
 

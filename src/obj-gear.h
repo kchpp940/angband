@@ -74,11 +74,14 @@ bool equip_set_delete(struct player *p, int index);
 bool equip_set_is_valid(struct player *p, int index);
 const char *equip_set_name(struct player *p, int index);
 struct object *equip_set_find_match(struct player *p, struct equip_set_slot *slot);
+int equip_set_find_all_matches(struct player *p, struct equip_set_slot *slot,
+	struct object ***matches_out);
 bool equip_set_switch_preview(struct player *p, int index,
 	struct object ***will_takeoff, int *takeoff_count,
 	struct object ***will_wield, struct equip_set_slot ***will_wield_slots, int *wield_count,
 	struct equip_set_slot ***missing_slots, int *missing_count,
-	struct object ***cursed_slots, int *cursed_count);
+	struct object ***cursed_slots, int *cursed_count,
+	struct equip_set_slot ***ambiguous_slots, struct object ***ambiguous_matches, int *ambiguous_count);
 bool equip_set_apply(struct player *p, int index);
 
 

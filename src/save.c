@@ -1087,11 +1087,17 @@ void wr_equip_sets(void)
 				wr_u16b(slot->slot_type);
 				wr_byte(slot->tval);
 				wr_byte(slot->sval);
+				wr_s16b(slot->pval);
+				wr_s16b(slot->ac);
+				wr_s16b(slot->weight);
 				wr_s16b(slot->to_h);
 				wr_s16b(slot->to_d);
 				wr_s16b(slot->to_a);
 				wr_byte(slot->dd);
 				wr_byte(slot->ds);
+				wr_byte(slot->origin);
+				wr_byte(slot->origin_depth);
+				wr_string(slot->inscription ? slot->inscription : "");
 				wr_string(slot->artifact_name ? slot->artifact_name : "");
 				wr_string(slot->ego_name ? slot->ego_name : "");
 			}

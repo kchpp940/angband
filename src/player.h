@@ -180,11 +180,17 @@ struct equip_set_slot {
 	int slot_type;
 	uint8_t tval;
 	uint8_t sval;
+	int16_t pval;
+	int16_t ac;
+	int16_t weight;
 	int16_t to_h;
 	int16_t to_d;
 	int16_t to_a;
 	uint8_t dd;
 	uint8_t ds;
+	uint8_t origin;
+	uint8_t origin_depth;
+	char *inscription;
 	char *artifact_name;
 	char *ego_name;
 };
