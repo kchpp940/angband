@@ -286,6 +286,153 @@ static int test_ordinary_item_not_counted(void *state) {
 	ok;
 }
 
+/* Test that object_split does NOT transfer floor_obj_id to the split-off
+ * portion, but DOES preserve it on the remaining source pile.
+ * Only the original, intact entity should count as the target. */
+static int test_obj_split_preserves_source_binding(void *state) {
+	struct object *src = object_new();
+	struct object *split;
+
+	object_prep(src, lookup_kind(TV_LIGHT, 1), 0, RANDOMISE);
+	src->floor_obj_id = 3;
+	src->number = 5;
+
+	/* Split off 2 items - source now has 3, split has 2 */
+	split = object_split(src, 2);
+
+	/* Source pile (remaining) must keep the binding */
+	eq(src->floor_obj_id, 3);
+	eq(src->number, 3);
+
+	/* Split-off pile must NOT have the binding */
+	eq(split->floor_obj_id, 0);
+	eq(split->number, 2);
+
+	object_free(src);
+	object_free(split);
+
+	ok;
+}
+
+/* Test that picking up only a partial stack of the target item (via
+ * object_split internally) does NOT complete the objective.
+ * The split-off copy has floor_obj_id=0, so pickup check ignores it. */
+static int test_partial_pickup_not_counted(void *state) {
+	struct chunk *c = t_build_arena(20, 20);
+	struct floor_objective *obj;
+	struct object *target_obj;
+	struct object *partial;
+
+	player_make_simple(NULL, NULL, "Tester");
+	cave = c;
+	player->cave = c;
+
+	c->floor_obj.count = 1;
+	obj = &c->floor_obj.objs[0];
+	memset(obj, 0, sizeof(*obj));
+	obj->objective_id = 1;
+	obj->type = FLOOR_OBJ_RETRIEVE_ITEM;
+	obj->state = FLOOR_OBJ_ACTIVE;
+	obj->description = string_make("回收特殊物品");
+	obj->data.item.picked_up = false;
+	obj->reward_type = FLOOR_REWARD_GOLD;
+	obj->reward_value = 100;
+
+	/* Create a stack of 5 target torches */
+	target_obj = object_new();
+	object_prep(target_obj, lookup_kind(TV_LIGHT, 1), 0, RANDOMISE);
+	target_obj->floor_obj_id = 1;
+	target_obj->number = 5;
+
+	/* Simulate partial pickup: split off 2 */
+	partial = object_split(target_obj, 2);
+	eq(partial->floor_obj_id, 0);
+	eq(target_obj->floor_obj_id, 1);
+
+	/* Pick up the partial (floor_obj_id=0) - should NOT complete */
+	floor_obj_check_item_pickup(player, partial);
+	eq(obj->data.item.picked_up, false);
+	eq(obj->state, FLOOR_OBJ_ACTIVE);
+
+	/* Now pick up the remaining original stack (floor_obj_id=1) - COMPLETES */
+	floor_obj_check_item_pickup(player, target_obj);
+	eq(obj->data.item.picked_up, true);
+	eq(obj->state, FLOOR_OBJ_COMPLETED);
+
+	object_free(partial);
+	object_free(target_obj);
+	cave_free(c);
+	cave = NULL;
+	player->cave = NULL;
+
+	ok;
+}
+
+/* Test that picking up the full original target object (not a split copy)
+ * triggers completion. This is the expected happy path. */
+static int test_full_pickup_counts(void *state) {
+	struct chunk *c = t_build_arena(20, 20);
+	struct floor_objective *obj;
+	struct object *target_obj;
+
+	player_make_simple(NULL, NULL, "Tester");
+	cave = c;
+	player->cave = c;
+
+	c->floor_obj.count = 1;
+	obj = &c->floor_obj.objs[0];
+	memset(obj, 0, sizeof(*obj));
+	obj->objective_id = 1;
+	obj->type = FLOOR_OBJ_RETRIEVE_ITEM;
+	obj->state = FLOOR_OBJ_ACTIVE;
+	obj->description = string_make("回收特殊物品");
+	obj->data.item.picked_up = false;
+
+	/* Single target item (no splitting needed) */
+	target_obj = object_new();
+	memset(target_obj, 0, sizeof(*target_obj));
+	target_obj->floor_obj_id = 1;
+	target_obj->number = 1;
+
+	floor_obj_check_item_pickup(player, target_obj);
+	eq(obj->data.item.picked_up, true);
+	eq(obj->state, FLOOR_OBJ_COMPLETED);
+
+	object_free(target_obj);
+	cave_free(c);
+	cave = NULL;
+	player->cave = NULL;
+
+	ok;
+}
+
+/* Test that floor_obj_validate on a chunk with count=0 (simulating an
+ * old savefile that has no "floor obj" block) is a safe no-op.
+ * This is the compatibility path for pre-floor-obj savefiles. */
+static int test_empty_chunk_validate_noop(void *state) {
+	struct chunk *c = t_build_arena(20, 20);
+
+	player_make_simple(NULL, NULL, "Tester");
+	cave = c;
+	player->cave = c;
+
+	/* New chunk from cave_new() has floor_obj.count=0 already,
+	 * simulating a savefile with no "floor obj" block. */
+	eq(c->floor_obj.count, 0);
+
+	/* Should not crash, should not assert, should not touch memory */
+	floor_obj_validate(c, player);
+
+	/* Count still 0, nothing modified */
+	eq(c->floor_obj.count, 0);
+
+	cave_free(c);
+	cave = NULL;
+	player->cave = NULL;
+
+	ok;
+}
+
 const char *suite_name = "floor-obj/binding";
 struct test tests[] = {
 	{ "obj_copy_clears_binding", test_obj_copy_clears_binding },
@@ -294,5 +441,9 @@ struct test tests[] = {
 	{ "partial_progress_survives_vanish", test_partial_progress_survives_vanish },
 	{ "item_in_pack_survives_validation", test_item_in_pack_survives_validation },
 	{ "ordinary_item_not_counted", test_ordinary_item_not_counted },
+	{ "obj_split_preserves_source_binding", test_obj_split_preserves_source_binding },
+	{ "partial_pickup_not_counted", test_partial_pickup_not_counted },
+	{ "full_pickup_counts", test_full_pickup_counts },
+	{ "empty_chunk_validate_noop", test_empty_chunk_validate_noop },
 	{ NULL, NULL }
 };
