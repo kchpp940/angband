@@ -655,6 +655,12 @@ const char *floor_obj_get_status_text(struct chunk *c, int idx)
 		return buf;
 	}
 
+	if (obj->state == FLOOR_OBJ_FAILED) {
+		strnfmt(buf, sizeof(buf), "[已失效] %s",
+			obj->description ? obj->description : "楼层目标");
+		return buf;
+	}
+
 	if (obj->state != FLOOR_OBJ_ACTIVE) return NULL;
 
 	switch (obj->type) {
@@ -694,7 +700,8 @@ const char *floor_obj_get_status_text(struct chunk *c, int idx)
 }
 
 /**
- * Check if there are any active floor objectives
+ * Check if there are any active floor objectives, or completed ones
+ * with unclaimed rewards.
  */
 bool floor_obj_has_active(struct chunk *c)
 {
@@ -702,7 +709,11 @@ bool floor_obj_has_active(struct chunk *c)
 	if (!c) return false;
 
 	for (i = 0; i < c->floor_obj.count; i++) {
-		if (c->floor_obj.objs[i].state == FLOOR_OBJ_ACTIVE) {
+		struct floor_objective *obj = &c->floor_obj.objs[i];
+		if (obj->state == FLOOR_OBJ_ACTIVE) {
+			return true;
+		}
+		if (obj->state == FLOOR_OBJ_COMPLETED && !obj->reward_claimed) {
 			return true;
 		}
 	}
@@ -945,6 +956,94 @@ void rd_floor_obj(struct chunk *c)
 		rd_s16b(&obj_id);
 		if (oidx < c->obj_max && c->objects[oidx]) {
 			c->objects[oidx]->floor_obj_id = obj_id;
+		}
+	}
+}
+
+/**
+ * Validate active objectives' bound entities still exist after load.
+ * If target entities are gone with no progress, mark the objective FAILED.
+ * If some target entities vanished but progress was made, adjust totals
+ * down so the objective can still be completed with what remains.
+ */
+void floor_obj_validate(struct chunk *c, struct player *p)
+{
+	int i;
+	if (!c || c->floor_obj.count <= 0) return;
+
+	for (i = 0; i < c->floor_obj.count; i++) {
+		struct floor_objective *obj = &c->floor_obj.objs[i];
+
+		/* Only validate active objectives */
+		if (obj->state != FLOOR_OBJ_ACTIVE) continue;
+		if (obj->objective_id == 0) continue;
+
+		switch (obj->type) {
+			case FLOOR_OBJ_CLEAR_NEST: {
+				int j, remaining = 0;
+				int expected;
+
+				for (j = 1; j < c->mon_max; j++) {
+					if (c->monsters[j].midx == 0) continue;
+					if (c->monsters[j].floor_obj_id == (int16_t)obj->objective_id) {
+						remaining++;
+					}
+				}
+
+				expected = obj->data.nest.current_kills + remaining;
+
+				/* No monsters left and no kills ever made: objective lost */
+				if (expected == 0) {
+					obj->state = FLOOR_OBJ_FAILED;
+					obj->data.nest.total_kills = 0;
+					obj->data.nest.current_kills = 0;
+				} else if (expected != obj->data.nest.total_kills) {
+					/* Adjust total to match reality (some monsters vanished) */
+					obj->data.nest.total_kills = expected;
+					if (obj->data.nest.current_kills >= obj->data.nest.total_kills) {
+						obj->state = FLOOR_OBJ_COMPLETED;
+					}
+				}
+				break;
+			}
+
+			case FLOOR_OBJ_RETRIEVE_ITEM: {
+				bool found = false;
+				int j;
+
+				if (obj->data.item.picked_up) break;
+
+				/* Search chunk objects (floor) */
+				for (j = 1; j < c->obj_max; j++) {
+					if (!c->objects[j]) continue;
+					if (c->objects[j]->floor_obj_id == (int16_t)obj->objective_id) {
+						found = true;
+						break;
+					}
+				}
+
+				/* Search player gear (pack + equipment + quiver) */
+				if (!found && p) {
+					struct object *gear_obj;
+					for (gear_obj = p->gear; gear_obj; gear_obj = gear_obj->next) {
+						if (gear_obj->floor_obj_id == (int16_t)obj->objective_id) {
+							found = true;
+							break;
+						}
+					}
+				}
+
+				if (!found) {
+					obj->state = FLOOR_OBJ_FAILED;
+				}
+				break;
+			}
+
+			case FLOOR_OBJ_FIND_HIDDEN:
+			case FLOOR_OBJ_REACH_AREA:
+			default:
+				/* Location-based objectives have no entities to validate */
+				break;
 		}
 	}
 }

@@ -45,5 +45,6 @@ bool floor_obj_is_highlight_grid(struct chunk *c, struct loc grid);
 /* Save/load helpers */
 void wr_floor_obj(struct chunk *c);
 void rd_floor_obj(struct chunk *c);
+void floor_obj_validate(struct chunk *c, struct player *p);
 
 #endif /* FLOOR_OBJ_H */

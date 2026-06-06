@@ -854,6 +854,7 @@ set(ANGBAND_TEST_CASE_SOURCES
     effects/destruction.c
     effects/earthquake.c
     effects/info.c
+    floor-obj/binding.c
     game/basic.c
     game/mage.c
     message/message.c

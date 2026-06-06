@@ -559,8 +559,14 @@ static void prt_floor_obj(int row, int col)
 	for (i = 0; i < cave->floor_obj.count; i++) {
 		const char *text = floor_obj_get_status_text(cave, i);
 		if (text && display_row < Term->hgt - 1) {
-			uint8_t color = (cave->floor_obj.objs[i].state == FLOOR_OBJ_COMPLETED)
-				? COLOUR_L_GREEN : COLOUR_L_WHITE;
+			uint8_t color;
+			if (cave->floor_obj.objs[i].state == FLOOR_OBJ_COMPLETED) {
+				color = COLOUR_L_GREEN;
+			} else if (cave->floor_obj.objs[i].state == FLOOR_OBJ_FAILED) {
+				color = COLOUR_SLATE;
+			} else {
+				color = COLOUR_L_WHITE;
+			}
 			c_put_str(color, format("%-13s", text), display_row, col);
 			display_row++;
 		}

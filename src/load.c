@@ -1770,12 +1770,15 @@ int rd_floor_obj_all(void)
 		return 0;
 
 	rd_floor_obj(cave);
+	floor_obj_validate(cave, player);
 	rd_floor_obj(player->cave);
+	floor_obj_validate(player->cave, player);
 
 	rd_u16b(&chunk_max);
 	for (j = 0; j < chunk_max; j++) {
 		if (j < chunk_list_max) {
 			rd_floor_obj(chunk_list[j]);
+			floor_obj_validate(chunk_list[j], NULL);
 		}
 	}
 

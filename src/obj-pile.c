@@ -592,6 +592,12 @@ static void object_absorb_merge(struct object *obj1, const struct object *obj2,
 	if (obj2->note)
 		obj1->note = obj2->note;
 
+	/* Preserve floor objective binding: if absorbed obj has binding and
+	 * the surviving stack does not, transfer it. */
+	if (obj2->floor_obj_id != 0 && obj1->floor_obj_id == 0) {
+		obj1->floor_obj_id = obj2->floor_obj_id;
+	}
+
 	if (combine_charges_timeouts) {
 		/* Combine timeouts for rod stacking */
 		if (tval_can_have_timeout(obj1))
@@ -714,6 +720,9 @@ void object_copy(struct object *dest, const struct object *src)
 {
 	/* Copy the structure */
 	memcpy(dest, src, sizeof(struct object));
+
+	/* Copies never inherit floor objective binding */
+	dest->floor_obj_id = 0;
 
 	if (src->slays) {
 		dest->slays = mem_zalloc(z_info->slay_max * sizeof(bool));
