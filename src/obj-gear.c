@@ -640,22 +640,69 @@ void inven_item_charges(struct object *obj)
 }
 
 /**
- * Wield or wear a single item from the pack or floor
+ * Wield or wear a single item from the pack or floor.
+ *
+ * Plan phase (no state changes):
+ *   - If there is old equipment, verify it can fit back in the pack (taking
+ *     into account that wielding a single-item pack stack frees one slot).
+ *
+ * Execute phase (only after plan is validated):
+ *   - Split/take the new item from its source (pack or floor).
+ *   - Handle old equipment: either leave it in gear as inventory or, if it
+ *     cannot fit, explicitly remove it from gear and drop it (never rely
+ *     on pack_overflow() to drop an unrelated item).
+ *   - Put the new item into the equipment slot.
  */
 void inven_wield(struct object *obj, int slot)
 {
 	struct object *wielded, *old = player->body.slots[slot].obj;
+	struct obj_transfer_plan old_plan;
+	bool old_fits = true;
+	bool will_free_slot = false;
 
 	const char *fmt;
 	char o_name[80];
+	char label_old[80] = {0};
 	bool dummy = false;
-
-	/* Increase equipment counter if empty slot */
-	if (old == NULL)
-		player->upkeep->equip_cnt++;
 
 	/* Take a turn */
 	player->upkeep->energy_use = z_info->move_energy;
+
+	/* ========== Plan phase: no state changes ========== */
+
+	if (old) {
+		/*
+		 * Wearing from a single-item inventory stack frees one pack
+		 * slot; old equipment is always a single item so it always
+		 * fits in that freed slot.
+		 */
+		if (object_is_carried(player, obj) &&
+				!object_is_equipped(player->body, obj) &&
+				obj->number == 1) {
+			will_free_slot = true;
+		}
+
+		/* Run plan to get merge info and raw capacity check */
+		obj_transfer_plan_init(&old_plan, player, old);
+		obj_transfer_plan_equip_to_pack(&old_plan);
+
+		if (will_free_slot) {
+			/* Freed 1 slot; old is 1 item, so it always fits */
+			old_fits = true;
+		} else {
+			old_fits = old_plan.capacity_ok;
+		}
+
+		/* Pre-compute the old label before any state changes */
+		object_desc(label_old, sizeof(label_old), old,
+			ODESC_PREFIX | ODESC_FULL, player);
+	}
+
+	/* ========== Execute phase: modify state only now ========== */
+
+	/* Increase equipment counter if the slot was empty */
+	if (old == NULL)
+		player->upkeep->equip_cnt++;
 
 	/* It's either a gear object or a floor object */
 	if (object_is_carried(player, obj)) {
@@ -685,9 +732,40 @@ void inven_wield(struct object *obj, int slot)
 			wielded = obj;
 		}
 	} else {
-		/* Get a floor item and carry it */
+		/* Get a floor item and carry it (bypass capacity, it goes to equipment) */
 		wielded = floor_object_for_use(player, obj, 1, false, &dummy);
 		inven_carry(player, wielded, false, false);
+	}
+
+	/* --- Handle old equipment BEFORE we overwrite the slot --- */
+	if (old) {
+		/*
+		 * Old item is no longer equipped; either it stays in the gear
+		 * list as inventory, or we excise it and drop it explicitly.
+		 */
+		player->upkeep->equip_cnt--;
+
+		if (old_fits) {
+			/*
+			 * Leave old in the gear list; since the slot is cleared
+			 * it is no longer equipped and calc_inventory() will
+			 * count it as inventory.  combine_pack() below merges it.
+			 */
+		} else {
+			struct object *to_drop = old;
+
+			disturb(player);
+			msg("Your pack is full - you cannot carry any more.");
+			msg("You drop %s.", label_old);
+
+			/* Remove exactly this item from gear, not a random one */
+			gear_excise_object(player, to_drop);
+			drop_near(cave, &to_drop, 0, player->grid, false, true);
+			msg("You no longer have %s.", label_old);
+
+			event_signal(EVENT_INVENTORY);
+			event_signal(EVENT_EQUIPMENT);
+		}
 	}
 
 	/* Wear the new stuff */
@@ -719,9 +797,20 @@ void inven_wield(struct object *obj, int slot)
 		msgt(MSG_CURSED, "Oops! It feels deathly cold!");
 	}
 
-	/* See if we have to overflow the pack */
+	/*
+	 * Merge inventory stacks.  This is still useful because the old
+	 * equipment (if any) might now be mergeable with existing stacks.
+	 */
 	combine_pack(player);
-	pack_overflow(old);
+
+	/*
+	 * Safety net: pack_overflow() as a purely defensive measure.
+	 * With proper plan-based capacity checks above, this should never
+	 * trigger in normal operation.
+	 */
+	if (pack_is_overfull()) {
+		pack_overflow(NULL);
+	}
 
 	/* Recalculate bonuses, torch, mana, gear */
 	player->upkeep->notice |= (PN_IGNORE);
@@ -738,17 +827,18 @@ void inven_wield(struct object *obj, int slot)
 /**
  * Take off a non-cursed equipment item
  *
- * Note that taking off an item when "full" may cause that item
- * to fall to the ground.
- *
- * Note also that this function does not try to combine the taken off item
- * with other inventory items - that must be done by the calling function.
+ * Plans the capacity first, then executes.  If the pack cannot accommodate
+ * the item, the item being removed is dropped explicitly rather than relying
+ * on pack_overflow() to drop some unrelated inventory item.
  */
 void inven_takeoff(struct object *obj)
 {
 	int slot = equipped_item_slot(player->body, obj);
 	const char *act;
 	char o_name[80];
+	char label;
+	struct obj_transfer_plan plan;
+	bool fits;
 
 	/* Paranoia */
 	if (slot == player->body.count) return;
@@ -767,16 +857,65 @@ void inven_takeoff(struct object *obj)
 	else
 		act = "You were wearing";
 
-	/* De-equip the object */
+	/* Get the label before the item possibly leaves the gear list */
+	label = gear_to_label(player, obj);
+
+	/* --- Plan phase: no state changes yet --- */
+	obj_transfer_plan_init(&plan, player, obj);
+	obj_transfer_plan_equip_to_pack(&plan);
+	fits = plan.capacity_ok;
+
+	/* --- Execution phase: only modify state after plan confirmed --- */
+
+	/* De-equip the object (regardless of whether it fits) */
 	player->body.slots[slot].obj = NULL;
 	player->upkeep->equip_cnt--;
 
 	player->upkeep->update |= (PU_BONUS | PU_INVEN | PU_UPDATE_VIEW);
 	player->upkeep->notice |= (PN_IGNORE);
-	update_stuff(player);
+
+	if (fits) {
+		/*
+		 * The item stays in the gear list; it is no longer equipped
+		 * so calc_inventory() will count it as inventory.  The
+		 * caller is responsible for combine_pack() as before.
+		 */
+		update_stuff(player);
+	} else {
+		struct object *dropped = obj;
+
+		/*
+		 * Pack is full and cannot merge.  Remove this exact item from
+		 * the gear list (not a random one) and drop it on the ground.
+		 */
+		disturb(player);
+		msg("Your pack is full - you cannot carry any more.");
+
+		gear_excise_object(player, dropped);
+
+		msg("You drop %s.", o_name);
+		drop_near(cave, &dropped, 0, player->grid, false, true);
+		msg("You no longer have %s.", o_name);
+
+		update_stuff(player);
+
+		/*
+		 * Safety net: pack_overflow should never trigger in normal
+		 * flow now, but call it as a defensive assertion.
+		 */
+		if (pack_is_overfull()) {
+			pack_overflow(NULL);
+		}
+
+		event_signal(EVENT_INVENTORY);
+		event_signal(EVENT_EQUIPMENT);
+
+		msgt(MSG_WIELD, "%s %s (%c).", act, o_name, label);
+		return;
+	}
 
 	/* Message */
-	msgt(MSG_WIELD, "%s %s (%c).", act, o_name, gear_to_label(player, obj));
+	msgt(MSG_WIELD, "%s %s (%c).", act, o_name, label);
 
 	return;
 }

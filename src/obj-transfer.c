@@ -1074,6 +1074,23 @@ void inven_drop(struct object *obj, int amt)
 	if (object_is_equipped(player->body, obj)) {
 		equipped = true;
 		inven_takeoff(obj);
+
+		/*
+		 * If the pack was full during takeoff, inven_takeoff() has
+		 * already explicitly dropped the item to the floor and
+		 * removed it from gear.  In that case we are done here;
+		 * the remaining logic would try to re-drop it from gear
+		 * where it no longer exists.
+		 */
+		if (!object_is_carried(player, obj)) {
+			/* Sound for quiver objects */
+			if (quiver)
+				sound(MSG_QUIVER);
+
+			event_signal(EVENT_INVENTORY);
+			event_signal(EVENT_EQUIPMENT);
+			return;
+		}
 	}
 
 	/* Get the object */
