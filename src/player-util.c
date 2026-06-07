@@ -31,7 +31,6 @@
 #include "obj-pile.h"
 #include "obj-tval.h"
 #include "obj-util.h"
-#include "perception.h"
 #include "player-attack.h"
 #include "player-calcs.h"
 #include "player-history.h"
@@ -1631,7 +1630,7 @@ void player_handle_post_move(struct player *p, bool eval_trap,
 	}
 
 	/* Update view and search */
-	perception_update_world(true, true);
+	update_view(cave, p);
 	search(p);
 }
 

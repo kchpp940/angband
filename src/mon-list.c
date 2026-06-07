@@ -21,7 +21,6 @@
 #include "mon-desc.h"
 #include "mon-list.h"
 #include "mon-predicate.h"
-#include "perception.h"
 #include "project.h"
 
 /**
@@ -153,8 +152,8 @@ void monster_list_collect(monster_list_t *list)
 		int j, field;
 		bool los = false;
 
-		/* Only consider visible, non-camouflaged monsters via perception */
-		if (!perception_mon_is_obvious(mon))
+		/* Only consider visible, known monsters */
+		if (!monster_is_visible(mon) ||	monster_is_camouflaged(mon))
 			continue;
 
 		/* Find or add a list entry. */
@@ -182,10 +181,12 @@ void monster_list_collect(monster_list_t *list)
 		entry->attr = mon->attr;
 
 		/*
-		 * Check for LOS via unified perception service. This catches
-		 * monsters detected by ESP that are also on a projectable path.
+		 * Check for LOS
+		 * Hack - we should use (mon->mflag & (MFLAG_VIEW)) here,
+		 * but this does not catch monsters detected by ESP which are
+		 * targetable, so we cheat and use projectable() instead
 		 */
-		los = perception_mon_is_projectable(mon, PROJECT_NONE);
+		los = projectable(cave, player->grid, mon->grid, PROJECT_NONE);
 		field = (los) ? MONSTER_LIST_SECTION_LOS : MONSTER_LIST_SECTION_ESP;
 		entry->count[field]++;
 

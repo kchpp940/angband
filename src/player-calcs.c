@@ -34,7 +34,6 @@
 #include "obj-power.h"
 #include "obj-tval.h"
 #include "obj-util.h"
-#include "perception.h"
 #include "player-calcs.h"
 #include "player-spell.h"
 #include "player-timed.h"
@@ -2607,25 +2606,20 @@ void update_stuff(struct player *p)
 	/* Map is not shown, no map updates */
 	if (!map_is_visible()) return;
 
-	{
-		bool need_view = (p->upkeep->update & PU_UPDATE_VIEW) != 0;
-		bool full_dist = (p->upkeep->update & PU_DISTANCE) != 0;
-		bool need_monsters = (p->upkeep->update &
-				(PU_DISTANCE | PU_MONSTERS)) != 0;
+	if (p->upkeep->update & (PU_UPDATE_VIEW)) {
+		p->upkeep->update &= ~(PU_UPDATE_VIEW);
+		update_view(cave, p);
+	}
 
-		if (need_view) {
-			p->upkeep->update &= ~(PU_UPDATE_VIEW);
-		}
-		if (full_dist) {
-			p->upkeep->update &= ~(PU_DISTANCE);
-		}
-		if (need_monsters) {
-			p->upkeep->update &= ~(PU_MONSTERS);
-		}
+	if (p->upkeep->update & (PU_DISTANCE)) {
+		p->upkeep->update &= ~(PU_DISTANCE);
+		p->upkeep->update &= ~(PU_MONSTERS);
+		update_monsters(true);
+	}
 
-		if (need_view || need_monsters) {
-			perception_update_world(need_view, full_dist);
-		}
+	if (p->upkeep->update & (PU_MONSTERS)) {
+		p->upkeep->update &= ~(PU_MONSTERS);
+		update_monsters(false);
 	}
 
 

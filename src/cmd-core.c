@@ -954,28 +954,18 @@ int cmd_get_arg_target(struct command *cmd, const char *arg, int *target)
  */
 int cmd_get_target(struct command *cmd, const char *arg, int *target)
 {
-	int result = CMD_ARG_ABORTED;
-	target_push_context();
-
 	if (cmd_get_arg_target(cmd, arg, target) == CMD_OK) {
 		if (*target != DIR_UNKNOWN &&
-				(*target != DIR_TARGET || target_okay())) {
-			result = CMD_OK;
-			goto done;
-		}
+				(*target != DIR_TARGET || target_okay()))
+			return CMD_OK;
 	}
 
 	if (get_aim_dir(target)) {
 		cmd_set_arg_target(cmd, arg, *target);
-		result = CMD_OK;
-		goto done;
+		return CMD_OK;
 	}
 
-	result = CMD_ARG_ABORTED;
-
-done:
-	target_pop_context();
-	return result;
+	return CMD_ARG_ABORTED;
 }
 
 /**

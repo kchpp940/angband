@@ -32,7 +32,6 @@
 #include "player-timed.h"
 #include "player-util.h"
 #include "project.h"
-#include "target.h"
 #include "trap.h"
 
 
@@ -72,19 +71,15 @@ static void get_target(struct source origin, int dir, struct loc *grid,
 			break;
 		}
 
-		case SRC_PLAYER: {
-			bool ok;
-			target_push_context();
-			target_set_context_flags(*flags);
-			ok = (dir == DIR_TARGET && target_okay());
-			target_pop_context();
-			if (ok) {
+		case SRC_PLAYER:
+			if (dir == DIR_TARGET && target_okay()) {
 				target_get(grid);
 			} else {
+				/* Use the adjacent grid in the given direction as target */
 				*grid = loc_sum(player->grid, ddgrid[dir]);
 			}
+
 			break;
-		}
 
 		default:
 			*flags |= PROJECT_PLAY;
@@ -654,13 +649,9 @@ bool effect_handler_BALL(effect_handler_context_t *context)
 			break;
 		}
 
-		case SRC_PLAYER: {
-			bool ok;
-			target_push_context();
-			target_set_context_flags(flg);
-			ok = (context->dir == DIR_TARGET && target_okay());
-			target_pop_context();
-			if (ok) {
+		case SRC_PLAYER:
+			/* Ask for a target if no direction given */
+			if (context->dir == DIR_TARGET && target_okay()) {
 				flg &= ~(PROJECT_STOP | PROJECT_THRU);
 				target_get(&target);
 			} else {
@@ -669,7 +660,6 @@ bool effect_handler_BALL(effect_handler_context_t *context)
 
 			if (context->other) rad += player->lev / context->other;
 			break;
-		}
 
 		default:
 			break;

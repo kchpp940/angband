@@ -39,7 +39,6 @@
 #include "obj-slays.h"
 #include "obj-tval.h"
 #include "obj-util.h"
-#include "perception.h"
 #include "player-calcs.h"
 #include "player-history.h"
 #include "player-quest.h"
@@ -203,28 +202,294 @@ struct monster *get_commanded_monster(void)
  * ------------------------------------------------------------------------
  * Monster updates
  * ------------------------------------------------------------------------ */
+/**
+ * Analyse the path from player to infravision-seen monster and forget any
+ * grids which would have blocked line of sight
+ */
+static void path_analyse(struct chunk *c, struct loc grid)
+{
+	int path_n, i;
+	struct loc path_g[256];
+
+	if (c != cave) {
+		return;
+	}
+
+	/* Plot the path. */
+	path_n = project_path(c, path_g, z_info->max_range, player->grid,
+		grid, PROJECT_NONE);
+
+	/* Project along the path */
+	for (i = 0; i < path_n - 1; ++i) {
+		/* Forget grids which would block los */
+		if (!square_allowslos(player->cave, path_g[i])) {
+			sqinfo_off(square(c, path_g[i])->info, SQUARE_SEEN);
+			square_forget(c, path_g[i]);
+			square_light_spot(c, path_g[i]);
+		}
+	}
+}
 
 /**
  * This function updates the monster record of the given monster
  *
- * Thin wrapper around perception_refresh_mon() - the actual visibility
- * computation lives in the unified perception service so that callers
- * doing readonly queries and callers doing refreshes use the same logic.
+ * This involves extracting the distance to the player (if requested),
+ * and then checking for visibility (natural, infravision, see-invis,
+ * telepathy), updating the monster visibility flag, redrawing (or
+ * erasing) the monster when its visibility changes, and taking note
+ * of any interesting monster flags (cold-blooded, invisible, etc).
+ *
+ * Note the new "mflag" field which encodes several monster state flags,
+ * including "view" for when the monster is currently in line of sight,
+ * and "mark" for when the monster is currently visible via detection.
+ *
+ * The only monster fields that are changed here are "cdis" (the
+ * distance from the player), "ml" (visible to the player), and
+ * "mflag" (to maintain the "MFLAG_VIEW" flag).
+ *
+ * Note the special "update_monsters()" function which can be used to
+ * call this function once for every monster.
+ *
+ * Note the "full" flag which requests that the "cdis" field be updated;
+ * this is only needed when the monster (or the player) has moved.
+ *
+ * Every time a monster moves, we must call this function for that
+ * monster, and update the distance, and the visibility.  Every time
+ * the player moves, we must call this function for every monster, and
+ * update the distance, and the visibility.  Whenever the player "state"
+ * changes in certain ways ("blindness", "infravision", "telepathy",
+ * and "see invisible"), we must call this function for every monster,
+ * and update the visibility.
+ *
+ * Routines that change the "illumination" of a grid must also call this
+ * function for any monster in that grid, since the "visibility" of some
+ * monsters may be based on the illumination of their grid.
+ *
+ * Note that this function is called once per monster every time the
+ * player moves.  When the player is running, this function is one
+ * of the primary bottlenecks, along with "update_view()" and the
+ * "process_monsters()" code, so efficiency is important.
+ *
+ * Note the optimized "inline" version of the "distance()" function.
+ *
+ * A monster is "visible" to the player if (1) it has been detected
+ * by the player, (2) it is close to the player and the player has
+ * telepathy, or (3) it is close to the player, and in line of sight
+ * of the player, and it is "illuminated" by some combination of
+ * infravision, torch light, or permanent light (invisible monsters
+ * are only affected by "light" if the player can see invisible).
+ *
+ * Monsters which are not on the current panel may be "visible" to
+ * the player, and their descriptions will include an "offscreen"
+ * reference.  Currently, offscreen monsters cannot be targeted
+ * or viewed directly, but old targets will remain set.  XXX XXX
+ *
+ * The player can choose to be disturbed by several things, including
+ * "OPT(player, disturb_near)" (monster which is "easily" viewable moves in some
+ * way).  Note that "moves" includes "appears" and "disappears".
  */
 void update_mon(struct monster *mon, struct chunk *c, bool full)
 {
-	perception_refresh_mon(mon, c, full);
+	struct monster_lore *lore;
+
+	int d;
+
+	/* If still generating the level, measure distances from the middle */
+	struct loc pgrid = character_dungeon ? player->grid :
+		loc(c->width / 2, c->height / 2);
+
+	/* Seen at all */
+	bool flag = false;
+
+	/* Seen by vision */
+	bool easy = false;
+
+	/* ESP permitted */
+	bool telepathy_ok = player_of_has(player, OF_TELEPATHY);
+
+	assert(mon != NULL);
+
+	/* Return if this is not the current level */
+	if (c != cave) {
+		return;
+	}
+
+	lore = get_lore(mon->race);
+	
+	/* Compute distance, or just use the current one */
+	if (full) {
+		/* Distance components */
+		int dy = ABS(pgrid.y - mon->grid.y);
+		int dx = ABS(pgrid.x - mon->grid.x);
+
+		/* Approximate distance */
+		d = (dy > dx) ? (dy + (dx >>  1)) : (dx + (dy >> 1));
+
+		/* Restrict distance */
+		if (d > 255) d = 255;
+
+		/* Save the distance */
+		mon->cdis = d;
+	} else {
+		/* Extract the distance */
+		d = mon->cdis;
+	}
+
+	/* Detected */
+	if (mflag_has(mon->mflag, MFLAG_MARK)) flag = true;
+
+	/* Check if telepathy works here */
+	if (square_isno_esp(c, mon->grid) || square_isno_esp(c, pgrid)) {
+		telepathy_ok = false;
+	}
+
+	/* Nearby */
+	if (d <= z_info->max_sight) {
+		/* Basic telepathy */
+		if (telepathy_ok && monster_is_esp_detectable(mon)) {
+			/* Detectable */
+			flag = true;
+
+			/* Check for LOS so that MFLAG_VIEW is set later */
+			if (square_isview(c, mon->grid)) easy = true;
+		}
+
+		/* Normal line of sight and player is not blind */
+		if (square_isview(c, mon->grid) && !player->timed[TMD_BLIND]) {
+			/* Use "infravision" */
+			if (d <= player->state.see_infra) {
+				/* Learn about warm/cold blood */
+				rf_on(lore->flags, RF_COLD_BLOOD);
+
+				/* Handle "warm blooded" monsters */
+				if (!rf_has(mon->race->flags, RF_COLD_BLOOD)) {
+					/* Easy to see */
+					easy = flag = true;
+				}
+			}
+
+			/* Use illumination */
+			if (square_isseen(c, mon->grid)) {
+				/* Learn about invisibility */
+				rf_on(lore->flags, RF_INVISIBLE);
+
+				/* Handle invisibility */
+				if (monster_is_invisible(mon)) {
+					/* See invisible */
+					if (player_of_has(player, OF_SEE_INVIS)) {
+						/* Easy to see */
+						easy = flag = true;
+					}
+				} else {
+					/* Easy to see */
+					easy = flag = true;
+				}
+			}
+
+			/* Learn about intervening squares */
+			path_analyse(c, mon->grid);
+		}
+	}
+
+	/* If a mimic looks like an ignored item, it's not seen */
+	if (monster_is_mimicking(mon)) {
+		struct object *obj = mon->mimicked_obj;
+		if (ignore_item_ok(player, obj))
+			easy = flag = false;
+	}
+
+	/* Is the monster is now visible? */
+	if (flag) {
+		/* Learn about the monster's mind */
+		if (telepathy_ok) {
+			flags_set(lore->flags, RF_SIZE, RF_EMPTY_MIND, RF_WEIRD_MIND,
+					  RF_SMART, RF_STUPID, FLAG_END);
+		}
+
+		/* It was previously unseen */
+		if (!monster_is_visible(mon)) {
+			/* Mark as visible */
+			mflag_on(mon->mflag, MFLAG_VISIBLE);
+
+			/* Draw the monster */
+			square_light_spot(c, mon->grid);
+
+			/* Update health bar as needed */
+			if (player->upkeep->health_who == mon)
+				player->upkeep->redraw |= (PR_HEALTH);
+
+			/* Count "fresh" sightings */
+			if (lore->sights < SHRT_MAX)
+				lore->sights++;
+
+			/* Window stuff */
+			player->upkeep->redraw |= PR_MONLIST;
+		}
+	} else if (monster_is_visible(mon)) {
+		/* Not visible but was previously seen - treat mimics differently */
+		if (!mon->mimicked_obj
+				|| ignore_item_ok(player, mon->mimicked_obj)) {
+			/* Mark as not visible */
+			mflag_off(mon->mflag, MFLAG_VISIBLE);
+
+			/* Erase the monster */
+			square_light_spot(c, mon->grid);
+
+			/* Update health bar as needed */
+			if (player->upkeep->health_who == mon)
+				player->upkeep->redraw |= (PR_HEALTH);
+
+			/* Window stuff */
+			player->upkeep->redraw |= PR_MONLIST;
+		}
+	}
+
+
+	/* Is the monster is now easily visible? */
+	if (easy) {
+		/* Change */
+		if (!monster_is_in_view(mon)) {
+			/* Mark as easily visible */
+			mflag_on(mon->mflag, MFLAG_VIEW);
+
+			/* Disturb on appearance */
+			if (OPT(player, disturb_near))
+				disturb(player);
+
+			/* Re-draw monster window */
+			player->upkeep->redraw |= PR_MONLIST;
+		}
+	} else {
+		/* Change */
+		if (monster_is_in_view(mon)) {
+			/* Mark as not easily visible */
+			mflag_off(mon->mflag, MFLAG_VIEW);
+
+			/* Disturb on disappearance */
+			if (OPT(player, disturb_near) && !monster_is_camouflaged(mon))
+				disturb(player);
+
+			/* Re-draw monster list window */
+			player->upkeep->redraw |= PR_MONLIST;
+		}
+	}
 }
 
 /**
  * Updates all the (non-dead) monsters via update_mon().
- *
- * Thin wrapper around perception_refresh_all() which also handles target
- * invalidation after refreshing every monster.
  */
 void update_monsters(bool full)
 {
-	perception_refresh_all(full);
+	int i;
+
+	/* Update each (live) monster */
+	for (i = 1; i < cave_monster_max(cave); i++) {
+		struct monster *mon = cave_monster(cave, i);
+
+		/* Update the monster if alive */
+		if (mon->race)
+			update_mon(mon, cave, full);
+	}
 }
 
 

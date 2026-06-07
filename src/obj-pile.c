@@ -831,48 +831,28 @@ struct object *object_split(struct object *src, int amt)
 struct object *floor_object_for_use(struct player *p, struct object *obj,
 	int num, bool message, bool *none_left)
 {
+	struct obj_transfer_plan plan;
 	struct object *usable;
 	char name[80];
 
-	/* Bounds check */
-	num = MIN(num, obj->number);
+	obj_transfer_plan_init(&plan, p, obj);
+	plan.movable = MIN(num, obj->number);
+	plan.source_remaining = obj->number - plan.movable;
 
-	/* Split off a usable object if necessary */
-	if (obj->number > num) {
-		usable = object_split(obj, num);
-	} else {
-		usable = obj;
-		square_excise_object(p->cave, usable->grid, usable->known);
-		delist_object(p->cave, usable->known);
-		square_excise_object(cave, usable->grid, usable);
-		delist_object(cave, usable);
-		*none_left = true;
-
-		/* Stop tracking item */
-		if (tracked_object_is(p->upkeep, obj))
-			track_object(p->upkeep, NULL);
-
-		/* The pile is gone, so disable repeat command */
-		cmd_disable_repeat();
-	}
-
-	/* Object no longer has a location */
-	usable->known->grid = loc(0, 0);
-	usable->grid = loc(0, 0);
+	usable = obj_transfer_execute_split_source(&plan);
+	*none_left = (plan.source_remaining == 0);
 
 	/* Print a message if requested and there is anything left */
 	if (message) {
 		if (usable == obj)
 			obj->number = 0;
 
-		/* Get a description */
 		object_desc(name, sizeof(name), obj,
 			ODESC_PREFIX | ODESC_FULL, p);
 
 		if (usable == obj)
-			obj->number = num;
+			obj->number = plan.movable;
 
-		/* Print a message */
 		msg("You see %s.", name);
 	}
 
@@ -905,83 +885,17 @@ static struct object *floor_get_oldest_ignored(const struct player *p,
 bool floor_carry(struct chunk *c, struct loc grid, struct object *drop,
 				 bool *note)
 {
-	int n = 0;
-	struct object *obj, *ignore = floor_get_oldest_ignored(player, c, grid);
+	struct obj_transfer_plan plan;
 
-	/* Fail if the square can't hold objects */
 	if (!square_isobjectholding(c, grid))
 		return false;
 
-	/* Scan objects in that grid for combination */
-	for (obj = square_object(c, grid); obj; obj = obj->next) {
-		/* Check for combination */
-		if (object_mergeable(obj, drop, OSTACK_FLOOR)) {
-			/* Combine the items */
-			object_absorb(obj, drop);
-
-			/* Note the pile */
-			if (square_isview(c, grid)) {
-				square_note_spot(c, grid);
-			}
-
-			/* Don't mention if ignored */
-			if (ignore_item_ok(player, obj)) {
-				*note = false;
-			}
-
-			/* Result */
-			return true;
-		}
-
-		/* Count objects */
-		n++;
+	obj_transfer_plan_init(&plan, player, drop);
+	if (!obj_transfer_plan_pack_to_floor(&plan, c, grid, 0)) {
+		return false;
 	}
 
-	/* The stack is already too large */
-	if (n >= z_info->floor_size || (!OPT(player, birth_stacking) && n)) {
-		/* Delete the oldest ignored object */
-		if (ignore) {
-			struct chunk *p_c = (c == cave) ? player->cave : NULL;
-			square_excise_object(c, grid, ignore);
-			delist_object(c, ignore);
-			object_delete(c, p_c, &ignore);
-		} else {
-			return false;
-		}
-	}
-
-	/* Location */
-	drop->grid = grid;
-
-	/* Forget monster */
-	drop->held_m_idx = 0;
-
-	/* Link to the first object in the pile */
-	pile_insert(&c->squares[grid.y][grid.x].obj, drop);
-
-	/* Record in the level list */
-	list_object(c, drop);
-
-	/* If there's a known version, put it in the player's view of the
-	 * cave but at an unknown location.  square_note_spot() will move
-	 * it to the correct place if seen. */
-	if (drop->known) {
-		drop->known->oidx = drop->oidx;
-		drop->known->held_m_idx = 0;
-		drop->known->grid = loc(0, 0);
-		player->cave->objects[drop->oidx] = drop->known;
-	}
-
-	/* Redraw */
-	square_note_spot(c, grid);
-	square_light_spot(c, grid);
-
-	/* Don't mention if ignored */
-	if (ignore_item_ok(player, drop)) {
-		*note = false;
-	}
-
-	/* Result */
+	obj_transfer_execute_to_floor(&plan, c, grid, drop, note);
 	return true;
 }
 
@@ -1429,4 +1343,558 @@ bool item_is_available(struct object *obj)
 	if (cave && square_holds_object(cave, player->grid, obj))
 		return true;
 	return false;
+}
+
+
+/**
+ * Initialize an object transfer plan.
+ */
+void obj_transfer_plan_init(struct obj_transfer_plan *plan,
+		struct player *p, struct object *source)
+{
+	memset(plan, 0, sizeof(*plan));
+	plan->p = p;
+	plan->source = source;
+	plan->source_known = source ? source->known : NULL;
+	plan->capacity_ok = true;
+}
+
+/**
+ * Build a plan for moving objects from a floor pile to the player's pack.
+ *
+ * Handles quiver absorption, inventory stacking, and pack slot capacity.
+ * Sets plan->movable to the total number that can be moved.
+ *
+ * \param plan The plan to fill in (must be initialized).
+ * \param max_want Maximum number caller wants to move (0 = all of source).
+ * \return true if any items can be moved.
+ */
+bool obj_transfer_plan_floor_to_pack(struct obj_transfer_plan *plan,
+		int max_want)
+{
+	struct player *p = plan->p;
+	struct object *obj = plan->source;
+	int i, num_left;
+	int n_free_slot;
+	int num_to_quiver;
+	int max_stack;
+
+	if (!obj) return false;
+
+	max_stack = obj->kind->base->max_stack;
+
+	plan->requested = (max_want > 0 && max_want < obj->number)
+		? max_want : obj->number;
+
+	/* Treasure can always be picked up in full */
+	if (tval_is_money(obj) && lookup_kind(obj->tval, obj->sval)) {
+		plan->movable = plan->requested;
+		plan->source_remaining = obj->number - plan->movable;
+		plan->new_stack_amount = plan->movable;
+		plan->needs_new_slot = (plan->new_stack_amount > 0);
+		return true;
+	}
+
+	n_free_slot = z_info->pack_size - pack_slots_used(p);
+	num_left = plan->requested;
+
+	/* Absorb as many as we can in the quiver. */
+	quiver_absorb_num(p, obj, &n_free_slot, &num_to_quiver);
+
+	if (num_to_quiver > 0) {
+		int qty = MIN(num_to_quiver, num_left);
+		int remaining = qty;
+		int desired_slot = preferred_quiver_slot(obj);
+		bool ammo = tval_is_ammo(obj);
+		int mult = ammo ? 1 : z_info->thrown_quiver_mult;
+
+		for (i = 0; i < z_info->quiver_size && remaining > 0; i++) {
+			struct object *quiver_obj = p->upkeep->quiver[i];
+			if (quiver_obj &&
+					object_stackable(quiver_obj, obj, OSTACK_PACK)) {
+				int space = z_info->quiver_slot_size -
+					quiver_obj->number * mult;
+				if (space > 0) {
+					int take = MIN(space / mult, remaining);
+					if (take > 0) {
+						plan->merges[plan->merge_count].dest_obj =
+							quiver_obj;
+						plan->merges[plan->merge_count].amount = take;
+						plan->merges[plan->merge_count].mode =
+							OSTACK_QUIVER;
+						plan->merge_count++;
+						remaining -= take;
+					}
+				}
+			}
+		}
+
+		for (i = 0; i < z_info->quiver_size && remaining > 0; i++) {
+			struct object *quiver_obj = p->upkeep->quiver[i];
+			bool can_use_slot = false;
+
+			if (!quiver_obj) {
+				if (ammo || desired_slot == i) {
+					can_use_slot = true;
+				}
+			} else if (!ammo && desired_slot == i &&
+					preferred_quiver_slot(quiver_obj) != i) {
+				can_use_slot = true;
+			}
+
+			if (can_use_slot) {
+				int take = MIN(z_info->quiver_slot_size / mult,
+					remaining);
+				if (take > 0) {
+					plan->merges[plan->merge_count].dest_obj = NULL;
+					plan->merges[plan->merge_count].amount = take;
+					plan->merges[plan->merge_count].mode =
+						OSTACK_QUIVER;
+					plan->merge_count++;
+					remaining -= take;
+				}
+			}
+		}
+
+		num_left -= (qty - remaining);
+	}
+
+	/* Absorb into existing partial inventory stacks */
+	if (num_left > 0) {
+		for (i = 0; i < z_info->pack_size && num_left > 0; i++) {
+			struct object *inven_obj = p->upkeep->inven[i];
+			if (inven_obj && object_stackable(inven_obj, obj, OSTACK_PACK)) {
+				int space = max_stack - inven_obj->number;
+				if (space > 0) {
+					int take = MIN(space, num_left);
+					plan->merges[plan->merge_count].dest_obj = inven_obj;
+					plan->merges[plan->merge_count].amount = take;
+					plan->merges[plan->merge_count].mode = OSTACK_PACK;
+					plan->merge_count++;
+					num_left -= take;
+				}
+			}
+		}
+	}
+
+	/* Use free pack slots for what's left */
+	if (num_left > 0 && n_free_slot > 0) {
+		int slots_needed = (num_left + max_stack - 1) / max_stack;
+		int slots_use = MIN(slots_needed, n_free_slot);
+		int can_fit = slots_use * max_stack;
+		int take = MIN(can_fit, num_left);
+
+		plan->new_stack_amount = take;
+		plan->needs_new_slot = (take > 0);
+		plan->capacity_extra_pack_slots = slots_use;
+		num_left -= take;
+	}
+
+	plan->movable = plan->requested - num_left;
+	plan->source_remaining = obj->number - plan->movable;
+	plan->capacity_ok = (num_left == 0);
+
+	return plan->movable > 0;
+}
+
+/**
+ * Build a plan for moving objects from the player's pack to a floor grid.
+ *
+ * \param plan The plan to fill in (must be initialized).
+ * \param c The chunk (level).
+ * \param grid The target floor grid.
+ * \param max_want Maximum number caller wants to move (0 = all of source).
+ * \return true if any items can be moved.
+ */
+bool obj_transfer_plan_pack_to_floor(struct obj_transfer_plan *plan,
+		struct chunk *c, struct loc grid, int max_want)
+{
+	struct object *obj = plan->source;
+	struct object *floor_obj;
+	int n = 0;
+	int num_left;
+	int max_stack;
+
+	if (!obj) return false;
+	if (!square_isobjectholding(c, grid)) return false;
+
+	max_stack = obj->kind->base->max_stack;
+	plan->requested = (max_want > 0 && max_want < obj->number)
+		? max_want : obj->number;
+	num_left = plan->requested;
+
+	/* Scan objects in that grid for combination */
+	for (floor_obj = square_object(c, grid);
+			floor_obj && num_left > 0;
+			floor_obj = floor_obj->next) {
+		if (object_mergeable(floor_obj, obj, OSTACK_FLOOR)) {
+			int space = max_stack - floor_obj->number;
+			if (space > 0) {
+				int take = MIN(space, num_left);
+				plan->merges[plan->merge_count].dest_obj = floor_obj;
+				plan->merges[plan->merge_count].amount = take;
+				plan->merges[plan->merge_count].mode = OSTACK_FLOOR;
+				plan->merge_count++;
+				num_left -= take;
+			}
+		}
+		n++;
+	}
+
+	/* Check if there's space for a new pile entry */
+	if (num_left > 0) {
+		if (n < z_info->floor_size &&
+				(OPT(player, birth_stacking) || n == 0)) {
+			plan->new_stack_amount = num_left;
+			plan->needs_new_slot = true;
+			num_left = 0;
+		} else {
+			/* Look for an ignored object to displace */
+			struct object *ignore = NULL;
+			for (floor_obj = square_object(c, grid);
+					floor_obj;
+					floor_obj = floor_obj->next) {
+				if (ignore_item_ok(plan->p, floor_obj)) {
+					ignore = floor_obj;
+				}
+			}
+			if (ignore) {
+				plan->new_stack_amount = num_left;
+				plan->needs_new_slot = true;
+				num_left = 0;
+			}
+		}
+	}
+
+	plan->movable = plan->requested - num_left;
+	plan->source_remaining = obj->number - plan->movable;
+	plan->capacity_ok = (num_left == 0);
+
+	return plan->movable > 0;
+}
+
+/**
+ * Build a plan for moving objects from one floor pile to another floor grid.
+ *
+ * \param plan The plan to fill in (must be initialized).
+ * \param c The chunk (level).
+ * \param grid The target floor grid.
+ * \param max_want Maximum number caller wants to move (0 = all of source).
+ * \return true if any items can be moved.
+ */
+bool obj_transfer_plan_floor_to_floor(struct obj_transfer_plan *plan,
+		struct chunk *c, struct loc grid, int max_want)
+{
+	return obj_transfer_plan_pack_to_floor(plan, c, grid, max_want);
+}
+
+/**
+ * Split the source object according to the plan, returning the detached
+ * portion.  If the whole stack is being moved, the source is excised from
+ * whatever pile it was in and returned.
+ *
+ * This replaces the repeated pattern in floor_object_for_use() and
+ * gear_object_for_use().
+ */
+struct object *obj_transfer_execute_split_source(
+		struct obj_transfer_plan *plan)
+{
+	struct object *obj = plan->source;
+	struct object *detached;
+	bool none_left;
+
+	if (plan->movable <= 0) return NULL;
+
+	none_left = (plan->source_remaining == 0);
+
+	if (plan->movable < obj->number) {
+		detached = object_split(obj, plan->movable);
+	} else {
+		detached = obj;
+		if (!loc_is_zero(obj->grid)) {
+			if (obj->known) {
+				square_excise_object(plan->p->cave, obj->grid,
+					obj->known);
+				delist_object(plan->p->cave, obj->known);
+			}
+			square_excise_object(cave, obj->grid, obj);
+			delist_object(cave, obj);
+		} else if (object_is_carried(plan->p, obj)) {
+			struct player *p = plan->p;
+			int i;
+
+			pile_excise(&p->gear_k, obj->known);
+			pile_excise(&p->gear, obj);
+
+			p->upkeep->total_weight -=
+				obj->number * object_weight_one(obj);
+
+			for (i = 0; i < p->body.count; i++) {
+				if (slot_object(p, i) == obj) {
+					p->body.slots[i].obj = NULL;
+					p->upkeep->equip_cnt--;
+				}
+			}
+
+			calc_inventory(p);
+
+			p->upkeep->update |= (PU_BONUS);
+			p->upkeep->notice |= (PN_COMBINE);
+			p->upkeep->redraw |= (PR_INVEN | PR_EQUIP);
+		}
+	}
+
+	if (!loc_is_zero(detached->grid)) {
+		detached->grid = loc(0, 0);
+		if (detached->known) {
+			detached->known->grid = loc(0, 0);
+		}
+	}
+
+	if (none_left) {
+		if (tracked_object_is(plan->p->upkeep, obj)) {
+			track_object(plan->p->upkeep, NULL);
+		}
+		cmd_disable_repeat();
+	}
+
+	return detached;
+}
+
+/**
+ * Execute a transfer plan by placing the detached object into the player's
+ * pack, merging into existing stacks as planned and creating new stacks as
+ * needed.
+ *
+ * \param plan The computed plan.
+ * \param detached The detached portion of the source (from
+ *        obj_transfer_execute_split_source).
+ * \param absorb Whether to allow absorption into existing stacks (if false,
+ *        only new stacks are created - only used by inven_wield).
+ * \param message Whether to print pickup messages.
+ */
+void obj_transfer_execute_to_pack(struct obj_transfer_plan *plan,
+		struct object *detached, bool absorb, bool message)
+{
+	struct player *p = plan->p;
+	struct object *current = detached;
+	struct object *combine_item = NULL;
+	int i;
+	bool combining = false;
+
+	if (!detached || plan->movable <= 0) return;
+
+	/* Process merge targets first */
+	if (absorb && plan->merge_count > 0) {
+		int remaining = detached->number;
+
+		for (i = 0; i < plan->merge_count && remaining > 0; i++) {
+			struct object *dest = plan->merges[i].dest_obj;
+			int amt = plan->merges[i].amount;
+
+			if (!dest) continue;
+			if (amt <= 0) continue;
+			amt = MIN(amt, remaining);
+
+			if (amt == current->number) {
+				/* Merge the entire current stack */
+				p->upkeep->total_weight +=
+					current->number * object_weight_one(current);
+				object_absorb(dest->known, current->known);
+				current->known = NULL;
+				object_absorb(dest, current);
+				dest->known->number = dest->number;
+				combine_item = dest;
+				combining = true;
+				current = NULL;
+				remaining = 0;
+				break;
+			} else {
+				/* Partial absorption: split and merge */
+				struct object *piece = object_split(current, amt);
+				p->upkeep->total_weight +=
+					piece->number * object_weight_one(piece);
+				object_absorb(dest->known, piece->known);
+				piece->known = NULL;
+				object_absorb(dest, piece);
+				dest->known->number = dest->number;
+				combine_item = dest;
+				combining = true;
+				remaining -= amt;
+			}
+		}
+	}
+
+	/* Place remainder as new stacks */
+	if (current && current->number > 0) {
+		assert(pack_slots_used(p) <= z_info->pack_size);
+
+		gear_insert_end(p, current);
+		apply_autoinscription(p, current);
+
+		current->held_m_idx = 0;
+		current->grid = loc(0, 0);
+		if (current->known) {
+			current->known->grid = loc(0, 0);
+		}
+
+		p->upkeep->total_weight +=
+			current->number * object_weight_one(current);
+		p->upkeep->notice |= (PN_COMBINE);
+
+		if (!object_flavor_is_aware(current)) {
+			if (player_has(p, PF_KNOW_MUSHROOM) &&
+					tval_is_mushroom(current)) {
+				object_flavor_aware(p, current);
+				msg("Mushrooms for breakfast!");
+			} else if (player_has(p, PF_KNOW_ZAPPER) &&
+					tval_is_zapper(current)) {
+				object_flavor_aware(p, current);
+			}
+		}
+
+		if (!combining) {
+			combine_item = current;
+		}
+	}
+
+	p->upkeep->update |= (PU_BONUS | PU_INVEN);
+	p->upkeep->redraw |= (PR_INVEN);
+	update_stuff(p);
+
+	if (message && combine_item) {
+		char o_name[80];
+		struct object *first;
+		uint16_t total;
+		char label;
+
+		if (tval_can_have_charges(combine_item) ||
+				tval_is_rod(combine_item) ||
+				combine_item->timeout > 0) {
+			total = combine_item->number;
+			first = combine_item;
+		} else {
+			total = object_pack_total(p, combine_item, false, &first);
+		}
+		assert(first && total >= first->number);
+		object_desc(o_name, sizeof(o_name), combine_item,
+			ODESC_PREFIX | ODESC_FULL | ODESC_ALTNUM |
+			(total << 16), p);
+		label = gear_to_label(p, first);
+		if (total > first->number) {
+			msg("You have %s (1st %c).", o_name, label);
+		} else {
+			assert(first == combine_item);
+			msg("You have %s (%c).", o_name, label);
+		}
+	}
+
+	if (combine_item && object_is_in_quiver(p, combine_item)) {
+		sound(MSG_QUIVER);
+	}
+}
+
+/**
+ * Execute a transfer plan by placing the detached object onto a floor grid,
+ * merging into existing piles as planned.
+ *
+ * \param plan The computed plan.
+ * \param c The chunk (level).
+ * \param grid The target floor grid.
+ * \param detached The detached portion of the source.
+ * \param note Set to false if the item should not be mentioned (ignored).
+ */
+void obj_transfer_execute_to_floor(struct obj_transfer_plan *plan,
+		struct chunk *c, struct loc grid, struct object *detached,
+		bool *note)
+{
+	struct object *current = detached;
+	int i;
+
+	if (!detached || plan->movable <= 0) return;
+
+	/* Process merge targets first */
+	if (plan->merge_count > 0) {
+		int remaining = detached->number;
+
+		for (i = 0; i < plan->merge_count && remaining > 0; i++) {
+			struct object *dest = plan->merges[i].dest_obj;
+			int amt = plan->merges[i].amount;
+
+			if (!dest) continue;
+			if (amt <= 0) continue;
+			amt = MIN(amt, remaining);
+
+			if (amt == current->number) {
+				object_absorb(dest, current);
+				current = NULL;
+				remaining = 0;
+				if (square_isview(c, grid)) {
+					square_note_spot(c, grid);
+				}
+				if (ignore_item_ok(plan->p, dest) && note) {
+					*note = false;
+				}
+				break;
+			} else {
+				struct object *piece = object_split(current, amt);
+				object_absorb(dest, piece);
+				remaining -= amt;
+				if (square_isview(c, grid)) {
+					square_note_spot(c, grid);
+				}
+				if (ignore_item_ok(plan->p, dest) && note) {
+					*note = false;
+				}
+			}
+		}
+	}
+
+	/* Place remainder as a new pile entry */
+	if (current && current->number > 0) {
+		struct object *ignore = NULL;
+		struct object *obj_iter;
+		int n = 0;
+
+		for (obj_iter = square_object(c, grid);
+				obj_iter;
+				obj_iter = obj_iter->next) {
+			n++;
+			if (ignore_item_ok(plan->p, obj_iter)) {
+				ignore = obj_iter;
+			}
+		}
+
+		if (n >= z_info->floor_size ||
+				(!OPT(plan->p, birth_stacking) && n)) {
+			if (ignore) {
+				struct chunk *p_c = (c == cave) ? plan->p->cave : NULL;
+				square_excise_object(c, grid, ignore);
+				delist_object(c, ignore);
+				object_delete(c, p_c, &ignore);
+			} else {
+				floor_carry_fail(c, current, false);
+				return;
+			}
+		}
+
+		current->grid = grid;
+		current->held_m_idx = 0;
+		pile_insert(&c->squares[grid.y][grid.x].obj, current);
+		list_object(c, current);
+
+		if (current->known) {
+			current->known->oidx = current->oidx;
+			current->known->held_m_idx = 0;
+			current->known->grid = loc(0, 0);
+			plan->p->cave->objects[current->oidx] = current->known;
+		}
+
+		square_note_spot(c, grid);
+		square_light_spot(c, grid);
+
+		if (ignore_item_ok(plan->p, current) && note) {
+			*note = false;
+		}
+	}
 }

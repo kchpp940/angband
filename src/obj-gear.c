@@ -524,32 +524,30 @@ void gear_insert_end(struct player *p, struct object *obj)
 struct object *gear_object_for_use(struct player *p, struct object *obj,
 	int num, bool message, bool *none_left)
 {
+	struct obj_transfer_plan plan;
 	struct object *usable;
 	struct object *first_remainder = NULL;
 	char name[80];
 	char label = gear_to_label(p, obj);
 	bool artifact = (obj->known->artifact != NULL);
 
-	/* Bounds check */
-	num = MIN(num, obj->number);
+	obj_transfer_plan_init(&plan, p, obj);
+	plan.movable = MIN(num, obj->number);
+	plan.source_remaining = obj->number - plan.movable;
 
-	/* Split off a usable object if necessary */
-	if (obj->number > num) {
-		usable = object_split(obj, num);
+	/* Update weight for partial split */
+	if (plan.movable < obj->number) {
+		p->upkeep->total_weight -=
+			plan.movable * object_weight_one(obj);
+	}
 
-		/* Change the weight */
-		p->upkeep->total_weight -= num * object_weight_one(obj);
+	usable = obj_transfer_execute_split_source(&plan);
+	*none_left = (plan.source_remaining == 0);
 
-		if (message) {
+	if (message) {
+		if (plan.source_remaining > 0) {
 			uint16_t total;
 
-			/*
-			 * Don't show aggregate total in pack if equipped or
-			 * if the description could have a number of charges
-			 * or recharging notice specific to the stack (not
-			 * aggregating those quantities so there would be
-			 * confusion if aggregating the count).
-			 */
 			if (object_is_equipped(p->body, obj)
 					|| tval_can_have_charges(obj)
 					|| tval_is_rod(obj)
@@ -566,19 +564,13 @@ struct object *gear_object_for_use(struct player *p, struct object *obj,
 			object_desc(name, sizeof(name), obj,
 				ODESC_PREFIX | ODESC_FULL | ODESC_ALTNUM |
 				(total << 16), p);
-		}
-	} else {
-		if (message) {
+		} else {
 			if (artifact) {
 				object_desc(name, sizeof(name), obj,
 					ODESC_FULL | ODESC_SINGULAR, p);
 			} else {
 				uint16_t total;
 
-				/*
-				 * Use same logic as above for showing an
-				 * aggregate total.
-				 */
 				if (object_is_equipped(p->body, obj)
 						|| tval_can_have_charges(obj)
 						|| tval_is_rod(obj)
@@ -589,9 +581,10 @@ struct object *gear_object_for_use(struct player *p, struct object *obj,
 						false, &first_remainder);
 				}
 
-				assert(total >= num);
-				total -= num;
-				if (!total || total <= first_remainder->number) {
+				assert(total >= plan.movable);
+				total -= plan.movable;
+				if (!total || (first_remainder &&
+						total <= first_remainder->number)) {
 					first_remainder = NULL;
 				}
 				object_desc(name, sizeof(name), obj,
@@ -599,26 +592,12 @@ struct object *gear_object_for_use(struct player *p, struct object *obj,
 					ODESC_ALTNUM | (total << 16), p);
 			}
 		}
-
-		/* We're using the entire stack */
-		usable = obj;
-		gear_excise_object(p, usable);
-		*none_left = true;
-
-		/* Stop tracking item */
-		if (tracked_object_is(p->upkeep, obj))
-			track_object(p->upkeep, NULL);
-
-		/* Inventory has changed, so disable repeat command */
-		cmd_disable_repeat();
 	}
 
-	/* Housekeeping */
 	p->upkeep->update |= (PU_BONUS);
 	p->upkeep->notice |= (PN_COMBINE);
 	p->upkeep->redraw |= (PR_INVEN | PR_EQUIP);
 
-	/* Print a message if desired */
 	if (message) {
 		if (artifact) {
 			msg("You no longer have the %s (%c).", name, label);
@@ -646,7 +625,7 @@ struct object *gear_object_for_use(struct player *p, struct object *obj,
  * added to the quiver.  It will be no more than obj->number.  The value of
  * *n_to_quiver at entry is not used.
  */
-static void quiver_absorb_num(const struct player *p, const struct object *obj,
+void quiver_absorb_num(const struct player *p, const struct object *obj,
 		int *n_add_pack, int *n_to_quiver)
 {
 	bool ammo = tval_is_ammo(obj);
@@ -748,35 +727,13 @@ static void quiver_absorb_num(const struct player *p, const struct object *obj,
  */
 int inven_carry_num(const struct player *p, const struct object *obj)
 {
-	int n_free_slot = z_info->pack_size - pack_slots_used(p);
-	int num_to_quiver, num_left, i;
-
-	/* Treasure can always be picked up. */
-	if (tval_is_money(obj) && lookup_kind(obj->tval, obj->sval)) {
-		return obj->number;
+	struct obj_transfer_plan plan;
+	obj_transfer_plan_init((struct obj_transfer_plan *)&plan,
+		(struct player *)p, (struct object *)obj);
+	if (obj_transfer_plan_floor_to_pack(&plan, 0)) {
+		return plan.movable;
 	}
-
-	/* Absorb as many as we can in the quiver. */
-	quiver_absorb_num(p, obj, &n_free_slot, &num_to_quiver);
-
-	/* The quiver will get everything, or the pack can hold what's left. */
-	if (num_to_quiver == obj->number || n_free_slot > 0) {
-		return obj->number;
-	}
-
-	/* See if we can add to a partially full inventory slot. */
-	num_left = obj->number - num_to_quiver;
-	for (i = 0; i < z_info->pack_size; i++) {
-		struct object *inven_obj = p->upkeep->inven[i];
-		if (inven_obj && object_stackable(inven_obj, obj, OSTACK_PACK)) {
-			num_left -= inven_obj->kind->base->max_stack -
-				inven_obj->number;
-			if (num_left <= 0) break;
-		}
-	}
-
-	/* Return the number we can absorb */
-	return obj->number - MAX(num_left, 0);
+	return 0;
 }
 
 /**
@@ -821,107 +778,22 @@ void inven_item_charges(struct object *obj)
 void inven_carry(struct player *p, struct object *obj, bool absorb,
 				 bool message)
 {
-	bool combining = false;
+	struct obj_transfer_plan plan;
 
-	/* Check for combining, if appropriate */
-	if (absorb) {
-		struct object *combine_item = NULL;
+	obj_transfer_plan_init(&plan, p, obj);
 
-		struct object *gear_obj = p->gear;
-		while ((combine_item == NULL) && (gear_obj != NULL)) {
-			object_stack_t stack_mode =
-				object_is_in_quiver(p, gear_obj) ?
-				OSTACK_QUIVER : OSTACK_PACK;
-
-			if (!object_is_equipped(p->body, gear_obj) &&
-					object_mergeable(gear_obj, obj, stack_mode)) {
-				combine_item = gear_obj;
-			}
-
-			gear_obj = gear_obj->next;
-		}
-
-		if (combine_item) {
-			/* Increase the weight */
-			p->upkeep->total_weight +=
-				obj->number * object_weight_one(obj);
-
-			/* Combine the items, and their known versions */
-			object_absorb(combine_item->known, obj->known);
-			obj->known = NULL;
-			object_absorb(combine_item, obj);
-
-			/* Ensure numbers are aligned (should not be necessary, but safe) */
-			combine_item->known->number = combine_item->number;
-
-			obj = combine_item;
-			combining = true;
-		}
+	if (!absorb) {
+		plan.movable = obj->number;
+		plan.source_remaining = 0;
+		plan.merge_count = 0;
+		plan.new_stack_amount = obj->number;
+		plan.needs_new_slot = true;
+		plan.capacity_ok = true;
+	} else {
+		obj_transfer_plan_floor_to_pack(&plan, 0);
 	}
 
-	/* We didn't manage the find an object to combine with */
-	if (!combining) {
-		/* Paranoia */
-		assert(pack_slots_used(p) <= z_info->pack_size);
-
-		gear_insert_end(p, obj);
-		apply_autoinscription(p, obj);
-
-		/* Remove cave object details */
-		obj->held_m_idx = 0;
-		obj->grid = loc(0, 0);
-		obj->known->grid = loc(0, 0);
-
-		/* Update the inventory */
-		p->upkeep->total_weight += obj->number * object_weight_one(obj);
-		p->upkeep->notice |= (PN_COMBINE);
-
-		/* Hobbits ID mushrooms on pickup, gnomes ID wands and staffs on pickup */
-		if (!object_flavor_is_aware(obj)) {
-			if (player_has(p, PF_KNOW_MUSHROOM) && tval_is_mushroom(obj)) {
-				object_flavor_aware(p, obj);
-				msg("Mushrooms for breakfast!");
-			} else if (player_has(p, PF_KNOW_ZAPPER) && tval_is_zapper(obj))
-				object_flavor_aware(p, obj);
-		}
-	}
-
-	p->upkeep->update |= (PU_BONUS | PU_INVEN);
-	p->upkeep->redraw |= (PR_INVEN);
-	update_stuff(p);
-
-	if (message) {
-		char o_name[80];
-		struct object *first;
-		uint16_t total;
-		char label;
-
-		/*
-		 * Show an aggregate total if the description doesn't have
-		 * a charge/recharging notice that's specific to the stack.
-		 */
-		if (tval_can_have_charges(obj) || tval_is_rod(obj)
-				|| obj->timeout > 0) {
-			total = obj->number;
-			first = obj;
-		} else {
-			total = object_pack_total(p, obj, false, &first);
-		}
-		assert(first && total >= first->number);
-		object_desc(o_name, sizeof(o_name), obj,
-			ODESC_PREFIX | ODESC_FULL | ODESC_ALTNUM |
-			(total << 16), p);
-		label = gear_to_label(p, first);
-		if (total > first->number) {
-			msg("You have %s (1st %c).", o_name, label);
-		} else {
-			assert(first == obj);
-			msg("You have %s (%c).", o_name, label);
-		}
-	}
-
-	if (object_is_in_quiver(p, obj))
-		sound(MSG_QUIVER);
+	obj_transfer_execute_to_pack(&plan, obj, absorb, message);
 }
 
 

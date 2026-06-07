@@ -290,7 +290,6 @@ xcopy $(MSBuildProjectDirectory)\lib\* $(OutDir)lib\ /DESY /exclude:$(MSBuildPro
     <ClCompile Include="src\obj-util.c" />
     <ClCompile Include="src\option.c" />
     <ClCompile Include="src\parser.c" />
-    <ClCompile Include="src\perception.c" />
     <ClCompile Include="src\player-attack.c" />
     <ClCompile Include="src\player-birth.c" />
     <ClCompile Include="src\player-calcs.c" />
@@ -528,7 +527,6 @@ xcopy $(MSBuildProjectDirectory)\lib\* $(OutDir)lib\ /DESY /exclude:$(MSBuildPro
     <ClInclude Include="src\object.h" />
     <ClInclude Include="src\option.h" />
     <ClInclude Include="src\parser.h" />
-    <ClInclude Include="src\perception.h" />
     <ClInclude Include="src\player-attack.h" />
     <ClInclude Include="src\player-birth.h" />
     <ClInclude Include="src\player-calcs.h" />

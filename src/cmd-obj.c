@@ -432,11 +432,8 @@ static bool use_aux(struct command *cmd, struct object *obj, enum use use,
 		/* Unknown things with no obvious aim get a random direction */
 		if (!known_aim) {
 			dir = ddd[randint0(8)];
-		} else {
-			target_set_context_flags(effect_default_proj_flags(effect->index));
-			if (cmd_get_target(cmd, "target", &dir) != CMD_OK) {
-				return false;
-			}
+		} else if (cmd_get_target(cmd, "target", &dir) != CMD_OK) {
+			return false;
 		}
 
 		/* Confusion wrecks aim */
@@ -1155,8 +1152,6 @@ void do_cmd_cast(struct command *cmd)
 	}
 
 	if (spell_needs_aim(spell_index)) {
-		target_set_context_flags(
-			effect_default_proj_flags(spell->effect->index));
 		if (cmd_get_target(cmd, "target", &dir) == CMD_OK)
 			player_confuse_dir(player, &dir, false);
 		else

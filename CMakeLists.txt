@@ -232,7 +232,6 @@ add_library(OurCoreLib OBJECT
         src/obj-util.c
         src/option.c
         src/parser.c
-        src/perception.c
         src/player-attack.c
         src/player-birth.c
         src/player-calcs.c

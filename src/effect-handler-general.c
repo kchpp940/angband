@@ -3559,16 +3559,10 @@ bool effect_handler_BIZARRE(effect_handler_context_t *context)
 			struct loc target = loc_sum(player->grid, ddgrid[context->dir]);
 
 			/* Ask for a target if no direction given */
-			if (context->dir == DIR_TARGET) {
-				bool ok;
-				target_push_context();
-				target_set_context_flags(flg);
-				ok = target_okay();
-				target_pop_context();
-				if (ok) {
-					flg &= ~(PROJECT_STOP | PROJECT_THRU);
-					target_get(&target);
-				}
+			if ((context->dir == DIR_TARGET) && target_okay()) {
+				flg &= ~(PROJECT_STOP | PROJECT_THRU);
+
+				target_get(&target);
 			}
 
 			/* Aim at the target, explode */
@@ -3586,15 +3580,8 @@ bool effect_handler_BIZARRE(effect_handler_context_t *context)
 			struct loc target = loc_sum(player->grid, ddgrid[context->dir]);
 
 			/* Use an actual target */
-			if (context->dir == DIR_TARGET) {
-				bool ok;
-				target_push_context();
-				target_set_context_flags(flg);
-				ok = target_okay();
-				target_pop_context();
-				if (ok)
-					target_get(&target);
-			}
+			if ((context->dir == DIR_TARGET) && target_okay())
+				target_get(&target);
 
 			/* Aim at the target, do NOT explode */
 			return project(source_player(), 0, target, 250, PROJ_MANA, flg, 0,

@@ -89,3 +89,49 @@ int scan_distant_floor(struct object **items, int max_size, struct player *p,
 int scan_items(struct object **item_list, size_t item_list_max,
 		struct player *p, int mode, item_tester tester);
 bool item_is_available(struct object *obj);
+
+#define TRANSFER_MAX_MERGES 16
+
+struct obj_transfer_merge {
+	struct object *dest_obj;
+	int amount;
+	object_stack_t mode;
+};
+
+struct obj_transfer_plan {
+	struct player *p;
+	struct object *source;
+	struct object *source_known;
+
+	int requested;
+	int movable;
+	int source_remaining;
+
+	int merge_count;
+	struct obj_transfer_merge merges[TRANSFER_MAX_MERGES];
+
+	int new_stack_amount;
+	bool needs_new_slot;
+
+	int capacity_extra_pack_slots;
+
+	bool capacity_ok;
+};
+
+void obj_transfer_plan_init(struct obj_transfer_plan *plan,
+		struct player *p, struct object *source);
+
+bool obj_transfer_plan_floor_to_pack(struct obj_transfer_plan *plan,
+		int max_want);
+bool obj_transfer_plan_pack_to_floor(struct obj_transfer_plan *plan,
+		struct chunk *c, struct loc grid, int max_want);
+bool obj_transfer_plan_floor_to_floor(struct obj_transfer_plan *plan,
+		struct chunk *c, struct loc grid, int max_want);
+
+struct object *obj_transfer_execute_split_source(
+		struct obj_transfer_plan *plan);
+void obj_transfer_execute_to_pack(struct obj_transfer_plan *plan,
+		struct object *detached, bool absorb, bool message);
+void obj_transfer_execute_to_floor(struct obj_transfer_plan *plan,
+		struct chunk *c, struct loc grid, struct object *detached,
+		bool *note);

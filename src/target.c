@@ -25,7 +25,6 @@
 #include "mon-util.h"
 #include "monster.h"
 #include "obj-ignore.h"
-#include "perception.h"
 #include "player-calcs.h"
 #include "player-timed.h"
 #include "project.h"
@@ -50,77 +49,6 @@ static struct target target;
  * Old player target
  */
 static struct target old_target;
-
-/**
- * Projection flags stack for targeting context.
- *
- * The top of the stack is the "current" context used by all target
- * validity checks (target_able, target_okay, target_get_monsters,
- * etc.) and path preview.  Defaults to PROJECT_NONE when the stack
- * is empty.
- *
- * Callers set up context with target_set_context_flags() before
- * entering target selection.  cmd_get_target() and get_aim_dir()
- * push/pop automatically so the flags never leak past the selection
- * scope, even on cancel or early return.
- *
- * Nesting depth of 4 is enough for any realistic call chain
- * (cmd_get_target -> get_aim_dir -> textui hook -> re-target).
- */
-#define TARGET_FLAGS_STACK_MAX 4
-static int target_proj_flags_stack[TARGET_FLAGS_STACK_MAX];
-static int target_proj_flags_sp = 0;
-
-/**
- * Set the projectile flags for the current targeting context.
- *
- * If the stack is empty a new layer is pushed; otherwise the top of
- * the stack is overwritten.  This matches the "caller sets up context
- * once before selection" usage pattern.
- */
-void target_set_context_flags(int proj_flags)
-{
-	if (target_proj_flags_sp == 0) {
-		target_proj_flags_stack[target_proj_flags_sp++] = proj_flags;
-	} else {
-		target_proj_flags_stack[target_proj_flags_sp - 1] = proj_flags;
-	}
-}
-
-/**
- * Get the current targeting context's projectile flags.
- *
- * Returns PROJECT_NONE when no context has been pushed.
- */
-int target_get_context_flags(void)
-{
-	return (target_proj_flags_sp > 0)
-		? target_proj_flags_stack[target_proj_flags_sp - 1]
-		: PROJECT_NONE;
-}
-
-/**
- * Push a new context layer that inherits the current flags.
- *
- * Used by cmd_get_target() / get_aim_dir() to establish a scope
- * boundary; paired with target_pop_context() on every exit path
- * (success, cancel, early return) to restore the caller's context.
- */
-void target_push_context(void)
-{
-	int current = target_get_context_flags();
-	assert(target_proj_flags_sp < TARGET_FLAGS_STACK_MAX);
-	target_proj_flags_stack[target_proj_flags_sp++] = current;
-}
-
-/**
- * Pop the top context layer, restoring the previous flags.
- */
-void target_pop_context(void)
-{
-	assert(target_proj_flags_sp > 0);
-	target_proj_flags_sp--;
-}
 
 /**
  * Monster health description
@@ -178,13 +106,12 @@ void look_mon_desc(char *buf, size_t max, int m_idx)
  * Currently, a monster is "target_able" if it is visible, and if
  * the player can hit it with a projection, and the player is not
  * hallucinating.  This allows use of "use closest target" macros.
- *
- * Implemented via the unified perception service so that UI and logic layers
- * agree on target validity.
  */
 bool target_able(struct monster *m)
 {
-	return perception_mon_is_targetable(m, target_get_context_flags());
+	return m && m->race && monster_is_obvious(m) &&
+		projectable(cave, player->grid, m->grid, PROJECT_NONE) &&
+		!player->timed[TMD_IMAGE];
 }
 
 
@@ -294,19 +221,12 @@ void target_release(void)
 {
 	target_fixed = false;
 
-	/*
-	 * Re-check the old target against the current action's context
-	 * flags (via target_able).  If the monster is dead, out of LOS,
-	 * or cannot be hit with the current projectile rules, clear it.
-	 * This prevents stale targets from one action leaking into the
-	 * next (e.g. a BEAM-legal target being reused for a BOLT).
-	 */
+	/* If the old target is a now-dead monster, cancel it */
 	if (old_target.midx != 0) {
 		struct monster *mon = cave_monster(cave, old_target.midx);
-		if (!target_able(mon)) {
+		if (!mon || !mon->race || !monster_is_in_view(mon)) {
 			target.grid.y = 0;
 			target.grid.x = 0;
-			target.midx = 0;
 		}
 	}
 }
@@ -411,12 +331,12 @@ bool target_accept(int y, int x)
 	if (square(cave, grid)->mon < 0) return true;
 
 	/* Handle hallucination */
-	if (perception_player_is_hallucinating()) return false;
+	if (player->timed[TMD_IMAGE]) return false;
 
 	/* Obvious monsters */
 	if (square(cave, grid)->mon > 0) {
 		struct monster *mon = square_monster(cave, grid);
-		if (perception_mon_is_obvious(mon)) {
+		if (monster_is_obvious(mon)) {
 			return true;
 		}
 	}
@@ -498,8 +418,7 @@ bool target_sighted(void)
 			 /* either the target is a grid and is visible, or it is a monster
 			  * that is visible */
 		((!target.midx && square_isseen(cave, target.grid)) ||
-		 (target.midx && perception_mon_is_visible(
-			cave_monster(cave, target.midx))));
+		 (target.midx && monster_is_visible(cave_monster(cave, target.midx))));
 }
 
 

@@ -23,7 +23,6 @@ HEADERS = \
 	main.h \
 	option.h \
 	parser.h \
-	perception.h \
 	ui-event.h \
 	ui-menu.h \
 	wizard.h \
@@ -226,7 +225,6 @@ ANGFILES0 = \
 	obj-util.o \
 	option.o \
 	parser.o \
-	perception.o \
 	randname.o \
 	player-attack.o \
 	player-birth.o \

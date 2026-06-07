@@ -66,6 +66,8 @@ bool pack_is_full(void);
 bool pack_is_overfull(void);
 void pack_overflow(struct object *obj);
 int preferred_quiver_slot(const struct object *obj);
+void quiver_absorb_num(const struct player *p, const struct object *obj,
+		int *n_add_pack, int *n_to_quiver);
 
 
 #endif /* OBJECT_GEAR_H */
