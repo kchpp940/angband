@@ -20,6 +20,7 @@
 #define TARGET_H
 
 #include "mon-predicate.h"
+#include "project.h"
 
 /**
  * Bit flags for target_set()
@@ -49,6 +50,10 @@ void target_set_location(int y, int x);
 bool target_is_set(void);
 void target_fix(void);
 void target_release(void);
+
+void target_set_context_flags(int proj_flags);
+int  target_get_context_flags(void);
+
 int cmp_distance(const void *a, const void *b);
 int16_t target_pick(int y1, int x1, int dy, int dx, struct point_set *targets);
 bool target_accept(int y, int x);

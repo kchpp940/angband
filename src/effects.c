@@ -27,6 +27,7 @@
 #include "player-timed.h"
 #include "player-util.h"
 #include "project.h"
+#include "target.h"
 #include "trap.h"
 
 
@@ -59,6 +60,52 @@ static const char *effect_names[] = {
 /*
  * Utility functions
  */
+
+/**
+ * Infer the default projectile flags for a given effect index.
+ *
+ * Used to seed target context flags before the player chooses a target, so
+ * that target_able() and the path preview use the same projection rules as
+ * the actual spell/effect execution.  Falls back to PROJECT_NONE for
+ * melee-range or ambiguous effects.
+ */
+int effect_default_proj_flags(int effect_index)
+{
+	switch (effect_index) {
+	case EF_BOLT:
+	case EF_BOLT_STATUS:
+	case EF_BOLT_STATUS_DAM:
+	case EF_BOLT_AWARE:
+		return PROJECT_STOP | PROJECT_KILL;
+
+	case EF_BEAM:
+	case EF_LINE:
+		return PROJECT_BEAM | PROJECT_KILL;
+
+	case EF_ALTER:
+		return PROJECT_BEAM | PROJECT_GRID | PROJECT_ITEM;
+
+	case EF_BOLT_OR_BEAM:
+		return PROJECT_BEAM | PROJECT_KILL;
+
+	case EF_BALL:
+	case EF_BREATH:
+	case EF_ARC:
+	case EF_SHORT_BEAM:
+	case EF_LASH:
+	case EF_SWARM:
+	case EF_STRIKE:
+		return PROJECT_NONE;
+
+	case EF_CURSE:
+	case EF_COMMAND:
+	case EF_SINGLE_COMBAT:
+		return PROJECT_NONE;
+
+	default:
+		return PROJECT_NONE;
+	}
+}
 
 /**
  * Free all the effects in a structure
@@ -545,8 +592,10 @@ void effect_simple(int index,
 	effect.x = x;
 
 	/* Direction if needed */
-	if (effect_aim(&effect))
+	if (effect_aim(&effect)) {
+		target_set_context_flags(effect_default_proj_flags(effect.index));
 		get_aim_dir(&dir);
+	}
 
 	/* Do the effect */
 	if (!ident) {

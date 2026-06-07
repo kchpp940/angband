@@ -1325,7 +1325,7 @@ bool target_set_interactive(int mode, int x, int y, bool allow_pathfinding)
 		/* Find the path. */
 		path_n = project_path(cave, path_g, z_info->max_range,
 			loc(player->grid.x, player->grid.y), loc(x, y),
-			PROJECT_THRU | PROJECT_INFO);
+			target_get_context_flags() | PROJECT_INFO);
 
 		/* Draw the path in "target" mode. If there is one */
 		if (mode & (TARGET_KILL))
