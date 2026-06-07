@@ -850,6 +850,7 @@ set(ANGBAND_TEST_CASE_SOURCES
     cave/find.c
     cave/scatter.c
     command/lookup.c
+    danger/danger.c
     effects/chain.c
     effects/destruction.c
     effects/earthquake.c

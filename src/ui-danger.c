@@ -245,11 +245,11 @@ void danger_config_set_defaults(struct danger_warning_options *opts)
 
 	opts->suppress_when_resting = true;
 	opts->suppress_when_running = true;
-	opts->suppress_when_repeating = true;
-	opts->suppress_in_subwindows = false;
+	opts->suppress_when_repeating = false;
+	opts->suppress_in_subwindows = true;
 
 	opts->global_intensity_cap = DANGER_INTENSITY_HIGH;
-	opts->cooldown_turns = 1;
+	opts->cooldown_turns = 10;
 }
 
 void danger_warnings_init(void)
@@ -393,7 +393,13 @@ uint8_t danger_option_modes(danger_type type)
 danger_intensity danger_option_intensity(danger_type type)
 {
 	struct danger_config *cfg = get_config_for_type(type);
-	return cfg ? cfg->intensity : DANGER_INTENSITY_OFF;
+	danger_intensity base;
+	if (!cfg) return DANGER_INTENSITY_OFF;
+	base = cfg->intensity;
+	if (danger_opts.global_intensity_cap < base) {
+		return danger_opts.global_intensity_cap;
+	}
+	return base;
 }
 
 void danger_signal_warning(danger_type type, danger_intensity intensity,
@@ -485,13 +491,15 @@ void danger_check_all(void)
 	current_state.suppressed = suppress;
 	current_state.last_update_turn = player ? player->total_energy : 0;
 
-	if (state_changed_flag && !suppress) {
+	if (state_changed_flag) {
 		uint8_t modes = danger_get_active_modes();
 		danger_intensity intensity = danger_get_max_intensity();
 		bool any_active = (active != DANGER_NONE) && (intensity > DANGER_INTENSITY_OFF)
 			&& (modes != DANGER_WARN_NONE);
 
-		if (modes & DANGER_WARN_MESSAGE_HIGHLIGHT) {
+		if (suppress || !any_active) {
+			cached_message_color = COLOUR_WHITE;
+		} else if (modes & DANGER_WARN_MESSAGE_HIGHLIGHT) {
 			if (intensity >= DANGER_INTENSITY_HIGH) {
 				cached_message_color = COLOUR_RED;
 			} else if (intensity >= DANGER_INTENSITY_MEDIUM) {
@@ -506,7 +514,7 @@ void danger_check_all(void)
 		}
 		message_color_cached = true;
 
-		if (any_active || prev_active_types != DANGER_NONE) {
+		if (!suppress && (any_active || prev_active_types != DANGER_NONE)) {
 			event_signal(EVENT_DANGER_WARNING);
 			render_pending = true;
 		}
