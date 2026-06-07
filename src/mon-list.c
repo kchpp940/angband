@@ -185,7 +185,7 @@ void monster_list_collect(monster_list_t *list)
 		 * Check for LOS via unified perception service. This catches
 		 * monsters detected by ESP that are also on a projectable path.
 		 */
-		los = perception_mon_is_projectable(mon);
+		los = perception_mon_is_projectable(mon, PROJECT_NONE);
 		field = (los) ? MONSTER_LIST_SECTION_LOS : MONSTER_LIST_SECTION_ESP;
 		entry->count[field]++;
 

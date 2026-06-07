@@ -113,7 +113,7 @@ void look_mon_desc(char *buf, size_t max, int m_idx)
  */
 bool target_able(struct monster *m)
 {
-	return perception_mon_is_targetable(m);
+	return perception_mon_is_targetable(m, PROJECT_NONE);
 }
 
 

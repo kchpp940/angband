@@ -27,6 +27,7 @@
 #define PERCEPTION_H
 
 #include "monster.h"
+#include "project.h"
 
 struct player;
 struct chunk;
@@ -44,12 +45,14 @@ void perception_refresh_mon(struct monster *mon, struct chunk *c, bool full);
 void perception_refresh_all(bool full);
 void perception_invalidate_targets(void);
 
+void perception_update_world(bool need_view_update, bool full_distance);
+
 bool perception_mon_is_sensible(const struct monster *mon);
 bool perception_mon_is_obvious(const struct monster *mon);
 bool perception_mon_is_in_view(const struct monster *mon);
 bool perception_mon_is_visible(const struct monster *mon);
-bool perception_mon_is_targetable(const struct monster *mon);
-bool perception_mon_is_projectable(const struct monster *mon);
+bool perception_mon_is_targetable(const struct monster *mon, int proj_flags);
+bool perception_mon_is_projectable(const struct monster *mon, int proj_flags);
 
 bool perception_player_is_hallucinating(void);
 bool perception_player_is_blind(void);

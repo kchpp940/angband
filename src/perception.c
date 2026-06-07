@@ -98,18 +98,24 @@ bool perception_mon_is_visible(const struct monster *mon)
  * Is the monster a valid projectile target right now?
  *
  * Unifies the target_able() check: the monster must exist, be obvious
- * to the player, lie on a projectable path from the player, and the
- * player must not be hallucinating.  Call this from both the target
- * logic and any UI that offers "target this monster" choices so the
- * two layers never disagree.
+ * to the player, lie on a projectable path from the player for the
+ * given projection flags, and the player must not be hallucinating.
+ * Call this from both the target logic and any UI that offers "target
+ * this monster" choices so the two layers never disagree.
+ *
+ * \param mon The monster to evaluate.
+ * \param proj_flags PROJECT_* bitmask forwarded to projectable() - use
+ *        PROJECT_NONE for a standard line-of-fire check, or combine
+ *        PROJECT_THRU / PROJECT_SHORT / etc for specialised spells or
+ *        ranged attack modes.
  */
-bool perception_mon_is_targetable(const struct monster *mon)
+bool perception_mon_is_targetable(const struct monster *mon, int proj_flags)
 {
 	if (!mon || !mon->race) return false;
 
 	if (!perception_mon_is_obvious(mon)) return false;
 
-	if (!perception_mon_is_projectable(mon)) return false;
+	if (!perception_mon_is_projectable(mon, proj_flags)) return false;
 
 	if (perception_player_is_hallucinating()) return false;
 
@@ -121,14 +127,19 @@ bool perception_mon_is_targetable(const struct monster *mon)
  *
  * Thin wrapper around projectable() so callers don't have to reach into
  * project.h for a simple "can I hit this" check.
+ *
+ * \param mon The target monster.
+ * \param proj_flags PROJECT_* bitmask - PROJECT_NONE for standard LOS,
+ *        PROJECT_THRU to pass through monsters, PROJECT_SHORT for
+ *        monster-range-only etc.
  */
-bool perception_mon_is_projectable(const struct monster *mon)
+bool perception_mon_is_projectable(const struct monster *mon, int proj_flags)
 {
 	assert(mon);
 	assert(cave);
 	assert(player);
 
-	return projectable(cave, player->grid, mon->grid, PROJECT_NONE);
+	return projectable(cave, player->grid, mon->grid, proj_flags);
 }
 
 /**
@@ -422,4 +433,35 @@ void perception_invalidate_targets(void)
 	if (!target_okay()) {
 		target_set_monster(NULL);
 	}
+}
+
+/**
+ * Unified world refresh - refresh grid-level view and monster perception in one call.
+ *
+ * Guarantees that after this function returns, SQUARE_VIEW/SEEN and
+ * MFLAG_VISIBLE/VIEW are consistent with each other, so any query done
+ * via the perception_*() interfaces will see a self-consistent snapshot
+ * of the world rather than stale MFLAG_* after a fresh update_view().
+ *
+ * Replaces the old pattern of:
+ *   update_view(cave, p);        // PU_UPDATE_VIEW
+ *   ...                           // <- stale window if interrupted here
+ *   update_monsters(full);            // PU_DISTANCE / PU_MONSTERS
+ *
+ * \param need_view_update If true, run update_view() to recompute grid-level
+ *        SQUARE_VIEW / SQUARE_SEEN before refreshing monster flags.
+ * \param full_distance If true, recompute every monster's cdis field
+ *        (cdis is the "classic" distance used internally for sight-range
+ *        checks - when player position has changed significantly.
+ */
+void perception_update_world(bool need_view_update, bool full_distance)
+{
+	assert(player);
+	assert(cave);
+
+	if (need_view_update) {
+		update_view(cave, player);
+	}
+
+	perception_refresh_all(full_distance);
 }
