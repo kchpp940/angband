@@ -38,7 +38,6 @@
 #include "player-spell.h"
 #include "player-timed.h"
 #include "player-util.h"
-#include "ui-danger.h"
 
 /**
  * Stat Table (INT) -- Magic devices
@@ -2714,12 +2713,6 @@ void redraw_stuff(struct player *p)
 
 	/* Map is not shown, subwindow updates only */
 	if (!map_is_visible()) return;
-
-	/* Check danger warnings - actual rendering is event-driven */
-	if (character_generated) {
-		danger_sync_from_options(&p->opts);
-		danger_check_all();
-	}
 
 	/*
 	 * Do any plotting, etc. delayed from earlier - this set of updates

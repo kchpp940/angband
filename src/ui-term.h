@@ -229,9 +229,6 @@ struct term
 
         int (*dblh_hook)(int a, wchar_t c);
 
-	void (*danger_border_hook)(term *t, int intensity, bool enable);
-	void (*danger_status_hook)(term *t, int intensity, bool enable);
-
 };
 
 
@@ -304,11 +301,6 @@ extern int col_map[SIDEBAR_MAX];
 #define TERM_XTRA_ALIVE 11    /* Change the "hard" level (optional) */
 #define TERM_XTRA_LEVEL 12    /* Change the "soft" level (optional) */
 #define TERM_XTRA_DELAY 13    /* Delay some milliseconds (optional) */
-#define TERM_XTRA_DANGER_WARN 14 /* Render danger warning visualizations */
-
-#define DANGER_RENDER_BORDER    1
-#define DANGER_RENDER_STATUSBAR 2
-#define DANGER_RENDER_CLEAR     3
 
 /**
  * Bit flags for the "window_flag" variable.
@@ -433,8 +425,5 @@ extern errr term_init(term *t, int w, int h, int k);
 extern int big_pad(int col, int row, uint8_t a, wchar_t c);
 
 extern int Term_get_first_tile_row(term *t);
-
-extern void Term_danger_render(int render_type, int intensity);
-extern void Term_danger_clear(void);
 
 #endif /* INCLUDED_Z_TERM_H */

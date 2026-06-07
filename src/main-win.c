@@ -98,7 +98,6 @@
 
 #include "sound.h"
 #include "snd-win.h"
-#include "ui-danger.h"
 
 #define HAS_CLEANUP
 
@@ -1912,44 +1911,6 @@ static int Term_xtra_win_delay(int v)
 /**
  * Do a "special thing"
  */
-static void Term_danger_border_win(term *t, int intensity, bool enable)
-{
-	term_data *td;
-	FLASHWINFO fwi;
-
-	if (!t) return;
-	td = (term_data*)(t->data);
-	if (!td || !td->w) return;
-
-	td->danger_border_active = enable;
-	td->danger_border_intensity = enable ? intensity : 0;
-
-	if (enable) {
-		fwi.cbSize = sizeof(fwi);
-		fwi.hwnd = td->w;
-		fwi.dwFlags = FLASHW_BORDER | FLASHW_TIMERNOFG;
-		fwi.uCount = 3;
-		fwi.dwTimeout = 250;
-		if (intensity >= DANGER_INTENSITY_HIGH) {
-			fwi.dwFlags |= FLASHW_CAPTION;
-			fwi.uCount = 5;
-		}
-		FlashWindowEx(&fwi);
-	}
-}
-
-static void Term_danger_status_win(term *t, int intensity, bool enable)
-{
-	term_data *td;
-
-	if (!t) return;
-	td = (term_data*)(t->data);
-	if (!td) return;
-
-	td->danger_status_active = enable;
-	td->danger_status_intensity = enable ? intensity : 0;
-}
-
 static errr Term_xtra_win(int n, int v)
 {
 	/* Handle a subset of the legal requests */
@@ -1995,31 +1956,6 @@ static errr Term_xtra_win(int n, int v)
 		case TERM_XTRA_DELAY:
 		{
 			return (Term_xtra_win_delay(v));
-		}
-
-		/* Danger warning rendering */
-		case TERM_XTRA_DANGER_WARN:
-		{
-			term_data *td = (term_data*)(Term->data);
-			int render_type = v & 0xFF;
-			int intensity = (v >> 8) & 0xFF;
-			bool enable = (render_type != DANGER_RENDER_CLEAR) && (intensity > 0);
-
-			if (!td) return 0;
-
-			switch (render_type) {
-				case DANGER_RENDER_BORDER:
-					Term_danger_border_win(Term, intensity, enable);
-					break;
-				case DANGER_RENDER_STATUSBAR:
-					Term_danger_status_win(Term, intensity, enable);
-					break;
-				case DANGER_RENDER_CLEAR:
-					Term_danger_border_win(Term, 0, false);
-					Term_danger_status_win(Term, 0, false);
-					break;
-			}
-			return 0;
 		}
 	}
 
@@ -2760,14 +2696,6 @@ static void term_data_link(term_data *td)
 	t->pict_hook = Term_pict_win;
 	t->dblh_hook = NULL;
 	t->view_map_hook = term_view_map_hook;
-
-	t->danger_border_hook = Term_danger_border_win;
-	t->danger_status_hook = Term_danger_status_win;
-
-	td->danger_border_active = false;
-	td->danger_border_intensity = 0;
-	td->danger_status_active = false;
-	td->danger_status_intensity = 0;
 
 	/* Remember where we came from */
 	t->data = td;

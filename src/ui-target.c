@@ -27,6 +27,7 @@
 #include "obj-desc.h"
 #include "obj-pile.h"
 #include "obj-util.h"
+#include "perception.h"
 #include "player-attack.h"
 #include "player-calcs.h"
 #include "player-path.h"
@@ -449,18 +450,9 @@ static bool aux_reinit(struct chunk *c, struct player *p,
 		auxst->phrase1 = "You are ";
 		auxst->phrase2 = "on ";
 	} else {
-		/* Default */
-		if (square_isseen(c, auxst->grid)) {
-			auxst->phrase1 = "You see ";
-		} else {
-			mon = square_monster(c, auxst->grid);
-			if (mon && monster_is_obvious(mon)) {
-				/* Monster is visible because of detection or telepathy */
-				auxst->phrase1 = "You sense ";
-			} else {
-				auxst->phrase1 = "You recall ";
-			}
-		}
+		/* Default - use unified perception service for the detect phrase */
+		mon = square_monster(c, auxst->grid);
+		auxst->phrase1 = perception_mon_detect_phrase(mon, c);
 		auxst->phrase2 = "";
 	}
 
@@ -476,7 +468,7 @@ static bool aux_hallucinate(struct chunk *c, struct player *p,
 	const char *name_strange = "something strange";
 	char out_val[TARGET_OUT_VAL_SIZE];
 
-	if (!p->timed[TMD_IMAGE]) return false;
+	if (!perception_player_is_hallucinating()) return false;
 
 	/* Hallucination messes things up */
 	/* Display a message */
@@ -525,7 +517,7 @@ static bool aux_monster(struct chunk *c, struct player *p,
 	if (square(c, auxst->grid)->mon <= 0) return false;
 
 	mon = square_monster(c, auxst->grid);
-	if (!monster_is_obvious(mon)) return false;
+	if (!perception_mon_is_obvious(mon)) return false;
 
 	/* Actual visible monsters */
 	lore = get_lore(mon->race);
@@ -1117,7 +1109,7 @@ static int draw_path(uint16_t path_n, struct loc *path_g, wchar_t *c, int *a,
 			/* Once we pass an unknown square, we no longer know
 			 * if we will reach later squares */
 			colour = COLOUR_L_DARK;
-		} else if (mon && monster_is_visible(mon)) {
+		} else if (mon && perception_mon_is_visible(mon)) {
 			/* Mimics act as objects */
 			if (monster_is_mimicking(mon)) {
 				colour = COLOUR_YELLOW;

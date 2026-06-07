@@ -56,7 +56,6 @@
 #include "ui-prefs.h"
 #include "ui-store.h"
 #include "ui-term.h"
-#include "ui-danger.h"
 #include "ui-visuals.h"
 #include "wizard.h"
 
@@ -1913,14 +1912,6 @@ static void update_messages_subwindow(game_event_type type,
 			is_fresh = false;
 		}
 		uint8_t color = is_fresh? COLOUR_RED: message_color(i);
-
-		/* Apply cached danger warning message highlight */
-		if (!is_fresh) {
-			uint8_t danger_color = danger_get_message_color();
-			if (danger_color != COLOUR_WHITE) {
-				color = danger_color;
-			}
-		}
 
 		if (count == 1)
 			msg = str;

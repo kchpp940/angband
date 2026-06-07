@@ -27,7 +27,6 @@
 #include "game-input.h"
 #include "game-event.h"
 #include "init.h"
-#include "ui-danger.h"
 #include "ui-display.h"
 #include "ui-game.h"
 #include "ui-init.h"
@@ -103,9 +102,6 @@ void textui_init(void)
 	/* Set up the subwindows */
 	subwindows_set_flags(default_window_flag, ANGBAND_TERM_MAX);
 
-	/* Initialize danger warning system */
-	danger_warnings_init();
-
 	/* Done */
 	event_signal_message(EVENT_INITSTATUS, 0, "Initialization complete");
 }
@@ -116,9 +112,6 @@ void textui_init(void)
  */
 void textui_cleanup(void)
 {
-	/* Cleanup danger warning system */
-	danger_warnings_free();
-
 	/* Cleanup any options menus */
 	cleanup_options();
 

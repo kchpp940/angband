@@ -17,7 +17,6 @@
  */
 #include "buildid.h"
 #include "h-basic.h"
-#include "ui-danger.h"
 #include "ui-term.h"
 #include "z-color.h"
 #include "z-util.h"
@@ -3291,58 +3290,4 @@ int Term_get_first_tile_row(term *t)
 		}
 	}
 	return result;
-}
-
-void Term_danger_render(int render_type, int intensity)
-{
-	term *t = angband_term[0];
-	uint8_t modes;
-	bool enable = (intensity > DANGER_INTENSITY_OFF);
-
-	if (!t) return;
-
-	modes = danger_get_active_modes();
-
-	switch (render_type) {
-		case DANGER_RENDER_BORDER:
-			if (modes & DANGER_WARN_BORDER_FLASH) {
-				if (t->danger_border_hook) {
-					(*(t->danger_border_hook))(t, intensity, enable);
-				}
-				if (t->xtra_hook) {
-					(*(t->xtra_hook))(TERM_XTRA_DANGER_WARN,
-						enable ? (intensity << 8) | DANGER_RENDER_BORDER : 0);
-				}
-			}
-			break;
-
-		case DANGER_RENDER_STATUSBAR:
-			if (modes & DANGER_WARN_STATUSBAR_EMPHASIS) {
-				if (t->danger_status_hook) {
-					(*(t->danger_status_hook))(t, intensity, enable);
-				}
-				if (t->xtra_hook) {
-					(*(t->xtra_hook))(TERM_XTRA_DANGER_WARN,
-						enable ? (intensity << 8) | DANGER_RENDER_STATUSBAR : 0);
-				}
-			}
-			break;
-
-		case DANGER_RENDER_CLEAR:
-			if (t->danger_border_hook) {
-				(*(t->danger_border_hook))(t, 0, false);
-			}
-			if (t->danger_status_hook) {
-				(*(t->danger_status_hook))(t, 0, false);
-			}
-			if (t->xtra_hook) {
-				(*(t->xtra_hook))(TERM_XTRA_DANGER_WARN, DANGER_RENDER_CLEAR);
-			}
-			break;
-	}
-}
-
-void Term_danger_clear(void)
-{
-	Term_danger_render(DANGER_RENDER_CLEAR, DANGER_INTENSITY_OFF);
 }

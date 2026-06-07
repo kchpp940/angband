@@ -25,6 +25,7 @@
 #include "mon-util.h"
 #include "monster.h"
 #include "obj-ignore.h"
+#include "perception.h"
 #include "player-calcs.h"
 #include "player-timed.h"
 #include "project.h"
@@ -106,12 +107,13 @@ void look_mon_desc(char *buf, size_t max, int m_idx)
  * Currently, a monster is "target_able" if it is visible, and if
  * the player can hit it with a projection, and the player is not
  * hallucinating.  This allows use of "use closest target" macros.
+ *
+ * Implemented via the unified perception service so that UI and logic layers
+ * agree on target validity.
  */
 bool target_able(struct monster *m)
 {
-	return m && m->race && monster_is_obvious(m) &&
-		projectable(cave, player->grid, m->grid, PROJECT_NONE) &&
-		!player->timed[TMD_IMAGE];
+	return perception_mon_is_targetable(m);
 }
 
 
@@ -331,12 +333,12 @@ bool target_accept(int y, int x)
 	if (square(cave, grid)->mon < 0) return true;
 
 	/* Handle hallucination */
-	if (player->timed[TMD_IMAGE]) return false;
+	if (perception_player_is_hallucinating()) return false;
 
 	/* Obvious monsters */
 	if (square(cave, grid)->mon > 0) {
 		struct monster *mon = square_monster(cave, grid);
-		if (monster_is_obvious(mon)) {
+		if (perception_mon_is_obvious(mon)) {
 			return true;
 		}
 	}
@@ -418,7 +420,8 @@ bool target_sighted(void)
 			 /* either the target is a grid and is visible, or it is a monster
 			  * that is visible */
 		((!target.midx && square_isseen(cave, target.grid)) ||
-		 (target.midx && monster_is_visible(cave_monster(cave, target.midx))));
+		 (target.midx && perception_mon_is_visible(
+			cave_monster(cave, target.midx))));
 }
 
 

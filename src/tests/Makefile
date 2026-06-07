@@ -10,7 +10,6 @@ SUITES = \
 	artifact/suite.mk \
 	cave/suite.mk \
 	command/suite.mk \
-	danger/suite.mk \
 	effects/suite.mk \
 	game/suite.mk \
 	message/suite.mk \

@@ -232,6 +232,7 @@ add_library(OurCoreLib OBJECT
         src/obj-util.c
         src/option.c
         src/parser.c
+        src/perception.c
         src/player-attack.c
         src/player-birth.c
         src/player-calcs.c
@@ -265,7 +266,6 @@ add_library(OurCoreLib OBJECT
         src/ui-command.c
         src/ui-context.c
         src/ui-curse.c
-        src/ui-danger.c
         src/ui-death.c
         src/ui-display.c
         src/ui-effect.c
@@ -850,7 +850,6 @@ set(ANGBAND_TEST_CASE_SOURCES
     cave/find.c
     cave/scatter.c
     command/lookup.c
-    danger/danger.c
     effects/chain.c
     effects/destruction.c
     effects/earthquake.c

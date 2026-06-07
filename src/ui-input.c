@@ -48,7 +48,6 @@
 #include "ui-spell.h"
 #include "ui-store.h"
 #include "ui-target.h"
-#include "ui-danger.h"
 
 static bool inkey_xtra;
 uint32_t inkey_scan;		/* See the "inkey()" function */
@@ -546,14 +545,6 @@ void display_message(game_event_type unused, game_event_data *data, void *user)
 
 	/* Get the color of the message */
 	color = message_type_color(type);
-
-	/* Apply cached danger warning message highlight */
-	{
-		uint8_t danger_color = danger_get_message_color();
-		if (danger_color != COLOUR_WHITE) {
-			color = danger_color;
-		}
-	}
 
 	/* Split message */
 	while (message_column + n > w - 1) {

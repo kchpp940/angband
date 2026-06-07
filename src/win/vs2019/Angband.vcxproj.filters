@@ -429,6 +429,9 @@
     <ClCompile Include="src\parser.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\perception.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\player.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1137,6 +1140,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\parser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\perception.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\player.h">
