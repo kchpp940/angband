@@ -52,36 +52,74 @@ static struct target target;
 static struct target old_target;
 
 /**
- * Projection flags currently in effect for targeting context.
+ * Projection flags stack for targeting context.
  *
- * Set by the action initiator (spell, shooting, etc.) before calling
- * get_aim_dir() / target_set_interactive().  All target validity checks
- * (target_able, target_okay, target_get_monsters, etc.) and path
- * preview use these flags so that the UI and the actual projectile
- * rules stay consistent.
+ * The top of the stack is the "current" context used by all target
+ * validity checks (target_able, target_okay, target_get_monsters,
+ * etc.) and path preview.  Defaults to PROJECT_NONE when the stack
+ * is empty.
  *
- * Defaults to PROJECT_NONE (standard line-of-fire).
+ * Callers set up context with target_set_context_flags() before
+ * entering target selection.  cmd_get_target() and get_aim_dir()
+ * push/pop automatically so the flags never leak past the selection
+ * scope, even on cancel or early return.
+ *
+ * Nesting depth of 4 is enough for any realistic call chain
+ * (cmd_get_target -> get_aim_dir -> textui hook -> re-target).
  */
-static int target_proj_flags = PROJECT_NONE;
+#define TARGET_FLAGS_STACK_MAX 4
+static int target_proj_flags_stack[TARGET_FLAGS_STACK_MAX];
+static int target_proj_flags_sp = 0;
 
 /**
- * Set the projectile flags used for the current targeting context.
+ * Set the projectile flags for the current targeting context.
  *
- * Call this before get_aim_dir() / target_set_interactive() when the
- * impending action uses non-standard projection rules (e.g. PROJECT_BEAM
- * for beam spells, PROJECT_THRU for wall-piercing effects).
+ * If the stack is empty a new layer is pushed; otherwise the top of
+ * the stack is overwritten.  This matches the "caller sets up context
+ * once before selection" usage pattern.
  */
 void target_set_context_flags(int proj_flags)
 {
-	target_proj_flags = proj_flags;
+	if (target_proj_flags_sp == 0) {
+		target_proj_flags_stack[target_proj_flags_sp++] = proj_flags;
+	} else {
+		target_proj_flags_stack[target_proj_flags_sp - 1] = proj_flags;
+	}
 }
 
 /**
  * Get the current targeting context's projectile flags.
+ *
+ * Returns PROJECT_NONE when no context has been pushed.
  */
 int target_get_context_flags(void)
 {
-	return target_proj_flags;
+	return (target_proj_flags_sp > 0)
+		? target_proj_flags_stack[target_proj_flags_sp - 1]
+		: PROJECT_NONE;
+}
+
+/**
+ * Push a new context layer that inherits the current flags.
+ *
+ * Used by cmd_get_target() / get_aim_dir() to establish a scope
+ * boundary; paired with target_pop_context() on every exit path
+ * (success, cancel, early return) to restore the caller's context.
+ */
+void target_push_context(void)
+{
+	int current = target_get_context_flags();
+	assert(target_proj_flags_sp < TARGET_FLAGS_STACK_MAX);
+	target_proj_flags_stack[target_proj_flags_sp++] = current;
+}
+
+/**
+ * Pop the top context layer, restoring the previous flags.
+ */
+void target_pop_context(void)
+{
+	assert(target_proj_flags_sp > 0);
+	target_proj_flags_sp--;
 }
 
 /**
@@ -146,7 +184,7 @@ void look_mon_desc(char *buf, size_t max, int m_idx)
  */
 bool target_able(struct monster *m)
 {
-	return perception_mon_is_targetable(m, target_proj_flags);
+	return perception_mon_is_targetable(m, target_get_context_flags());
 }
 
 
@@ -256,16 +294,21 @@ void target_release(void)
 {
 	target_fixed = false;
 
-	/* If the old target is a now-dead monster, cancel it */
+	/*
+	 * Re-check the old target against the current action's context
+	 * flags (via target_able).  If the monster is dead, out of LOS,
+	 * or cannot be hit with the current projectile rules, clear it.
+	 * This prevents stale targets from one action leaking into the
+	 * next (e.g. a BEAM-legal target being reused for a BOLT).
+	 */
 	if (old_target.midx != 0) {
 		struct monster *mon = cave_monster(cave, old_target.midx);
-		if (!mon || !mon->race || !monster_is_in_view(mon)) {
+		if (!target_able(mon)) {
 			target.grid.y = 0;
 			target.grid.x = 0;
+			target.midx = 0;
 		}
 	}
-
-	target_set_context_flags(PROJECT_NONE);
 }
 
 /**

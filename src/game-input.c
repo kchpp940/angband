@@ -20,6 +20,7 @@
 #include "cmd-core.h"
 #include "game-input.h"
 #include "player.h"
+#include "target.h"
 
 bool (*get_string_hook)(const char *prompt, char *buf, size_t len);
 int (*get_quantity_hook)(const char *prompt, int max);
@@ -140,11 +141,16 @@ bool get_rep_dir(int *dir, bool allow_none)
  */
 bool get_aim_dir(int *dir)
 {
-	/* Ask the UI for it */
+	bool result;
+	target_push_context();
+
 	if (get_aim_dir_hook)
-		return get_aim_dir_hook(dir);
+		result = get_aim_dir_hook(dir);
 	else
-		return false;
+		result = false;
+
+	target_pop_context();
+	return result;
 }
 
 /**
