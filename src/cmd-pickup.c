@@ -31,6 +31,7 @@
 #include "obj-gear.h"
 #include "obj-ignore.h"
 #include "obj-pile.h"
+#include "obj-transfer.h"
 #include "obj-tval.h"
 #include "obj-util.h"
 #include "player-attack.h"

@@ -2,6 +2,12 @@
  * \file obj-pile.h
  * \brief Deal with piles of objects
  *
+ * Pile/list primitives only: object lifecycle, linked-list insert/excise,
+ * stacking/merging helpers, floor scanning, pile charges display.
+ *
+ * Higher-level object movements (pickup, drop, carry, wield, takeoff) and
+ * the unified quantity / capacity planning live in obj-transfer.h / .c.
+ *
  * Copyright (c) 1997 Ben Harrison, James E. Wilson, Robert A. Koeneke
  *
  * This work is free software; you can redistribute it and/or modify it
@@ -15,6 +21,9 @@
  *    and not for profit purposes provided that this copyright and statement
  *    are included in all such copies.  Other copyrights may also apply.
  */
+
+#ifndef OBJECT_PILE_H
+#define OBJECT_PILE_H
 
 #include "cave.h"
 #include "player.h"
@@ -74,13 +83,7 @@ void object_wipe(struct object *obj);
 void object_copy(struct object *obj1, const struct object *obj2);
 void object_copy_amt(struct object *dest, struct object *src, int amt);
 struct object *object_split(struct object *src, int amt);
-struct object *floor_object_for_use(struct player *p, struct object *obj,
-	int num, bool message, bool *none_left);
-bool floor_carry(struct chunk *c, struct loc grid, struct object *drop,
-				 bool *note);
-void drop_near(struct chunk *c, struct object **dropped, int chance,
-			   struct loc grid, bool verbose, bool prefer_pile);
-void push_object(struct loc grid);
+
 void floor_item_charges(struct object *obj);
 int scan_floor(struct object **items, int max_size, struct player *p,
 		object_floor_t mode, item_tester tester);
@@ -90,48 +93,4 @@ int scan_items(struct object **item_list, size_t item_list_max,
 		struct player *p, int mode, item_tester tester);
 bool item_is_available(struct object *obj);
 
-#define TRANSFER_MAX_MERGES 16
-
-struct obj_transfer_merge {
-	struct object *dest_obj;
-	int amount;
-	object_stack_t mode;
-};
-
-struct obj_transfer_plan {
-	struct player *p;
-	struct object *source;
-	struct object *source_known;
-
-	int requested;
-	int movable;
-	int source_remaining;
-
-	int merge_count;
-	struct obj_transfer_merge merges[TRANSFER_MAX_MERGES];
-
-	int new_stack_amount;
-	bool needs_new_slot;
-
-	int capacity_extra_pack_slots;
-
-	bool capacity_ok;
-};
-
-void obj_transfer_plan_init(struct obj_transfer_plan *plan,
-		struct player *p, struct object *source);
-
-bool obj_transfer_plan_floor_to_pack(struct obj_transfer_plan *plan,
-		int max_want);
-bool obj_transfer_plan_pack_to_floor(struct obj_transfer_plan *plan,
-		struct chunk *c, struct loc grid, int max_want);
-bool obj_transfer_plan_floor_to_floor(struct obj_transfer_plan *plan,
-		struct chunk *c, struct loc grid, int max_want);
-
-struct object *obj_transfer_execute_split_source(
-		struct obj_transfer_plan *plan);
-void obj_transfer_execute_to_pack(struct obj_transfer_plan *plan,
-		struct object *detached, bool absorb, bool message);
-void obj_transfer_execute_to_floor(struct obj_transfer_plan *plan,
-		struct chunk *c, struct loc grid, struct object *detached,
-		bool *note);
+#endif /* OBJECT_PILE_H */

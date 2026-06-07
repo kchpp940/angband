@@ -21,6 +21,7 @@
 #include "mon-util.h"
 #include "monster.h"
 #include "obj-pile.h"
+#include "obj-transfer.h"
 #include "obj-util.h"
 #include "player-calcs.h"
 #include "player-quest.h"

@@ -30,6 +30,7 @@
 #include "mon-spell.h"
 #include "obj-make.h"
 #include "obj-pile.h"
+#include "obj-transfer.h"
 #include "obj-tval.h"
 #include "obj-util.h"
 #include "player-util.h"

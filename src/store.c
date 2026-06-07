@@ -32,6 +32,7 @@
 #include "obj-knowledge.h"
 #include "obj-make.h"
 #include "obj-pile.h"
+#include "obj-transfer.h"
 #include "obj-power.h"
 #include "obj-slays.h"
 #include "obj-tval.h"

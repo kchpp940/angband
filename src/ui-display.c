@@ -33,6 +33,7 @@
 #include "obj-desc.h"
 #include "obj-gear.h"
 #include "obj-pile.h"
+#include "obj-transfer.h"
 #include "obj-util.h"
 #include "player-calcs.h"
 #include "player-timed.h"

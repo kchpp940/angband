@@ -36,6 +36,7 @@
 #include "obj-ignore.h"
 #include "obj-knowledge.h"
 #include "obj-pile.h"
+#include "obj-transfer.h"
 #include "obj-slays.h"
 #include "obj-tval.h"
 #include "obj-util.h"

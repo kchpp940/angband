@@ -33,6 +33,7 @@
 #include "obj-gear.h"
 #include "obj-make.h"
 #include "obj-pile.h"
+#include "obj-transfer.h"
 #include "obj-slays.h"
 #include "obj-tval.h"
 #include "obj-util.h"
