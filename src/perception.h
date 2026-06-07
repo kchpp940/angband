@@ -31,6 +31,19 @@
 struct player;
 struct chunk;
 
+typedef struct {
+	bool sensible;
+	bool in_view;
+	int distance;
+} perception_result_t;
+
+perception_result_t perception_compute_mon_visibility(const struct monster *mon,
+		struct chunk *c, bool compute_distance);
+
+void perception_refresh_mon(struct monster *mon, struct chunk *c, bool full);
+void perception_refresh_all(bool full);
+void perception_invalidate_targets(void);
+
 bool perception_mon_is_sensible(const struct monster *mon);
 bool perception_mon_is_obvious(const struct monster *mon);
 bool perception_mon_is_in_view(const struct monster *mon);
