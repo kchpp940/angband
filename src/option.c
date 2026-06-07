@@ -203,6 +203,14 @@ void options_init_defaults(struct player_options *opts)
 
 	/* 30% of HP */
 	(*opts).hitpoint_warn = 3;
+
+	/* Danger warning defaults */
+	(*opts).danger_intensity = 3;
+	(*opts).danger_low_hp_pct = 30;
+	(*opts).danger_critical_hp_pct = 10;
+	(*opts).danger_surround_count = 3;
+	(*opts).danger_mon_level_diff = 5;
+	(*opts).danger_terrain_range = 2;
 }
 
 /**

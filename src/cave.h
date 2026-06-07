@@ -178,91 +178,6 @@ struct connector {
 	struct connector *next;
 };
 
-/**
- * Floor objective types
- */
-typedef enum {
-	FLOOR_OBJ_NONE = 0,
-	FLOOR_OBJ_CLEAR_NEST,
-	FLOOR_OBJ_FIND_HIDDEN,
-	FLOOR_OBJ_RETRIEVE_ITEM,
-	FLOOR_OBJ_REACH_AREA,
-	FLOOR_OBJ_MAX
-} floor_obj_type;
-
-/**
- * Floor objective state
- */
-typedef enum {
-	FLOOR_OBJ_INACTIVE = 0,
-	FLOOR_OBJ_ACTIVE,
-	FLOOR_OBJ_COMPLETED,
-	FLOOR_OBJ_FAILED
-} floor_obj_state;
-
-/**
- * Floor objective reward types
- */
-typedef enum {
-	FLOOR_REWARD_GOLD = 0,
-	FLOOR_REWARD_EXP,
-	FLOOR_REWARD_OBJECT,
-	FLOOR_REWARD_HEAL,
-	FLOOR_REWARD_MAX
-} floor_reward_type;
-
-#define FLOOR_OBJ_MAX_PER_LEVEL 2
-
-struct monster_race;
-struct object;
-
-/**
- * Floor objective structure - stored per chunk (level)
- * Each objective has objective_id (1-based) that is written into
- * the floor_obj_id field of generated monsters/objects for explicit binding.
- */
-struct floor_objective {
-	uint16_t objective_id;		/* 1-based id, matches entity floor_obj_id */
-	floor_obj_type type;
-	floor_obj_state state;
-
-	char *description;		/* Short description (vague, no spoilers) */
-	char *hint;			/* Optional hint text */
-
-	struct loc target_grid;		/* Internal reference (not shown to player) */
-	struct loc target_grid2;	/* Internal reference (area corners, etc) */
-
-	union {
-		struct {
-			int total_kills;	/* How many monsters to kill */
-			int current_kills;	/* How many killed so far */
-		} nest;
-		struct {
-			bool found;
-			int room_id;
-		} hidden;
-		struct {
-			bool picked_up;
-		} item;
-		struct {
-			bool reached;
-			int radius;
-		} area;
-	} data;
-
-	floor_reward_type reward_type;
-	int reward_value;
-	bool reward_claimed;
-};
-
-/**
- * Chunk floor objectives storage
- */
-struct chunk_floor_obj {
-	int count;
-	struct floor_objective objs[FLOOR_OBJ_MAX_PER_LEVEL];
-};
-
 struct chunk {
 	char *name;
 	int32_t turn;
@@ -296,8 +211,6 @@ struct chunk {
 	struct monster_group **monster_groups;
 
 	struct connector *join;
-
-	struct chunk_floor_obj floor_obj;
 };
 
 /*** Feature Indexes (see "lib/gamedata/terrain.txt") ***/

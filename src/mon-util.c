@@ -46,7 +46,6 @@
 #include "player-util.h"
 #include "project.h"
 #include "trap.h"
-#include "floor-obj.h"
 
 /**
  * ------------------------------------------------------------------------
@@ -1004,9 +1003,6 @@ void monster_death(struct monster *mon, struct player *p, bool stats)
 
 	/* Check if we finished a quest */
 	quest_check(p, mon);
-
-	/* Check floor objectives */
-	floor_obj_check_monster_kill(p, mon);
 }
 
 /**

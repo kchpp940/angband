@@ -48,7 +48,6 @@
 #include "trap.h"
 #include "z-queue.h"
 #include "z-type.h"
-#include "floor-obj.h"
 
 /*
  * Array of pit types
@@ -1243,9 +1242,6 @@ static struct chunk *cave_generate(struct player *p, int height, int width)
 
 	/* Validate the dungeon (we could use more checks here) */
 	chunk_validate_objects(chunk);
-
-	/* Generate floor objectives for this level */
-	floor_obj_generate(chunk, p);
 
 	/* Allocate new known level, light it if requested */
 	p->cave = cave_new(chunk->height, chunk->width);

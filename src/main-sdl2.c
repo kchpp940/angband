@@ -48,6 +48,7 @@
 #include "ui-output.h"
 #include "ui-prefs.h"
 #include "ui-signals.h"
+#include "ui-danger.h"
 #include "ui-term.h"
 
 #define MAX_SUBWINDOWS \
@@ -284,6 +285,14 @@ struct subwindow {
 	SDL_Color color;
 
 	struct subwindow_border borders;
+
+	bool danger_border_active;
+	int danger_border_intensity;
+	bool danger_status_active;
+	int danger_status_intensity;
+	SDL_Color saved_border_color;
+	int saved_border_width;
+	bool saved_border_visible;
 
 	SDL_Texture *texture;
 
@@ -4879,6 +4888,78 @@ static errr term_xtra_alive(int v)
 	return 0;
 }
 
+static void term_xtra_danger_warn_border(struct subwindow *sw, int intensity,
+	bool enable)
+{
+	if (enable) {
+		if (!sw->danger_border_active) {
+			sw->saved_border_color = sw->borders.color;
+			sw->saved_border_width = sw->borders.width;
+			sw->saved_border_visible = sw->borders.visible;
+		}
+
+		sw->danger_border_active = true;
+		sw->danger_border_intensity = intensity;
+
+		if (intensity >= DANGER_INTENSITY_HIGH) {
+			sw->borders.color.r = 255;
+			sw->borders.color.g = 0;
+			sw->borders.color.b = 0;
+			sw->borders.color.a = 255;
+			sw->borders.width = MAX(sw->saved_border_width, 4);
+		} else if (intensity >= DANGER_INTENSITY_MEDIUM) {
+			sw->borders.color.r = 255;
+			sw->borders.color.g = 100;
+			sw->borders.color.b = 0;
+			sw->borders.color.a = 255;
+			sw->borders.width = MAX(sw->saved_border_width, 3);
+		} else {
+			sw->borders.color.r = 255;
+			sw->borders.color.g = 165;
+			sw->borders.color.b = 0;
+			sw->borders.color.a = 255;
+			sw->borders.width = MAX(sw->saved_border_width, 2);
+		}
+		sw->borders.visible = true;
+	} else {
+		if (sw->danger_border_active) {
+			sw->borders.color = sw->saved_border_color;
+			sw->borders.width = sw->saved_border_width;
+			sw->borders.visible = sw->saved_border_visible;
+			sw->danger_border_active = false;
+			sw->danger_border_intensity = 0;
+		}
+	}
+	render_borders(sw);
+	sw->window->dirty = true;
+}
+
+static void Term_danger_border_sdl2(term *t, int intensity, bool enable)
+{
+	struct subwindow *sw;
+
+	if (!t) return;
+	sw = t->data;
+	if (!sw) return;
+
+	term_xtra_danger_warn_border(sw, intensity, enable);
+}
+
+static void Term_danger_status_sdl2(term *t, int intensity, bool enable)
+{
+	struct subwindow *sw;
+	(void)intensity;
+	(void)enable;
+
+	if (!t) return;
+	sw = t->data;
+	if (!sw) return;
+
+	sw->danger_status_active = enable;
+	sw->danger_status_intensity = enable ? intensity : 0;
+	sw->window->dirty = true;
+}
+
 static errr term_xtra_hook(int n, int v)
 {
 	switch (n) {
@@ -4896,6 +4977,35 @@ static errr term_xtra_hook(int n, int v)
 			return term_xtra_react();
 		case TERM_XTRA_ALIVE:
 			return term_xtra_alive(v);
+		case TERM_XTRA_DANGER_WARN:
+		{
+			struct subwindow *sw;
+			int render_type = v & 0xFF;
+			int intensity = (v >> 8) & 0xFF;
+			bool enable = (render_type != DANGER_RENDER_CLEAR) && (intensity > 0);
+
+			if (!Term) return 0;
+			sw = Term->data;
+			if (!sw) return 0;
+
+			switch (render_type) {
+				case DANGER_RENDER_BORDER:
+					term_xtra_danger_warn_border(sw, intensity, enable);
+					break;
+				case DANGER_RENDER_STATUSBAR:
+					sw->danger_status_active = enable;
+					sw->danger_status_intensity = enable ? intensity : 0;
+					sw->window->dirty = true;
+					break;
+				case DANGER_RENDER_CLEAR:
+					term_xtra_danger_warn_border(sw, 0, false);
+					sw->danger_status_active = false;
+					sw->danger_status_intensity = 0;
+					sw->window->dirty = true;
+					break;
+			}
+			return 0;
+		}
 		default:
 			return 0;
 	}
@@ -6795,6 +6905,14 @@ static void link_term(struct subwindow *subwindow)
 	} else {
 		subwindow->term->dblh_hook = NULL;
 	}
+
+	subwindow->term->danger_border_hook = Term_danger_border_sdl2;
+	subwindow->term->danger_status_hook = Term_danger_status_sdl2;
+
+	subwindow->danger_border_active = false;
+	subwindow->danger_border_intensity = 0;
+	subwindow->danger_status_active = false;
+	subwindow->danger_status_intensity = 0;
 
 	subwindow->term->data = subwindow;
 	angband_term[subwindow->index] = subwindow->term;

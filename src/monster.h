@@ -415,8 +415,6 @@ struct monster {
 
 	uint8_t min_range;			/* What is the closest we want to be? */
 	uint8_t best_range;			/* How close do we want to be? */
-
-	int16_t floor_obj_id;			/* Floor objective binding (0=none, 1-based idx+1) */
 };
 
 /** Variables **/

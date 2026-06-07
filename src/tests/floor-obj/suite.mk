@@ -1,2 +1,0 @@
-TESTPROGS += \
-	floor-obj/binding

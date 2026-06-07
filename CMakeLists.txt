@@ -241,7 +241,6 @@ add_library(OurCoreLib OBJECT
         src/player-properties.c
         src/player-quest.c
         src/player-race.c
-        src/floor-obj.c
         src/player-spell.c
         src/player-timed.c
         src/player-util.c
@@ -266,6 +265,7 @@ add_library(OurCoreLib OBJECT
         src/ui-command.c
         src/ui-context.c
         src/ui-curse.c
+        src/ui-danger.c
         src/ui-death.c
         src/ui-display.c
         src/ui-effect.c
@@ -854,7 +854,6 @@ set(ANGBAND_TEST_CASE_SOURCES
     effects/destruction.c
     effects/earthquake.c
     effects/info.c
-    floor-obj/binding.c
     game/basic.c
     game/mage.c
     message/message.c

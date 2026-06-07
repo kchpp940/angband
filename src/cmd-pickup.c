@@ -38,7 +38,6 @@
 #include "player-history.h"
 #include "player-util.h"
 #include "trap.h"
-#include "floor-obj.h"
 
 /**
  * Pick up all gold at the player's current location.
@@ -260,7 +259,6 @@ static void player_pickup_aux(struct player *p, struct object *obj,
 		square_excise_object(cave, p->grid, obj);
 		delist_object(cave, obj);
 		inven_carry(p, obj, true, domsg);
-		floor_obj_check_item_pickup(p, obj);
 	} else {
 		int num;
 		bool dummy;
@@ -273,7 +271,6 @@ static void player_pickup_aux(struct player *p, struct object *obj,
 		if (!num) return;
 		picked_up = floor_object_for_use(p, obj, num, false, &dummy);
 		inven_carry(p, picked_up, true, domsg);
-		floor_obj_check_item_pickup(p, picked_up);
 	}
 }
 

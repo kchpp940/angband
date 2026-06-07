@@ -24,6 +24,7 @@ HEADERS = \
 	option.h \
 	parser.h \
 	ui-event.h \
+	ui-danger.h \
 	ui-menu.h \
 	wizard.h \
 	z-bitflag.h \
@@ -235,7 +236,6 @@ ANGFILES0 = \
 	player-properties.o \
 	player-quest.o \
 	player-race.o \
-	floor-obj.o \
 	player-spell.o \
 	player-timed.o \
 	player-util.o \
@@ -260,6 +260,7 @@ ANGFILES0 = \
 	ui-context.o \
 	ui-curse.o \
 	ui-death.o \
+	ui-danger.o \
 	ui-display.o \
 	ui-effect.o \
 	ui-entry.o \

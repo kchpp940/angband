@@ -29,7 +29,6 @@
 #include "trap.h"
 #include "ui-input.h"
 #include "ui-map.h"
-#include "floor-obj.h"
 #include "ui-object.h"
 #include "ui-output.h"
 #include "ui-prefs.h"
@@ -673,17 +672,7 @@ static void prt_map_aux(void)
 				/* Determine what is there */
 				map_info(loc(x, y), &g);
 				grid_data_as_text(&g, &a, &c, &ta, &tc);
-
-				/* Highlight floor objective targets */
-			if (floor_obj_is_highlight_grid(cave, loc(x, y))) {
-				if (a < COLOUR_DARK) {
-					a = COLOUR_L_BLUE;
-				} else {
-					a = COLOUR_BLUE;
-				}
-			}
-
-			Term_queue_char(t, vx, vy, a, c, ta, tc);
+				Term_queue_char(t, vx, vy, a, c, ta, tc);
 
 				if ((tile_width > 1) || (tile_height > 1))
 					Term_big_queue_char(t, vx, vy, clipy,
@@ -744,15 +733,6 @@ void prt_map(void)
 			/* Determine what is there */
 			map_info(loc(x, y), &g);
 			grid_data_as_text(&g, &a, &c, &ta, &tc);
-
-			/* Highlight floor objective targets */
-			if (floor_obj_is_highlight_grid(cave, loc(x, y))) {
-				if (a < COLOUR_DARK) {
-					a = COLOUR_L_BLUE;
-				} else {
-					a = COLOUR_BLUE;
-				}
-			}
 
 			/* Queue it */
 			Term_queue_char(Term, vx, vy, a, c, ta, tc);
@@ -843,15 +823,6 @@ void display_map(int *cy, int *cx)
 			/* Get the attr/char at that map location */
 			map_info(loc(x, y), &g);
 			grid_data_as_text(&g, &a, &c, &ta, &tc);
-
-			/* Highlight floor objective targets */
-			if (floor_obj_is_highlight_grid(cave, loc(x, y))) {
-				if (a < COLOUR_DARK) {
-					a = COLOUR_L_BLUE;
-				} else {
-					a = COLOUR_BLUE;
-				}
-			}
 
 			/* Get the priority of that attr/char */
 			tp = f_info[g.f_idx].priority;

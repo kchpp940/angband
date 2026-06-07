@@ -22,6 +22,8 @@
 
 #define PLAYER_NAME_LEN		32
 
+struct danger_warning_options;
+
 /**
  * Option types 
  */
@@ -66,6 +68,13 @@ struct player_options {
 	uint8_t delay_factor;		/**< Delay factor (0 to 9) */
 
 	uint8_t name_suffix;		/**< Numeric suffix for player name */
+
+	uint8_t danger_intensity;	/**< Global danger warning intensity cap (0-3) */
+	uint8_t danger_low_hp_pct;	/**< Low HP warning threshold percentage */
+	uint8_t danger_critical_hp_pct;	/**< Critical HP warning threshold percentage */
+	uint8_t danger_surround_count;	/**< Surrounded warning monster count threshold */
+	uint8_t danger_mon_level_diff;	/**< Powerful monster level difference threshold */
+	uint8_t danger_terrain_range;	/**< Dangerous terrain detection range */
 };
 
 extern int *option_page[OPT_PAGE_MAX];

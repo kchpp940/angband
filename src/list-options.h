@@ -55,6 +55,20 @@ OP(notify_recharge,       "Notify on object recharge",
 INTERFACE, false)
 OP(effective_speed,       "Show effective speed as multiplier",
 INTERFACE, false)
+OP(danger_warnings,       "Enable danger warning visualizations",
+INTERFACE, true)
+OP(danger_warn_border,    "Danger warnings: use border flashing",
+INTERFACE, true)
+OP(danger_warn_statusbar, "Danger warnings: emphasize status bar",
+INTERFACE, true)
+OP(danger_warn_message,   "Danger warnings: highlight danger messages",
+INTERFACE, true)
+OP(danger_warn_sound,     "Danger warnings: play alert sounds",
+INTERFACE, false)
+OP(danger_suppress_rest,  "Suppress danger warnings while resting",
+INTERFACE, true)
+OP(danger_suppress_run,   "Suppress danger warnings while running",
+INTERFACE, true)
 OP(cheat_hear,            "Cheat: Peek into monster creation",
 CHEAT, false)
 OP(score_hear,            "Score: Peek into monster creation",

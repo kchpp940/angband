@@ -96,6 +96,11 @@ struct _term_data
 	uint map_tile_hgt;
 
 	bool map_active;
+
+	bool danger_border_active;
+	int danger_border_intensity;
+	bool danger_status_active;
+	int danger_status_intensity;
 };
 
 

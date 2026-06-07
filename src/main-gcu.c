@@ -22,6 +22,7 @@
 #include "cmds.h"
 #include "cave.h"
 #include "ui-command.h"
+#include "ui-danger.h"
 #include "ui-display.h"
 #include "ui-prefs.h"
 #include "ui-signals.h"
@@ -128,6 +129,11 @@ typedef struct term_data {
 	term t;                 /* All term info */
 	rect_t r;
 	WINDOW *win;            /* Pointer to the curses window */
+
+	int danger_border_intensity;
+	bool danger_border_active;
+	int danger_status_intensity;
+	bool danger_status_active;
 } term_data;
 
 /* Max number of windows on screen */
@@ -1058,6 +1064,36 @@ static void handle_extended_color_tables(void) {
 
 
 /**
+ * Render danger warning border flash
+ */
+static void Term_danger_border_gcu(term *t, int intensity, bool enable)
+{
+	term_data *td = (term_data *)(t->data);
+
+	if (!td) return;
+
+	td->danger_border_intensity = intensity;
+	td->danger_border_active = enable;
+
+	if (enable && intensity >= DANGER_INTENSITY_MEDIUM) {
+		flash();
+	}
+}
+
+/**
+ * Render danger warning status emphasis
+ */
+static void Term_danger_status_gcu(term *t, int intensity, bool enable)
+{
+	term_data *td = (term_data *)(t->data);
+
+	if (!td) return;
+
+	td->danger_status_intensity = intensity;
+	td->danger_status_active = enable;
+}
+
+/**
  * Handle a "special request"
  */
 static errr Term_xtra_gcu(int n, int v) {
@@ -1095,6 +1131,26 @@ static errr Term_xtra_gcu(int n, int v) {
 
 		/* React to events */
 		case TERM_XTRA_REACT: handle_extended_color_tables(); return 0;
+
+		/* Danger warning visualizations */
+		case TERM_XTRA_DANGER_WARN: {
+			int action = v & 0xFF;
+			int intensity = (v >> 8) & 0xFF;
+
+			switch (action) {
+				case DANGER_RENDER_BORDER:
+					Term_danger_border_gcu(Term, intensity, intensity > 0);
+					return 0;
+				case DANGER_RENDER_STATUSBAR:
+					Term_danger_status_gcu(Term, intensity, intensity > 0);
+					return 0;
+				case DANGER_RENDER_CLEAR:
+					Term_danger_border_gcu(Term, 0, false);
+					Term_danger_status_gcu(Term, 0, false);
+					return 0;
+			}
+			return 0;
+		}
 	}
 
 	/* Unknown event */
@@ -1217,6 +1273,14 @@ static errr term_data_init_gcu(term_data *td, int rows, int cols, int y, int x)
 	t->wipe_hook = Term_wipe_gcu;
 	t->curs_hook = Term_curs_gcu;
 	t->xtra_hook = Term_xtra_gcu;
+	t->danger_border_hook = Term_danger_border_gcu;
+	t->danger_status_hook = Term_danger_status_gcu;
+
+	/* Clear danger state */
+	td->danger_border_intensity = 0;
+	td->danger_border_active = false;
+	td->danger_status_intensity = 0;
+	td->danger_status_active = false;
 
 	/* Save the data */
 	t->data = td;

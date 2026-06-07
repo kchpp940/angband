@@ -41,7 +41,6 @@
 #include "player-timed.h"
 #include "trap.h"
 #include "ui-term.h"
-#include "floor-obj.h"
 
 
 /**
@@ -1067,21 +1066,5 @@ void wr_history(void)
 			wr_string("");
 		}
 		wr_string(history_list[i].event);
-	}
-}
-
-void wr_floor_obj_all(void)
-{
-	int j;
-
-	if (player->is_dead)
-		return;
-
-	wr_floor_obj(cave);
-	wr_floor_obj(player->cave);
-
-	wr_u16b(chunk_list_max);
-	for (j = 0; j < chunk_list_max; j++) {
-		wr_floor_obj(chunk_list[j]);
 	}
 }

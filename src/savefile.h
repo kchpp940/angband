@@ -131,8 +131,6 @@ void wr_monster_groups(void);
 void wr_ghost(void);
 void wr_history(void);
 void wr_traps(void);
-void wr_floor_obj_all(void);
 
-int rd_floor_obj_all(void);
 
 #endif /* INCLUDED_SAVEFILE_H */
