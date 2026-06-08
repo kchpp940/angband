@@ -5272,12 +5272,26 @@ static void init_stuff(void)
 
 
 /**
- * Windows frontend handler for danger state events. Flashes the main
- * window caption/frame on critical HP/Mana danger using FlashWindowEx.
+ * Tracks whether the Windows frontend has registered its lifecycle hooks.
+ * win_reinit() is called both at startup and on restart-without-exiting,
+ * so we guard against re-registering the lifecycle hooks. The UI event
+ * handlers themselves are registered/unregistered inside the lifecycle
+ * hooks so they correctly track world/game enter/leave boundaries.
+ */
+static bool win_lifecycle_registered = false;
+static bool win_ui_handlers_registered = false;
+static bool win_game_handlers_registered = false;
+
+/**
+ * Windows frontend handler for danger state events. First delegates to the
+ * generic Term-level bell via ui_display_handle_danger(), then adds the
+ * platform-specific window caption/taskbar flash on critical HP/Mana danger.
  */
 static void win_handle_danger(game_event_type type, game_event_data *ev_data,
 							  void *user)
 {
+	ui_display_handle_danger(type, ev_data, user);
+
 	if (!ev_data) return;
 
 	if (ev_data->danger.level == DANGER_CRITICAL && data[0].w) {
@@ -5292,14 +5306,95 @@ static void win_handle_danger(game_event_type type, game_event_data *ev_data,
 }
 
 /**
- * Windows frontend handler for end-of-frame flush. Windows GDI rendering
- * is done via Term_redraw_section -> BitBlt, no explicit swap needed;
- * this hook is provided for future VSync throttling if needed.
+ * Windows frontend handler for end-of-frame flush. First delegates the
+ * generic Term_fresh() via ui_display_handle_ui_flush(); Windows GDI
+ * rendering uses Term_redraw_section -> BitBlt so no explicit backbuffer
+ * swap is needed. Hook retained for future VSync throttling if needed.
  */
 static void win_handle_ui_flush(game_event_type type, game_event_data *ev_data,
 								void *user)
 {
+	ui_display_handle_ui_flush(type, ev_data, user);
+}
+
+/**
+ * Windows frontend hook fired when entering the game world. Registers all
+ * unified UI event consumers owned by the Windows frontend.
+ */
+static void win_enter_world(game_event_type type, game_event_data *ev_data,
+							void *user)
+{
 	(void)type; (void)ev_data; (void)user;
+
+	if (win_ui_handlers_registered) return;
+	win_ui_handlers_registered = true;
+
+	event_add_handler(EVENT_DANGER_HP, win_handle_danger, NULL);
+	event_add_handler(EVENT_DANGER_MANA, win_handle_danger, NULL);
+	event_add_handler(EVENT_MESSAGE_HIGHLIGHT,
+					  ui_display_handle_message_highlight, NULL);
+	event_add_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
+	event_add_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
+	event_add_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+	event_add_handler(EVENT_UI_FLUSH, win_handle_ui_flush, NULL);
+}
+
+/**
+ * Windows frontend hook fired when leaving the game world. Unregisters all
+ * UI event handlers registered in win_enter_world().
+ */
+static void win_leave_world(game_event_type type, game_event_data *ev_data,
+							void *user)
+{
+	(void)type; (void)ev_data; (void)user;
+
+	if (!win_ui_handlers_registered) return;
+	win_ui_handlers_registered = false;
+
+	event_remove_handler(EVENT_DANGER_HP, win_handle_danger, NULL);
+	event_remove_handler(EVENT_DANGER_MANA, win_handle_danger, NULL);
+	event_remove_handler(EVENT_MESSAGE_HIGHLIGHT,
+						 ui_display_handle_message_highlight, NULL);
+	event_remove_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
+	event_remove_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
+	event_remove_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+	event_remove_handler(EVENT_UI_FLUSH, win_handle_ui_flush, NULL);
+}
+
+/**
+ * Windows frontend hook fired when entering an interactive game session.
+ * Registers message and input-flush event consumers.
+ */
+static void win_enter_game(game_event_type type, game_event_data *ev_data,
+						   void *user)
+{
+	(void)type; (void)ev_data; (void)user;
+
+	if (win_game_handlers_registered) return;
+	win_game_handlers_registered = true;
+
+	event_add_handler(EVENT_MESSAGE, display_message, NULL);
+	event_add_handler(EVENT_BELL, bell_message, NULL);
+	event_add_handler(EVENT_INPUT_FLUSH, flush, NULL);
+	event_add_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
+}
+
+/**
+ * Windows frontend hook fired when leaving an interactive game session.
+ * Unregisters all handlers registered by win_enter_game().
+ */
+static void win_leave_game(game_event_type type, game_event_data *ev_data,
+						   void *user)
+{
+	(void)type; (void)ev_data; (void)user;
+
+	if (!win_game_handlers_registered) return;
+	win_game_handlers_registered = false;
+
+	event_remove_handler(EVENT_MESSAGE, display_message, NULL);
+	event_remove_handler(EVENT_BELL, bell_message, NULL);
+	event_remove_handler(EVENT_INPUT_FLUSH, flush, NULL);
+	event_remove_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
 }
 
 /**
@@ -5324,10 +5419,18 @@ static void win_reinit(void)
 	event_add_handler(EVENT_LEAVE_INIT, monitor_new_savefile, NULL);
 	event_add_handler(EVENT_LEAVE_GAME, finish_monitoring_savefile, NULL);
 
-	/* Windows-specific UI event consumers - danger window flash, frame sync */
-	event_add_handler(EVENT_DANGER_HP, win_handle_danger, NULL);
-	event_add_handler(EVENT_DANGER_MANA, win_handle_danger, NULL);
-	event_add_handler(EVENT_UI_FLUSH, win_handle_ui_flush, NULL);
+	/* Register Windows frontend lifecycle hooks. win_reinit() is called on
+	 * both initial startup and restart-without-exiting, so guard against
+	 * double-registering the lifecycle hooks themselves. The UI event
+	 * handlers are registered/unregistered by the lifecycle hooks so they
+	 * correctly track world/game enter/leave boundaries. */
+	if (!win_lifecycle_registered) {
+		win_lifecycle_registered = true;
+		event_add_handler(EVENT_ENTER_WORLD, win_enter_world, NULL);
+		event_add_handler(EVENT_LEAVE_WORLD, win_leave_world, NULL);
+		event_add_handler(EVENT_ENTER_GAME,  win_enter_game,  NULL);
+		event_add_handler(EVENT_LEAVE_GAME,  win_leave_game,  NULL);
+	}
 }
 
 

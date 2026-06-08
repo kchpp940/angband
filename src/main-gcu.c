@@ -24,6 +24,7 @@
 #include "game-event.h"
 #include "ui-command.h"
 #include "ui-display.h"
+#include "ui-input.h"
 #include "ui-prefs.h"
 #include "ui-signals.h"
 
@@ -1660,16 +1661,20 @@ errr init_gcu(int argc, char **argv) {
 	/* Remember the active screen */
 	term_screen = &data[0].t;
 
-	/* Register GCU (curses)-specific UI event consumers. The generic UI
-	 * layer already handles Term-level bell via Term_xtra(TERM_XTRA_NOISE);
-	 * these hooks provide terminal-specific extras like visual bell in
-	 * xterm-compatible terminals and subwindow refresh optimization. */
+	/* Register GCU (curses) frontend lifecycle hooks. These fire when the
+	 * game enters/leaves the world and interactive game session; inside
+	 * each hook we register/unregister the actual UI event consumers so
+	 * the curses frontend owns the complete event-consumption lifecycle.
+	 * The generic UI layer no longer auto-registers any of these. */
 	{
-		void gcu_handle_danger(game_event_type, game_event_data *, void *);
-		void gcu_handle_ui_flush(game_event_type, game_event_data *, void *);
-		event_add_handler(EVENT_DANGER_HP, gcu_handle_danger, NULL);
-		event_add_handler(EVENT_DANGER_MANA, gcu_handle_danger, NULL);
-		event_add_handler(EVENT_UI_FLUSH, gcu_handle_ui_flush, NULL);
+		void gcu_enter_world(game_event_type, game_event_data *, void *);
+		void gcu_leave_world(game_event_type, game_event_data *, void *);
+		void gcu_enter_game(game_event_type, game_event_data *, void *);
+		void gcu_leave_game(game_event_type, game_event_data *, void *);
+		event_add_handler(EVENT_ENTER_WORLD, gcu_enter_world, NULL);
+		event_add_handler(EVENT_LEAVE_WORLD, gcu_leave_world, NULL);
+		event_add_handler(EVENT_ENTER_GAME,  gcu_enter_game,  NULL);
+		event_add_handler(EVENT_LEAVE_GAME,  gcu_leave_game,  NULL);
 	}
 
 	/* Success */
@@ -1677,14 +1682,23 @@ errr init_gcu(int argc, char **argv) {
 }
 
 /**
- * GCU (curses) frontend handler for danger events. Uses the terminal's
- * visual-bell escape sequence (flash) when available in preference to
- * the audible bell so terminals without sound still get feedback.
+ * Tracks whether the GCU (curses) frontend has registered its UI event
+ * handlers. Guards against double-registration if the world is re-entered.
+ */
+static bool gcu_ui_handlers_registered = false;
+static bool gcu_game_handlers_registered = false;
+
+/**
+ * GCU (curses) frontend handler for danger events. First delegates to the
+ * generic Term-level bell via ui_display_handle_danger(), then adds the
+ * terminal's visual-bell escape sequence (flash) when available so
+ * terminals without sound still get feedback.
  */
 static void gcu_handle_danger(game_event_type type, game_event_data *ev_data,
 							  void *user)
 {
-	(void)type; (void)user;
+	ui_display_handle_danger(type, ev_data, user);
+
 	if (!ev_data) return;
 
 	if (ev_data->danger.level == DANGER_CRITICAL) {
@@ -1697,14 +1711,95 @@ static void gcu_handle_danger(game_event_type type, game_event_data *ev_data,
 }
 
 /**
- * GCU (curses) frontend handler for end-of-frame flush. Curses uses
- * wrefresh() per subwindow already, so this is a no-op hook point for
- * future terminal-specific refresh optimizations (e.g. doupdate()).
+ * GCU (curses) frontend handler for end-of-frame flush. First delegates
+ * the generic Term_fresh() via ui_display_handle_ui_flush(); curses uses
+ * wrefresh() per subwindow already, so this is a hook point for future
+ * terminal-specific refresh optimizations (e.g. doupdate()).
  */
 static void gcu_handle_ui_flush(game_event_type type, game_event_data *ev_data,
 								void *user)
 {
+	ui_display_handle_ui_flush(type, ev_data, user);
+}
+
+/**
+ * GCU (curses) frontend hook fired when entering the game world.
+ * Registers all unified UI event consumers owned by the curses frontend.
+ */
+static void gcu_enter_world(game_event_type type, game_event_data *ev_data,
+							void *user)
+{
 	(void)type; (void)ev_data; (void)user;
+
+	if (gcu_ui_handlers_registered) return;
+	gcu_ui_handlers_registered = true;
+
+	event_add_handler(EVENT_DANGER_HP, gcu_handle_danger, NULL);
+	event_add_handler(EVENT_DANGER_MANA, gcu_handle_danger, NULL);
+	event_add_handler(EVENT_MESSAGE_HIGHLIGHT,
+					  ui_display_handle_message_highlight, NULL);
+	event_add_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
+	event_add_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
+	event_add_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+	event_add_handler(EVENT_UI_FLUSH, gcu_handle_ui_flush, NULL);
+}
+
+/**
+ * GCU (curses) frontend hook fired when leaving the game world.
+ * Unregisters all UI event handlers registered in gcu_enter_world().
+ */
+static void gcu_leave_world(game_event_type type, game_event_data *ev_data,
+							void *user)
+{
+	(void)type; (void)ev_data; (void)user;
+
+	if (!gcu_ui_handlers_registered) return;
+	gcu_ui_handlers_registered = false;
+
+	event_remove_handler(EVENT_DANGER_HP, gcu_handle_danger, NULL);
+	event_remove_handler(EVENT_DANGER_MANA, gcu_handle_danger, NULL);
+	event_remove_handler(EVENT_MESSAGE_HIGHLIGHT,
+						 ui_display_handle_message_highlight, NULL);
+	event_remove_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
+	event_remove_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
+	event_remove_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+	event_remove_handler(EVENT_UI_FLUSH, gcu_handle_ui_flush, NULL);
+}
+
+/**
+ * GCU (curses) frontend hook fired when entering an interactive game session.
+ * Registers message and input-flush event consumers.
+ */
+static void gcu_enter_game(game_event_type type, game_event_data *ev_data,
+						   void *user)
+{
+	(void)type; (void)ev_data; (void)user;
+
+	if (gcu_game_handlers_registered) return;
+	gcu_game_handlers_registered = true;
+
+	event_add_handler(EVENT_MESSAGE, display_message, NULL);
+	event_add_handler(EVENT_BELL, bell_message, NULL);
+	event_add_handler(EVENT_INPUT_FLUSH, flush, NULL);
+	event_add_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
+}
+
+/**
+ * GCU (curses) frontend hook fired when leaving an interactive game session.
+ * Unregisters all handlers registered by gcu_enter_game().
+ */
+static void gcu_leave_game(game_event_type type, game_event_data *ev_data,
+						   void *user)
+{
+	(void)type; (void)ev_data; (void)user;
+
+	if (!gcu_game_handlers_registered) return;
+	gcu_game_handlers_registered = false;
+
+	event_remove_handler(EVENT_MESSAGE, display_message, NULL);
+	event_remove_handler(EVENT_BELL, bell_message, NULL);
+	event_remove_handler(EVENT_INPUT_FLUSH, flush, NULL);
+	event_remove_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
 }
 
 #endif /* USE_GCU */

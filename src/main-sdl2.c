@@ -7281,13 +7281,24 @@ static void init_systems(void)
 }
 
 /**
- * SDL2 frontend handler for danger state events. Flashes the main window
- * frame on critical HP/Mana danger. Platform-specific visual feedback;
- * generic Term-level bell is handled by the core UI layer.
+ * Tracks whether the SDL2 frontend has registered its UI event handlers.
+ * Avoids double-registration when the game world is re-entered (e.g. after
+ * a save-and-resume or new character creation) without leaving the SDL2
+ * frontend entirely.
+ */
+static bool sdl2_ui_handlers_registered = false;
+static bool sdl2_game_handlers_registered = false;
+
+/**
+ * SDL2 frontend handler for danger state events. First delegates to the
+ * generic Term-level bell via ui_display_handle_danger(), then adds the
+ * platform-specific window-frame flash on critical HP/Mana danger.
  */
 static void sdl2_handle_danger(game_event_type type, game_event_data *data,
 							   void *user)
 {
+	ui_display_handle_danger(type, data, user);
+
 	if (!data) return;
 
 	if (data->danger.level == DANGER_CRITICAL && g_app.windows[0].window) {
@@ -7297,19 +7308,121 @@ static void sdl2_handle_danger(game_event_type type, game_event_data *data,
 }
 
 /**
- * SDL2 frontend handler for end-of-frame flush. Ensures the renderer
- * present is called after all batched UI events have been painted into
- * the Term backbuffer.
+ * SDL2 frontend handler for end-of-frame flush. First delegates the generic
+ * Term_fresh() to ui_display_handle_ui_flush(), then allows the SDL2 frontend
+ * to hook in any additional frame-end logic (e.g. vsync throttling, GPU
+ * present timing).
  */
 static void sdl2_handle_ui_flush(game_event_type type, game_event_data *data,
 								 void *user)
 {
+	ui_display_handle_ui_flush(type, data, user);
+
+	/* The Term_fresh() call above already triggers Term_redraw_section which
+	 * maps to SDL_RenderCopy + SDL_RenderPresent for dirty regions. This is
+	 * the hook point for any additional SDL2-specific frame-end logic. */
+}
+
+/**
+ * SDL2 frontend hook fired when entering the game world. Registers all
+ * unified UI event consumers; the SDL2 frontend is the sole owner of
+ * these registrations (the generic UI layer no longer registers them).
+ */
+static void sdl2_enter_world(game_event_type type, game_event_data *data,
+							 void *user)
+{
 	(void)type; (void)data; (void)user;
 
-	/* The Term_fresh() call in the core UI layer already triggers
-	 * Term_redraw_section which maps to SDL_RenderCopy + SDL_RenderPresent
-	 * for dirty regions. This hook exists so frontends can hook in any
-	 * additional frame-end logic (e.g. vsync throttling). */
+	if (sdl2_ui_handlers_registered) return;
+	sdl2_ui_handlers_registered = true;
+
+	/* Danger state (HP + mana) - generic Term bell + SDL2 window flash */
+	event_add_handler(EVENT_DANGER_HP, sdl2_handle_danger, NULL);
+	event_add_handler(EVENT_DANGER_MANA, sdl2_handle_danger, NULL);
+
+	/* Highlighted messages (e.g. low HP warning) - pure Term rendering */
+	event_add_handler(EVENT_MESSAGE_HIGHLIGHT,
+					  ui_display_handle_message_highlight, NULL);
+
+	/* Status bar repaint requests - pure Term rendering */
+	event_add_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
+
+	/* Map redraw (full or partial bounding box) - pure Term rendering */
+	event_add_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
+
+	/* Subwindow (inventory, monster list, etc.) repaints - pure Term rendering */
+	event_add_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+
+	/* End-of-frame flush - generic Term_fresh() + SDL2 vsync hook */
+	event_add_handler(EVENT_UI_FLUSH, sdl2_handle_ui_flush, NULL);
+}
+
+/**
+ * SDL2 frontend hook fired when leaving the game world. Unregisters all
+ * UI event handlers registered in sdl2_enter_world(). Symmetric to the
+ * enter hook so the event system does not dispatch to stale handlers if
+ * the world is re-entered later.
+ */
+static void sdl2_leave_world(game_event_type type, game_event_data *data,
+							 void *user)
+{
+	(void)type; (void)data; (void)user;
+
+	if (!sdl2_ui_handlers_registered) return;
+	sdl2_ui_handlers_registered = false;
+
+	event_remove_handler(EVENT_DANGER_HP, sdl2_handle_danger, NULL);
+	event_remove_handler(EVENT_DANGER_MANA, sdl2_handle_danger, NULL);
+	event_remove_handler(EVENT_MESSAGE_HIGHLIGHT,
+						 ui_display_handle_message_highlight, NULL);
+	event_remove_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
+	event_remove_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
+	event_remove_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+	event_remove_handler(EVENT_UI_FLUSH, sdl2_handle_ui_flush, NULL);
+}
+
+/**
+ * SDL2 frontend hook fired when entering an interactive game session.
+ * Registers message and input-flush event consumers; the generic UI layer
+ * no longer registers these automatically.
+ */
+static void sdl2_enter_game(game_event_type type, game_event_data *data,
+							void *user)
+{
+	(void)type; (void)data; (void)user;
+
+	if (sdl2_game_handlers_registered) return;
+	sdl2_game_handlers_registered = true;
+
+	/* Plain messages - pure Term rendering provided by ui-input.c */
+	event_add_handler(EVENT_MESSAGE, display_message, NULL);
+
+	/* Bell + message combos - pure Term rendering */
+	event_add_handler(EVENT_BELL, bell_message, NULL);
+
+	/* Input queue flush - pure Term rendering */
+	event_add_handler(EVENT_INPUT_FLUSH, flush, NULL);
+
+	/* Print all waiting messages - pure Term rendering */
+	event_add_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
+}
+
+/**
+ * SDL2 frontend hook fired when leaving an interactive game session.
+ * Unregisters all handlers registered by sdl2_enter_game().
+ */
+static void sdl2_leave_game(game_event_type type, game_event_data *data,
+							void *user)
+{
+	(void)type; (void)data; (void)user;
+
+	if (!sdl2_game_handlers_registered) return;
+	sdl2_game_handlers_registered = false;
+
+	event_remove_handler(EVENT_MESSAGE, display_message, NULL);
+	event_remove_handler(EVENT_BELL, bell_message, NULL);
+	event_remove_handler(EVENT_INPUT_FLUSH, flush, NULL);
+	event_remove_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
 }
 
 errr init_sdl2(int argc, char **argv)
@@ -7435,13 +7548,16 @@ errr init_sdl2(int argc, char **argv)
 	text_iswprint_hook = term_iswprint_sdl2_msys2;
 #endif /* MSYS2_ENCODING_WORKAROUND */
 
-	/* Register SDL2-specific event consumers for danger alerts and frame
-	 * flushing. Status bar / map / subwindow painting is handled by the
-	 * generic UI layer via Term_* API; these hooks provide platform-only
-	 * effects (window flashing, renderer present, etc.) */
-	event_add_handler(EVENT_DANGER_HP, sdl2_handle_danger, NULL);
-	event_add_handler(EVENT_DANGER_MANA, sdl2_handle_danger, NULL);
-	event_add_handler(EVENT_UI_FLUSH, sdl2_handle_ui_flush, NULL);
+	/* Register SDL2 frontend lifecycle hooks. These fire when the game
+	 * enters/leaves the world (EVENT_ENTER/LEAVE_WORLD) and when the
+	 * interactive game session starts/ends (EVENT_ENTER/LEAVE_GAME).
+	 * Each hook registers/unregisters the UI event consumers so the
+	 * frontend owns the complete event-consumption lifecycle. The
+	 * generic UI layer no longer auto-registers any of these. */
+	event_add_handler(EVENT_ENTER_WORLD, sdl2_enter_world, NULL);
+	event_add_handler(EVENT_LEAVE_WORLD, sdl2_leave_world, NULL);
+	event_add_handler(EVENT_ENTER_GAME,  sdl2_enter_game,  NULL);
+	event_add_handler(EVENT_LEAVE_GAME,  sdl2_leave_game,  NULL);
 
 	return 0;
 }

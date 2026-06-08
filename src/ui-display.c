@@ -2472,8 +2472,8 @@ static void show_splashscreen(game_event_type type, game_event_data *data,
  * each register their own handlers to play platform-specific alert sounds
  * or flash the window frame.
  */
-static void handle_danger_state(game_event_type type, game_event_data *data,
-								void *user)
+void ui_display_handle_danger(game_event_type type, game_event_data *data,
+							  void *user)
 {
 	if (!data) return;
 
@@ -2494,8 +2494,8 @@ static void handle_danger_state(game_event_type type, game_event_data *data,
  * EVENT_MESSAGE path). Core is responsible for ensuring message is already
  * persisted to the message log before firing this event.
  */
-static void handle_message_highlight(game_event_type type,
-									 game_event_data *data, void *user)
+void ui_display_handle_message_highlight(game_event_type type,
+										 game_event_data *data, void *user)
 {
 	if (!data) return;
 
@@ -2522,8 +2522,8 @@ static void handle_message_highlight(game_event_type type,
  * to defer rendering, but we also paint immediately since the core
  * explicitly requested a status bar update.
  */
-static void handle_statusbar(game_event_type type, game_event_data *data,
-							 void *user)
+void ui_display_handle_statusbar(game_event_type type, game_event_data *data,
+								 void *user)
 {
 	if (!data) return;
 
@@ -2562,8 +2562,8 @@ static void handle_statusbar(game_event_type type, game_event_data *data,
  * Handle full or partial map redraw requests - directly call pure Term
  * rendering functions, no event_signal/event_signal_point re-emission.
  */
-static void handle_map_redraw(game_event_type type, game_event_data *data,
-							  void *user)
+void ui_display_handle_map_redraw(game_event_type type, game_event_data *data,
+								  void *user)
 {
 	if (!data) return;
 
@@ -2590,8 +2590,8 @@ static void handle_map_redraw(game_event_type type, game_event_data *data,
  * directly call the pure Term rendering functions. Does NOT emit
  * EVENT_INVENTORY/EVENT_EQUIPMENT which would re-enter the dispatch loop.
  */
-static void handle_subwindow(game_event_type type, game_event_data *data,
-							 void *user)
+void ui_display_handle_subwindow(game_event_type type, game_event_data *data,
+								 void *user)
 {
 	int i;
 	term *old = Term;
@@ -2631,8 +2631,8 @@ static void handle_subwindow(game_event_type type, game_event_data *data,
  * Frontends can hook this for their own frame-swap logic (e.g. SDL2
  * double-buffering present).
  */
-static void handle_ui_flush(game_event_type type, game_event_data *data,
-							void *user)
+void ui_display_handle_ui_flush(game_event_type type, game_event_data *data,
+								void *user)
 {
 	(void)type; (void)data; (void)user;
 	if (Term)
@@ -2945,16 +2945,12 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 	/* Allow the player to cheat death, if appropriate */
 	event_add_handler(EVENT_CHEAT_DEATH, cheat_death, NULL);
 
-	/* Handle HP and mana danger state changes (alerts, sounds) */
-	event_add_handler(EVENT_DANGER_HP, handle_danger_state, NULL);
-	event_add_handler(EVENT_DANGER_MANA, handle_danger_state, NULL);
-
-	/* Unified UI event handlers - core fires events, UI renders them */
-	event_add_handler(EVENT_MESSAGE_HIGHLIGHT, handle_message_highlight, NULL);
-	event_add_handler(EVENT_STATUSBAR, handle_statusbar, NULL);
-	event_add_handler(EVENT_MAP_REDRAW, handle_map_redraw, NULL);
-	event_add_handler(EVENT_SUBWINDOW, handle_subwindow, NULL);
-	event_add_handler(EVENT_UI_FLUSH, handle_ui_flush, NULL);
+	/* NOTE: Unified UI event handlers (DANGER_HP/MANA, MESSAGE_HIGHLIGHT,
+	 * STATUSBAR, MAP_REDRAW, SUBWINDOW, UI_FLUSH) are NO LONGER registered
+	 * here. Each frontend (SDL2/Windows/GCU) registers them independently
+	 * in its own EVENT_ENTER_WORLD handler so it can add platform-specific
+	 * effects (window flash, sound, visual bell, etc.) alongside the pure
+	 * Term rendering provided by ui_display_handle_*(). */
 
 	/* Decrease "icky" depth */
 	screen_save_depth--;
@@ -3018,16 +3014,9 @@ static void ui_leave_world(game_event_type type, game_event_data *data,
 	/* Allow the player to cheat death, if appropriate */
 	event_remove_handler(EVENT_CHEAT_DEATH, cheat_death, NULL);
 
-	/* Remove HP and mana danger state handlers */
-	event_remove_handler(EVENT_DANGER_HP, handle_danger_state, NULL);
-	event_remove_handler(EVENT_DANGER_MANA, handle_danger_state, NULL);
-
-	/* Remove unified UI event handlers */
-	event_remove_handler(EVENT_MESSAGE_HIGHLIGHT, handle_message_highlight, NULL);
-	event_remove_handler(EVENT_STATUSBAR, handle_statusbar, NULL);
-	event_remove_handler(EVENT_MAP_REDRAW, handle_map_redraw, NULL);
-	event_remove_handler(EVENT_SUBWINDOW, handle_subwindow, NULL);
-	event_remove_handler(EVENT_UI_FLUSH, handle_ui_flush, NULL);
+	/* NOTE: Unified UI event handlers are NO LONGER deregistered here.
+	 * Each frontend (SDL2/Windows/GCU) owns the registration lifecycle in
+	 * its own EVENT_LEAVE_WORLD handler. See init_display(). */
 
 	/* Prepare to interact with a store */
 	event_add_handler(EVENT_USE_STORE, use_store, NULL);
@@ -3042,33 +3031,25 @@ static void ui_leave_world(game_event_type type, game_event_data *data,
 static void ui_enter_game(game_event_type type, game_event_data *data,
 						  void *user)
 {
-	/* Display a message to the player */
-	event_add_handler(EVENT_MESSAGE, display_message, NULL);
+	(void)type; (void)data; (void)user;
 
-	/* Display a message and make a noise to the player */
-	event_add_handler(EVENT_BELL, bell_message, NULL);
-
-	/* Tell the UI to ignore all pending input */
-	event_add_handler(EVENT_INPUT_FLUSH, flush, NULL);
-
-	/* Print all waiting messages */
-	event_add_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
+	/* NOTE: Message/display event handlers (EVENT_MESSAGE, EVENT_BELL,
+	 * EVENT_INPUT_FLUSH, EVENT_MESSAGE_FLUSH) are NO LONGER registered
+	 * here. Each frontend registers them in its own EVENT_ENTER_GAME
+	 * handler, together with platform-specific extras. See the
+	 * corresponding frontend init in main-sdl2.c/main-win.c/main-gcu.c.
+	 *
+	 * This hook is retained as a lifecycle anchor for future generic
+	 * state that needs to enter/leave with the game session. */
 }
 
 static void ui_leave_game(game_event_type type, game_event_data *data,
 						  void *user)
 {
-	/* Display a message to the player */
-	event_remove_handler(EVENT_MESSAGE, display_message, NULL);
+	(void)type; (void)data; (void)user;
 
-	/* Display a message and make a noise to the player */
-	event_remove_handler(EVENT_BELL, bell_message, NULL);
-
-	/* Tell the UI to ignore all pending input */
-	event_remove_handler(EVENT_INPUT_FLUSH, flush, NULL);
-
-	/* Print all waiting messages */
-	event_remove_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
+	/* NOTE: See ui_enter_game(). Message event handlers are owned and
+	 * deregistered by each frontend. */
 }
 
 void init_display(void)
