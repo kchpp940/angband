@@ -7290,16 +7290,21 @@ static bool sdl2_ui_handlers_registered = false;
 static bool sdl2_game_handlers_registered = false;
 
 /**
- * SDL2 frontend handler for danger state events. First delegates to the
- * generic Term-level bell via ui_display_handle_danger(), then adds the
- * platform-specific window-frame flash on critical HP/Mana danger.
+ * SDL2 frontend handler for danger state events. Directly calls the Term-level
+ * bell (no forwarding), then adds the platform-specific window-frame flash on
+ * critical HP/Mana danger. This is the sole consumer of DANGER events in the
+ * SDL2 frontend; no other layer registers these handlers.
  */
 static void sdl2_handle_danger(game_event_type type, game_event_data *data,
 							   void *user)
 {
-	ui_display_handle_danger(type, data, user);
-
 	if (!data) return;
+
+	if (data->danger.level == DANGER_CRITICAL &&
+		(type == EVENT_DANGER_HP)) {
+		if (Term)
+			Term_xtra(TERM_XTRA_NOISE, 0);
+	}
 
 	if (data->danger.level == DANGER_CRITICAL && g_app.windows[0].window) {
 		SDL_FlashWindow(g_app.windows[0].window,
@@ -7308,19 +7313,146 @@ static void sdl2_handle_danger(game_event_type type, game_event_data *data,
 }
 
 /**
- * SDL2 frontend handler for end-of-frame flush. First delegates the generic
- * Term_fresh() to ui_display_handle_ui_flush(), then allows the SDL2 frontend
- * to hook in any additional frame-end logic (e.g. vsync throttling, GPU
- * present timing).
+ * SDL2 frontend handler for end-of-frame flush. Directly calls Term_fresh()
+ * (no forwarding) so the SDL2 renderer presents dirty regions. The generic
+ * UI layer does not participate in frame flushing any more.
  */
 static void sdl2_handle_ui_flush(game_event_type type, game_event_data *data,
 								 void *user)
 {
-	ui_display_handle_ui_flush(type, data, user);
+	(void)type; (void)data; (void)user;
+	if (Term)
+		Term_fresh();
 
-	/* The Term_fresh() call above already triggers Term_redraw_section which
-	 * maps to SDL_RenderCopy + SDL_RenderPresent for dirty regions. This is
-	 * the hook point for any additional SDL2-specific frame-end logic. */
+	/* Term_fresh() above triggers Term_redraw_section which maps to
+	 * SDL_RenderCopy + SDL_RenderPresent for dirty regions. This is the
+	 * hook point for any additional SDL2-specific frame-end logic such as
+	 * vsync throttling or frame-time measurement. */
+}
+
+/**
+ * SDL2 frontend handler for highlighted messages (e.g. HP warnings).
+ * Directly composes the game_event_data and calls display_message() and
+ * message_flush() - pure Term rendering, no msgt() which would re-enter the
+ * event system.
+ */
+static void sdl2_handle_message_highlight(game_event_type type,
+										  game_event_data *data, void *user)
+{
+	if (!data) return;
+
+	int msg_type = data->message_highlight.type;
+	const char *text = data->message_highlight.text;
+
+	if (text) {
+		game_event_data mdata;
+		memset(&mdata, 0, sizeof(mdata));
+		mdata.message.type = msg_type;
+		mdata.message.msg = text;
+		display_message(type, &mdata, user);
+	}
+
+	message_flush(type, NULL, user);
+}
+
+/**
+ * SDL2 frontend handler for status bar repaint requests. Merges flags into
+ * the master dirty mask and directly calls update_statusline_aux() and
+ * update_sidebar() - pure Term rendering, no redraw_stuff().
+ */
+static void sdl2_handle_statusbar(game_event_type type, game_event_data *data,
+								  void *user)
+{
+	if (!data) return;
+
+	uint32_t flags = data->statusbar.flags;
+	if (!flags) return;
+
+	player->upkeep->redraw |= flags;
+
+	if (flags & (PR_MISC | PR_TITLE | PR_STATE | PR_STUDY | PR_DEPTH |
+	             PR_HEALTH | PR_SPEED | PR_STATS | PR_ARMOR | PR_HP |
+	             PR_MANA | PR_GOLD | PR_EXP)) {
+		int row = Term->hgt - 1;
+		if (Term->sidebar_mode == SIDEBAR_TOP) row = 3;
+		update_statusline_aux(row, COL_MAP);
+	}
+
+	if (flags & (PR_MISC | PR_TITLE | PR_STATE | PR_STUDY | PR_DEPTH |
+	             PR_HEALTH | PR_SPEED | PR_STATS | PR_ARMOR | PR_HP |
+	             PR_MANA | PR_GOLD | PR_EXP | PR_INVEN | PR_EQUIP)) {
+		game_event_type sb_type = EVENT_EXPERIENCE;
+		if (flags & PR_HP) sb_type = EVENT_HP;
+		else if (flags & PR_MANA) sb_type = EVENT_MANA;
+		else if (flags & PR_EXP) sb_type = EVENT_EXPERIENCE;
+		update_sidebar(sb_type, NULL, user);
+	}
+}
+
+/**
+ * SDL2 frontend handler for full or partial map redraw requests. Directly
+ * calls prt_map() (full) or iterates with update_maps() (partial) - pure Term
+ * rendering, no event_signal_point() re-emission.
+ */
+static void sdl2_handle_map_redraw(game_event_type type, game_event_data *data,
+								   void *user)
+{
+	if (!data) return;
+
+	if (data->map_redraw.full || (data->map_redraw.x1 == -1)) {
+		prt_map();
+	} else {
+		int x, y;
+		game_event_data pdata;
+		for (y = data->map_redraw.y1; y <= data->map_redraw.y2; y++) {
+			for (x = data->map_redraw.x1; x <= data->map_redraw.x2; x++) {
+				memset(&pdata, 0, sizeof(pdata));
+				pdata.point.x = x;
+				pdata.point.y = y;
+				update_maps(EVENT_MAP, &pdata, angband_term[0]);
+			}
+		}
+	}
+}
+
+/**
+ * SDL2 frontend handler for subwindow (monster list, inventory, etc.) repaints.
+ * Iterates all subwindows and calls the appropriate pure-Term helper for each.
+ * No EVENT_INVENTORY/EVENT_EQUIPMENT re-emission.
+ */
+static void sdl2_handle_subwindow(game_event_type type, game_event_data *data,
+								  void *user)
+{
+	int i;
+	term *old = Term;
+
+	for (i = 1; i < ANGBAND_TERM_MAX; i++) {
+		if (!angband_term[i]) continue;
+
+		Term_activate(angband_term[i]);
+
+		if (window_flag[i] & PW_INVEN)
+			update_inven_subwindow(type, data, angband_term[i]);
+		else if (window_flag[i] & PW_EQUIP)
+			update_equip_subwindow(type, data, angband_term[i]);
+
+		if (window_flag[i] & PW_MONLIST)
+			update_monlist_subwindow(type, data, angband_term[i]);
+
+		if (window_flag[i] & PW_ITEMLIST)
+			update_itemlist_subwindow(type, data, angband_term[i]);
+
+		if (window_flag[i] & PW_MONSTER)
+			update_monster_subwindow(type, data, angband_term[i]);
+
+		if (window_flag[i] & PW_OBJECT)
+			update_object_subwindow(type, data, angband_term[i]);
+
+		if (window_flag[i] & PW_MESSAGE)
+			update_messages_subwindow(type, data, angband_term[i]);
+	}
+
+	Term_activate(old);
 }
 
 /**
@@ -7336,24 +7468,24 @@ static void sdl2_enter_world(game_event_type type, game_event_data *data,
 	if (sdl2_ui_handlers_registered) return;
 	sdl2_ui_handlers_registered = true;
 
-	/* Danger state (HP + mana) - generic Term bell + SDL2 window flash */
+	/* Danger state (HP + mana) - Term bell + SDL2 window flash */
 	event_add_handler(EVENT_DANGER_HP, sdl2_handle_danger, NULL);
 	event_add_handler(EVENT_DANGER_MANA, sdl2_handle_danger, NULL);
 
 	/* Highlighted messages (e.g. low HP warning) - pure Term rendering */
 	event_add_handler(EVENT_MESSAGE_HIGHLIGHT,
-					  ui_display_handle_message_highlight, NULL);
+					  sdl2_handle_message_highlight, NULL);
 
 	/* Status bar repaint requests - pure Term rendering */
-	event_add_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
+	event_add_handler(EVENT_STATUSBAR, sdl2_handle_statusbar, NULL);
 
 	/* Map redraw (full or partial bounding box) - pure Term rendering */
-	event_add_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
+	event_add_handler(EVENT_MAP_REDRAW, sdl2_handle_map_redraw, NULL);
 
 	/* Subwindow (inventory, monster list, etc.) repaints - pure Term rendering */
-	event_add_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+	event_add_handler(EVENT_SUBWINDOW, sdl2_handle_subwindow, NULL);
 
-	/* End-of-frame flush - generic Term_fresh() + SDL2 vsync hook */
+	/* End-of-frame flush - Term_fresh() + SDL2 vsync hook */
 	event_add_handler(EVENT_UI_FLUSH, sdl2_handle_ui_flush, NULL);
 }
 
@@ -7374,10 +7506,10 @@ static void sdl2_leave_world(game_event_type type, game_event_data *data,
 	event_remove_handler(EVENT_DANGER_HP, sdl2_handle_danger, NULL);
 	event_remove_handler(EVENT_DANGER_MANA, sdl2_handle_danger, NULL);
 	event_remove_handler(EVENT_MESSAGE_HIGHLIGHT,
-						 ui_display_handle_message_highlight, NULL);
-	event_remove_handler(EVENT_STATUSBAR, ui_display_handle_statusbar, NULL);
-	event_remove_handler(EVENT_MAP_REDRAW, ui_display_handle_map_redraw, NULL);
-	event_remove_handler(EVENT_SUBWINDOW, ui_display_handle_subwindow, NULL);
+						 sdl2_handle_message_highlight, NULL);
+	event_remove_handler(EVENT_STATUSBAR, sdl2_handle_statusbar, NULL);
+	event_remove_handler(EVENT_MAP_REDRAW, sdl2_handle_map_redraw, NULL);
+	event_remove_handler(EVENT_SUBWINDOW, sdl2_handle_subwindow, NULL);
 	event_remove_handler(EVENT_UI_FLUSH, sdl2_handle_ui_flush, NULL);
 }
 

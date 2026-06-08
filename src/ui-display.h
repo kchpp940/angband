@@ -36,17 +36,24 @@ void toggle_inven_equip(void);
 void subwindows_set_flags(uint32_t *new_flags, size_t n_subwindows);
 void init_display(void);
 
-void ui_display_handle_danger(game_event_type type, game_event_data *data,
+/* Pure Term-rendering helpers (no side effects, no event emission). Frontends
+ * register their own event handlers and call these directly to paint. */
+void update_statusline_aux(int row, int col);
+void update_sidebar(game_event_type type, game_event_data *data, void *user);
+void update_maps(game_event_type type, game_event_data *data, void *user);
+void update_inven_subwindow(game_event_type type, game_event_data *data,
+							void *user);
+void update_equip_subwindow(game_event_type type, game_event_data *data,
+							void *user);
+void update_itemlist_subwindow(game_event_type type, game_event_data *data,
+							   void *user);
+void update_monlist_subwindow(game_event_type type, game_event_data *data,
 							  void *user);
-void ui_display_handle_message_highlight(game_event_type type,
-										 game_event_data *data, void *user);
-void ui_display_handle_statusbar(game_event_type type, game_event_data *data,
-								 void *user);
-void ui_display_handle_map_redraw(game_event_type type, game_event_data *data,
-								  void *user);
-void ui_display_handle_subwindow(game_event_type type, game_event_data *data,
-								 void *user);
-void ui_display_handle_ui_flush(game_event_type type, game_event_data *data,
-								void *user);
+void update_monster_subwindow(game_event_type type, game_event_data *data,
+							  void *user);
+void update_object_subwindow(game_event_type type, game_event_data *data,
+							 void *user);
+void update_messages_subwindow(game_event_type type, game_event_data *data,
+							   void *user);
 
 #endif /* INCLUDED_UI_DISPLAY_H */
