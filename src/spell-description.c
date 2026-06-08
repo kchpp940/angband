@@ -1,18 +1,15 @@
 /**
  * \file spell-description.c
- * \brief Unified spell description builder and formatters
+ * \brief Unified spell description builder (data only, no text formatting)
  *
- * Two layers, strictly separated:
+ * Single layer: DATA BUILDING.
+ *   spell_info_build() walks the effect chain and fills fully-typed
+ *   struct fields.  No display strings are produced at this layer.
  *
- *   1. DATA BUILDING — spell_info_build() walks the effect chain and
- *      fills fully-typed struct fields.  No display strings are produced.
- *
- *   2. TEXT FORMATTING — spell_info_format_*() and spell_rv_format_dice()
- *      read the struct fields and produce char-buffer text fragments.
- *      They have no side effects and do not touch globals beyond reading
- *      the provided info.
- *
- * Rendering (text_out, textblock, file I/O) is entirely the caller's job.
+ * Text formatting (menu rows, browse detail, confirmation prompts, etc.)
+ * and rendering (text_out, textblock, file I/O) are entirely the caller's
+ * responsibility.  Only a dice-expression utility is provided here since
+ * that is a pure data→data transformation independent of display language.
  */
 
 #include "angband.h"
@@ -28,7 +25,7 @@
 
 
 /* ========================================================================
- * Layer 1 — Internal data mappers (effect → typed field; no text output)
+ * Internal data mappers (effect → typed field; no text output)
  * ======================================================================== */
 
 static const char *map_timed_idx_to_name(int idx)
@@ -98,7 +95,7 @@ static void map_effect_fill_explicit_params(struct spell_effect_info *ei,
 
 
 /* ========================================================================
- * Layer 1 (public) — Build structured spell_info from effect chain
+ * Public — Build structured spell_info from effect chain
  * ======================================================================== */
 
 struct spell_info *spell_info_build(const struct class_spell *spell,
@@ -206,7 +203,10 @@ void spell_info_free(struct spell_info *info)
 
 
 /* ========================================================================
- * Layer 2 — Public text formatters (pure: read struct → char buffer)
+ * Public utility — format a random_value as a dice expression
+ *
+ * Pure data transformation: random_value → "10+3d6" style string.
+ * Not tied to any display language or UI layout.
  * ======================================================================== */
 
 size_t spell_rv_format_dice(const random_value *rv, char *buf, size_t len)
@@ -227,238 +227,4 @@ size_t spell_rv_format_dice(const random_value *rv, char *buf, size_t len)
 		off += strnfmt(buf + off, len - off, "%dd%d", rv->dice, rv->sides);
 	}
 	return off;
-}
-
-
-/* Helper: produce the "extra" display fragment for an effect (rad/len/xN/%) */
-static size_t fmt_extra_for_display(const struct spell_effect_info *ei,
-	char *buf, size_t len)
-{
-	size_t off = 0;
-	if (!buf || len == 0) return 0;
-	buf[0] = '\0';
-
-	if (ei->radius > 0) {
-		off += strnfmt(buf + off, len - off, ", rad %d", ei->radius);
-	}
-	if (ei->beam_length > 0) {
-		off += strnfmt(buf + off, len - off, ", len %d", ei->beam_length);
-	}
-	if (ei->projectile_count > 0) {
-		off += strnfmt(buf + off, len - off, "x%d", ei->projectile_count);
-	}
-	if (ei->heal_pct_floor > 0) {
-		off += strnfmt(buf + off, len - off, "/%d%%", ei->heal_pct_floor);
-	}
-	if (ei->teleport_random) {
-		off += strnfmt(buf + off, len - off, "random");
-	}
-	return off;
-}
-
-
-size_t spell_info_format_short(const struct spell_info *info, char *buf,
-	size_t len)
-{
-	size_t offset = 0;
-	struct spell_effect_info *ei;
-	struct spell_effect_info *pre = NULL;
-	char pre_extra[64] = "";
-	random_value pre_rv = { 0, 0, 0, 0 };
-
-	if (!info || !buf || len == 0) return 0;
-	buf[0] = '\0';
-
-	for (ei = info->effects; ei; ei = ei->next) {
-		random_value rv = ei->dice_rv;
-		char dice_buf[32];
-		char extra_buf[64];
-		bool same_as_prev = false;
-
-		spell_rv_format_dice(&rv, dice_buf, sizeof(dice_buf));
-		fmt_extra_for_display(ei, extra_buf, sizeof(extra_buf));
-
-		if (pre && pre->kind == ei->kind
-			&& streq(pre_extra, extra_buf)
-			&& pre_rv.base == rv.base
-			&& pre_rv.dice == rv.dice
-			&& pre_rv.sides == rv.sides
-			&& pre_rv.m_bonus == rv.m_bonus
-			&& streq(pre->info_label, ei->info_label)
-			&& streq(pre->projection_name, ei->projection_name)) {
-			same_as_prev = true;
-		}
-
-		if ((strlen(dice_buf) > 0 || strlen(extra_buf) > 1)
-			&& !same_as_prev) {
-			if (offset) {
-				offset += strnfmt(buf + offset, len - offset, ";");
-			}
-			offset += strnfmt(buf + offset, len - offset, " %s ",
-							  ei->info_label);
-			offset += strnfmt(buf + offset, len - offset, "%s",
-							  dice_buf);
-			if (strlen(extra_buf) > 1) {
-				offset += strnfmt(buf + offset, len - offset, "%s",
-								  extra_buf);
-			}
-			pre = ei;
-			my_strcpy(pre_extra, extra_buf, sizeof(pre_extra));
-			pre_rv = rv;
-		}
-	}
-
-	return offset;
-}
-
-
-size_t spell_info_format_damage(const struct spell_info *info, char *buf,
-	size_t len)
-{
-	const struct spell_effect_info *ei;
-	int num_damaging = 0;
-	int i = 0;
-	size_t offset = 0;
-
-	if (!info || !buf || len == 0) return 0;
-	buf[0] = '\0';
-
-	for (ei = info->effects; ei; ei = ei->next) {
-		if (ei->is_damage) num_damaging++;
-	}
-	if (num_damaging == 0) return 0;
-
-	offset += strnfmt(buf + offset, len - offset, "  Inflicts an average of");
-
-	for (ei = info->effects; ei; ei = ei->next) {
-		if (!ei->is_damage) continue;
-		if (num_damaging > 2 && i > 0) {
-			offset += strnfmt(buf + offset, len - offset, ",");
-		}
-		if (num_damaging > 1 && i == num_damaging - 1) {
-			offset += strnfmt(buf + offset, len - offset, " and");
-		}
-		offset += strnfmt(buf + offset, len - offset, " %d", ei->avg_damage);
-		if (strlen(ei->projection_name) > 0) {
-			offset += strnfmt(buf + offset, len - offset, " %s",
-				ei->projection_name);
-		}
-		if (ei->radius > 0) {
-			offset += strnfmt(buf + offset, len - offset, " (radius %d)",
-				ei->radius);
-		} else if (ei->range > 0) {
-			offset += strnfmt(buf + offset, len - offset, " (range %d)",
-				ei->range);
-		} else if (ei->beam_length > 0) {
-			offset += strnfmt(buf + offset, len - offset, " (length %d)",
-				ei->beam_length);
-		}
-		i++;
-	}
-	offset += strnfmt(buf + offset, len - offset, " damage.\n");
-
-	return offset;
-}
-
-
-size_t spell_info_format_side_effects(const struct spell_info *info,
-	char *buf, size_t len)
-{
-	const struct spell_effect_info *ei;
-	bool has_any = false;
-	size_t offset = 0;
-	char dice_buf[32];
-
-	if (!info || !buf || len == 0) return 0;
-	buf[0] = '\0';
-
-	for (ei = info->effects; ei; ei = ei->next) {
-		if (ei->kind == SPELL_EFFECT_TIMED && strlen(ei->timed_name) > 0) {
-			if (!has_any) {
-				offset += strnfmt(buf + offset, len - offset,
-					"  Side effects:");
-				has_any = true;
-			}
-			offset += strnfmt(buf + offset, len - offset, " %s",
-				ei->timed_name);
-			spell_rv_format_dice(&ei->dice_rv, dice_buf, sizeof(dice_buf));
-			if (strlen(dice_buf) > 0) {
-				offset += strnfmt(buf + offset, len - offset, " (%s)",
-					dice_buf);
-			}
-			offset += strnfmt(buf + offset, len - offset, ";");
-		} else if (ei->kind == SPELL_EFFECT_HEAL) {
-			if (!has_any) {
-				offset += strnfmt(buf + offset, len - offset,
-					"  Restores:");
-				has_any = true;
-			}
-			spell_rv_format_dice(&ei->dice_rv, dice_buf, sizeof(dice_buf));
-			offset += strnfmt(buf + offset, len - offset, " %s HP",
-				dice_buf);
-			if (ei->heal_pct_floor > 0) {
-				offset += strnfmt(buf + offset, len - offset, "/%d%%",
-					ei->heal_pct_floor);
-			}
-			offset += strnfmt(buf + offset, len - offset, ";");
-		} else if (ei->kind == SPELL_EFFECT_SUMMON) {
-			if (!has_any) {
-				offset += strnfmt(buf + offset, len - offset,
-					"  Effect:");
-				has_any = true;
-			}
-			offset += strnfmt(buf + offset, len - offset, " summons;");
-		} else if (ei->kind == SPELL_EFFECT_TELEPORT) {
-			if (!has_any) {
-				offset += strnfmt(buf + offset, len - offset,
-					"  Effect:");
-				has_any = true;
-			}
-			spell_rv_format_dice(&ei->dice_rv, dice_buf, sizeof(dice_buf));
-			offset += strnfmt(buf + offset, len - offset, " teleport");
-			if (strlen(dice_buf) > 0) {
-				offset += strnfmt(buf + offset, len - offset, " %s",
-					dice_buf);
-			}
-			if (ei->teleport_random) {
-				offset += strnfmt(buf + offset, len - offset,
-					" (random)");
-			}
-			offset += strnfmt(buf + offset, len - offset, ";");
-		} else if (ei->kind == SPELL_EFFECT_DETECT) {
-			if (!has_any) {
-				offset += strnfmt(buf + offset, len - offset,
-					"  Effect:");
-				has_any = true;
-			}
-			offset += strnfmt(buf + offset, len - offset,
-				" detect %s;", ei->info_label);
-		}
-	}
-
-	if (has_any) {
-		offset += strnfmt(buf + offset, len - offset, "\n");
-	}
-	return offset;
-}
-
-
-size_t spell_info_format_limits(const struct spell_info *info,
-	char *buf, size_t len)
-{
-	size_t offset = 0;
-
-	if (!info || !buf || len == 0) return 0;
-	buf[0] = '\0';
-
-	offset += strnfmt(buf + offset, len - offset,
-		"  Level: %d, Mana: %d, Fail: %d%%",
-		info->limits.slevel, info->limits.mana,
-		info->limits.fail_percent);
-	if (info->needs_aim) {
-		offset += strnfmt(buf + offset, len - offset, ", Requires aim");
-	}
-	offset += strnfmt(buf + offset, len - offset, ".\n");
-
-	return offset;
 }

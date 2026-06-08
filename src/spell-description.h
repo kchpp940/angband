@@ -1,11 +1,11 @@
 /**
  * \file spell-description.h
- * \brief Unified spell description generation from effect/projection data
+ * \brief Unified spell description data from effect/projection data
  *
- * Produces fully structured spell information.  All text formatting
+ * Produces fully structured spell information.  ALL text formatting
  * (menu rows, browse detail, confirmation dialogs, help pages) is the
- * caller's responsibility; this header provides helper formatters that
- * read from the structured fields only.
+ * caller's responsibility.  This header provides only data structures,
+ * construction/destruction, and a dice-formatting utility.
  */
 
 #ifndef SPELL_DESCRIPTION_H
@@ -40,7 +40,7 @@ struct spell_effect_info {
 	int radius;                    /* Area radius in tiles (0 = N/A)  */
 	random_value dice_rv;          /* Raw dice / random value         */
 
-	/* ---- Explicit parameters (split from former 'extra' text) ---- */
+	/* ---- Explicit parameters (fully typed, no display text) ---- */
 	int beam_length;               /* EF_SHORT_BEAM: length in tiles  */
 	int projectile_count;          /* EF_SWARM: number of projectiles */
 	int heal_pct_floor;            /* EF_HEAL_HP: min % of max HP     */
@@ -74,19 +74,5 @@ void spell_info_free(struct spell_info *info);
 /* ---- Utility: format a random_value as a dice expression ---- */
 
 size_t spell_rv_format_dice(const random_value *rv, char *buf, size_t len);
-
-/* ---- Text fragment formatters (operate on structured fields) ---- */
-
-size_t spell_info_format_short(const struct spell_info *info,
-	char *buf, size_t len);
-
-size_t spell_info_format_damage(const struct spell_info *info,
-	char *buf, size_t len);
-
-size_t spell_info_format_side_effects(const struct spell_info *info,
-	char *buf, size_t len);
-
-size_t spell_info_format_limits(const struct spell_info *info,
-	char *buf, size_t len);
 
 #endif

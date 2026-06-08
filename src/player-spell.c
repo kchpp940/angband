@@ -562,6 +562,89 @@ bool spell_needs_aim(int spell_index)
 	return needs_aim;
 }
 
+
+/* ---- Local helper: build short menu-row info line (consumer-formatted) ---- */
+
+static size_t fmt_extra_for_row(const struct spell_effect_info *ei,
+	char *buf, size_t len)
+{
+	size_t off = 0;
+	if (!buf || len == 0) return 0;
+	buf[0] = '\0';
+
+	if (ei->radius > 0) {
+		off += strnfmt(buf + off, len - off, ", rad %d", ei->radius);
+	}
+	if (ei->beam_length > 0) {
+		off += strnfmt(buf + off, len - off, ", len %d", ei->beam_length);
+	}
+	if (ei->projectile_count > 0) {
+		off += strnfmt(buf + off, len - off, "x%d", ei->projectile_count);
+	}
+	if (ei->heal_pct_floor > 0) {
+		off += strnfmt(buf + off, len - off, "/%d%%", ei->heal_pct_floor);
+	}
+	if (ei->teleport_random) {
+		off += strnfmt(buf + off, len - off, "random");
+	}
+	return off;
+}
+
+static size_t spell_build_short_row(const struct spell_info *info,
+	char *buf, size_t len)
+{
+	size_t offset = 0;
+	struct spell_effect_info *ei;
+	struct spell_effect_info *pre = NULL;
+	char pre_extra[64] = "";
+	random_value pre_rv = { 0, 0, 0, 0 };
+
+	if (!info || !buf || len == 0) return 0;
+	buf[0] = '\0';
+
+	for (ei = info->effects; ei; ei = ei->next) {
+		random_value rv = ei->dice_rv;
+		char dice_buf[32];
+		char extra_buf[64];
+		bool same_as_prev = false;
+
+		spell_rv_format_dice(&rv, dice_buf, sizeof(dice_buf));
+		fmt_extra_for_row(ei, extra_buf, sizeof(extra_buf));
+
+		if (pre && pre->kind == ei->kind
+			&& streq(pre_extra, extra_buf)
+			&& pre_rv.base == rv.base
+			&& pre_rv.dice == rv.dice
+			&& pre_rv.sides == rv.sides
+			&& pre_rv.m_bonus == rv.m_bonus
+			&& streq(pre->info_label, ei->info_label)
+			&& streq(pre->projection_name, ei->projection_name)) {
+			same_as_prev = true;
+		}
+
+		if ((strlen(dice_buf) > 0 || strlen(extra_buf) > 1)
+			&& !same_as_prev) {
+			if (offset) {
+				offset += strnfmt(buf + offset, len - offset, ";");
+			}
+			offset += strnfmt(buf + offset, len - offset, " %s ",
+							  ei->info_label);
+			offset += strnfmt(buf + offset, len - offset, "%s",
+							  dice_buf);
+			if (strlen(extra_buf) > 1) {
+				offset += strnfmt(buf + offset, len - offset, "%s",
+								  extra_buf);
+			}
+			pre = ei;
+			my_strcpy(pre_extra, extra_buf, sizeof(pre_extra));
+			pre_rv = rv;
+		}
+	}
+
+	return offset;
+}
+
+
 void get_spell_info(int spell_index, char *p, size_t len)
 {
 	const struct class_spell *spell = spell_by_index(player, spell_index);
@@ -570,7 +653,7 @@ void get_spell_info(int spell_index, char *p, size_t len)
 	if (p && len > 0) {
 		p[0] = '\0';
 		if (info) {
-			spell_info_format_short(info, p, len);
+			spell_build_short_row(info, p, len);
 		}
 	}
 

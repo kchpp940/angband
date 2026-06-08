@@ -143,6 +143,10 @@ static bool spell_menu_handler(struct menu *m, const ui_event *e, int oid)
 
 /**
  * Show spell long description when browsing
+ *
+ * Text formatting (full English sentences for browse detail) is done
+ * here in the UI consumer; the description layer provides only typed
+ * fields.
  */
 static void spell_menu_browser(int oid, void *data, const region *loc)
 {
@@ -155,7 +159,7 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 		bool worked = player->spell_flags[spell_index] & PY_SPELL_WORKED;
 		bool not_forgotten =
 			!(player->spell_flags[spell_index] & PY_SPELL_FORGOTTEN);
-		char buf[512];
+		char line[512];
 
 		text_out_hook = text_out_to_screen;
 		text_out_wrap = 0;
@@ -169,12 +173,156 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 		}
 
 		if (worked && not_forgotten) {
-			if (spell_info_format_damage(info, buf, sizeof(buf)) > 0) {
-				text_out("%s", buf);
+			const struct spell_effect_info *ei;
+			int num_damaging = 0;
+			int i;
+			size_t off;
+			bool has_side = false;
+			char dice_buf[32];
+
+			/* ---- Damage sentence ---- */
+			for (ei = info->effects; ei; ei = ei->next) {
+				if (ei->is_damage) num_damaging++;
 			}
-			if (spell_info_format_side_effects(info, buf,
-				sizeof(buf)) > 0) {
-				text_out("%s", buf);
+			if (num_damaging > 0) {
+				off = 0;
+				off += strnfmt(line + off, sizeof(line) - off,
+					"  Inflicts an average of");
+				i = 0;
+				for (ei = info->effects; ei; ei = ei->next) {
+					if (!ei->is_damage) continue;
+					if (num_damaging > 2 && i > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off, ",");
+					}
+					if (num_damaging > 1
+						&& i == num_damaging - 1) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" and");
+					}
+					off += strnfmt(line + off,
+						sizeof(line) - off,
+						" %d", ei->avg_damage);
+					if (strlen(ei->projection_name) > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" %s", ei->projection_name);
+					}
+					if (ei->radius > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" (radius %d)", ei->radius);
+					} else if (ei->range > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" (range %d)", ei->range);
+					} else if (ei->beam_length > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" (length %d)",
+							ei->beam_length);
+					}
+					i++;
+				}
+				off += strnfmt(line + off, sizeof(line) - off,
+					" damage.\n");
+				text_out("%s", line);
+			}
+
+			/* ---- Side effects / heal / summon / teleport / detect ---- */
+			off = 0;
+			line[0] = '\0';
+			for (ei = info->effects; ei; ei = ei->next) {
+				if (ei->kind == SPELL_EFFECT_TIMED
+					&& strlen(ei->timed_name) > 0) {
+					if (!has_side) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							"  Side effects:");
+						has_side = true;
+					}
+					off += strnfmt(line + off,
+						sizeof(line) - off,
+						" %s", ei->timed_name);
+					spell_rv_format_dice(&ei->dice_rv, dice_buf,
+						sizeof(dice_buf));
+					if (strlen(dice_buf) > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" (%s)", dice_buf);
+					}
+					off += strnfmt(line + off,
+						sizeof(line) - off, ";");
+				} else if (ei->kind == SPELL_EFFECT_HEAL) {
+					if (!has_side) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							"  Restores:");
+						has_side = true;
+					}
+					spell_rv_format_dice(&ei->dice_rv, dice_buf,
+						sizeof(dice_buf));
+					off += strnfmt(line + off,
+						sizeof(line) - off,
+						" %s HP", dice_buf);
+					if (ei->heal_pct_floor > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							"/%d%%",
+							ei->heal_pct_floor);
+					}
+					off += strnfmt(line + off,
+						sizeof(line) - off, ";");
+				} else if (ei->kind == SPELL_EFFECT_SUMMON) {
+					if (!has_side) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							"  Effect:");
+						has_side = true;
+					}
+					off += strnfmt(line + off,
+						sizeof(line) - off,
+						" summons;");
+				} else if (ei->kind == SPELL_EFFECT_TELEPORT) {
+					if (!has_side) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							"  Effect:");
+						has_side = true;
+					}
+					spell_rv_format_dice(&ei->dice_rv, dice_buf,
+						sizeof(dice_buf));
+					off += strnfmt(line + off,
+						sizeof(line) - off,
+						" teleport");
+					if (strlen(dice_buf) > 0) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" %s", dice_buf);
+					}
+					if (ei->teleport_random) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							" (random)");
+					}
+					off += strnfmt(line + off,
+						sizeof(line) - off, ";");
+				} else if (ei->kind == SPELL_EFFECT_DETECT) {
+					if (!has_side) {
+						off += strnfmt(line + off,
+							sizeof(line) - off,
+							"  Effect:");
+						has_side = true;
+					}
+					off += strnfmt(line + off,
+						sizeof(line) - off,
+						" detect %s;", ei->info_label);
+				}
+			}
+			if (has_side) {
+				off += strnfmt(line + off, sizeof(line) - off, "\n");
+				text_out("%s", line);
 			}
 		}
 
@@ -341,7 +489,7 @@ int textui_get_spell_from_book(struct player *p, const char *verb,
 	track_object(p->upkeep, book);
 	handle_stuff(p);
 
-	m = spell_menu_new(book, spell_filter, true);
+	m = spell_menu_new(book, spell_filter, false);
 	if (m) {
 		int spell_index = spell_menu_select(m, noun, verb);
 		spell_menu_destroy(m);
