@@ -27,7 +27,6 @@
 #include "init.h"
 #include "mon-lore.h"
 #include "mon-make.h"
-#include "obj-knowledge.h"
 #include "obj-util.h"
 #include "player-attack.h"
 #include "player-calcs.h"
@@ -738,12 +737,6 @@ static bool start_game(bool new_game)
 	if (player->is_dead || new_game) {
 		character_generated = false;
 		textui_do_birth();
-	} else {
-		/*
-		 * Bring the stock curse objects up-to-date with what the
-		 * player knows.
-		 */
-		update_player_object_knowledge(player);
 	}
 
 	/* Tell the UI we've started. */

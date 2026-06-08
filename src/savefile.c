@@ -654,6 +654,9 @@ bool savefile_load(const char *path, bool cheat_death)
 	character_generated = true;
 	player->upkeep->playing = true;
 
+	if (ok)
+		post_load();
+
 	return ok;
 }
 

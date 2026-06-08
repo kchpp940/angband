@@ -31,7 +31,6 @@
 #include "obj-gear.h"
 #include "obj-ignore.h"
 #include "obj-pile.h"
-#include "obj-transfer.h"
 #include "obj-tval.h"
 #include "obj-util.h"
 #include "player-attack.h"
@@ -237,39 +236,40 @@ static int auto_pickup_okay(const struct object *obj)
 static void player_pickup_aux(struct player *p, struct object *obj,
 							  int auto_max, bool domsg)
 {
-	struct obj_transfer_plan plan;
-	struct object *picked_up;
-	int max;
+	int max = inven_carry_num(p, obj);
 
-	obj_transfer_plan_init(&plan, p, obj);
-	obj_transfer_plan_floor_to_pack(&plan, 0);
-
-	max = plan.movable;
-
+	/* Confirm at least some of the object can be picked up */
 	if (max == 0)
 		quit_fmt("Failed pickup of %s", obj->kind->name);
 
+	/* Set ignore status */
 	p->upkeep->notice |= PN_IGNORE;
 
+	/* Allow auto-pickup to limit the number if it wants to */
 	if (auto_max && max > auto_max) {
 		max = auto_max;
 	}
 
+	/* Carry the object, prompting for number if necessary */
 	if (max == obj->number) {
-		obj_transfer_plan_floor_to_pack(&plan, max);
-		picked_up = obj_transfer_execute_split_source(&plan);
-		inven_carry(p, picked_up, true, domsg);
+		if (obj->known) {
+			square_excise_object(p->cave, p->grid, obj->known);
+			delist_object(p->cave, obj->known);
+		}
+		square_excise_object(cave, p->grid, obj);
+		delist_object(cave, obj);
+		inven_carry(p, obj, true, domsg);
 	} else {
 		int num;
+		bool dummy;
+		struct object *picked_up;
 
 		if (auto_max)
 			num = auto_max;
 		else
 			num = get_quantity(NULL, max);
 		if (!num) return;
-
-		obj_transfer_plan_floor_to_pack(&plan, num);
-		picked_up = obj_transfer_execute_split_source(&plan);
+		picked_up = floor_object_for_use(p, obj, num, false, &dummy);
 		inven_carry(p, picked_up, true, domsg);
 	}
 }

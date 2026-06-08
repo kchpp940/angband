@@ -221,7 +221,6 @@ ANGFILES0 = \
 	obj-properties.o \
 	obj-randart.o \
 	obj-slays.o \
-	obj-transfer.o \
 	obj-tval.o \
 	obj-util.o \
 	option.o \

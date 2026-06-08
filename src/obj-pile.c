@@ -2,12 +2,6 @@
  * \file obj-pile.c
  * \brief Deal with piles of objects
  *
- * Pile primitives only: object lifecycle, linked-list insert/excise,
- * stacking/merging helpers, floor scanning, pile charge display.
- *
- * Higher-level object movements (pickup, drop, carry, wield, takeoff) and
- * the unified quantity / capacity planning live in obj-transfer.c.
- *
  * Copyright (c) 1997 Ben Harrison, James E. Wilson, Robert A. Koeneke
  *
  * This work is free software; you can redistribute it and/or modify it
@@ -24,18 +18,33 @@
 
 #include "angband.h"
 #include "cave.h"
+#include "effects.h"
+#include "cmd-core.h"
 #include "game-input.h"
+#include "generate.h"
+#include "grafmode.h"
 #include "init.h"
+#include "mon-make.h"
+#include "mon-util.h"
 #include "monster.h"
 #include "obj-curse.h"
 #include "obj-desc.h"
 #include "obj-gear.h"
 #include "obj-ignore.h"
+#include "obj-info.h"
 #include "obj-knowledge.h"
+#include "obj-make.h"
 #include "obj-pile.h"
+#include "obj-slays.h"
 #include "obj-tval.h"
 #include "obj-util.h"
-#include "z-textblock.h"
+#include "player-calcs.h"
+#include "player-history.h"
+#include "player-spell.h"
+#include "player-util.h"
+#include "randname.h"
+#include "trap.h"
+#include "z-queue.h"
 
 /* #define LIST_DEBUG */
 
@@ -476,7 +485,7 @@ bool object_similar(const struct object *obj1, const struct object *obj2,
 		if (mode & OSTACK_LIST && (obj1_is_known != obj2_is_known))
 			return false;
 	} else {
-		/* Anything else probably ok */
+		/* Anything else probably okay */
 	}
 
 	/* They must be similar enough */
@@ -810,6 +819,454 @@ struct object *object_split(struct object *src, int amt)
 	dest->oidx = 0;
 
 	return dest;
+}
+
+/**
+ * Remove an amount of an object from the floor, returning a detached object
+ * which can be used - it is assumed that the object is being manipulated by
+ * given player and is on that player's grid.
+ *
+ * Optionally describe what remains.
+ */
+struct object *floor_object_for_use(struct player *p, struct object *obj,
+	int num, bool message, bool *none_left)
+{
+	struct object *usable;
+	char name[80];
+
+	/* Bounds check */
+	num = MIN(num, obj->number);
+
+	/* Split off a usable object if necessary */
+	if (obj->number > num) {
+		usable = object_split(obj, num);
+	} else {
+		usable = obj;
+		square_excise_object(p->cave, usable->grid, usable->known);
+		delist_object(p->cave, usable->known);
+		square_excise_object(cave, usable->grid, usable);
+		delist_object(cave, usable);
+		*none_left = true;
+
+		/* Stop tracking item */
+		if (tracked_object_is(p->upkeep, obj))
+			track_object(p->upkeep, NULL);
+
+		/* The pile is gone, so disable repeat command */
+		cmd_disable_repeat();
+	}
+
+	/* Object no longer has a location */
+	usable->known->grid = loc(0, 0);
+	usable->grid = loc(0, 0);
+
+	/* Print a message if requested and there is anything left */
+	if (message) {
+		if (usable == obj)
+			obj->number = 0;
+
+		/* Get a description */
+		object_desc(name, sizeof(name), obj,
+			ODESC_PREFIX | ODESC_FULL, p);
+
+		if (usable == obj)
+			obj->number = num;
+
+		/* Print a message */
+		msg("You see %s.", name);
+	}
+
+	return usable;
+}
+
+
+/**
+ * Find and return the oldest object on the given grid marked as "ignore".
+ */
+static struct object *floor_get_oldest_ignored(const struct player *p,
+		struct chunk *c, struct loc grid)
+{
+	struct object *obj, *ignore = NULL;
+
+	for (obj = square_object(c, grid); obj; obj = obj->next)
+		if (ignore_item_ok(p, obj))
+			ignore = obj;
+
+	return ignore;
+}
+
+
+/**
+ * Let the floor carry an object, deleting old ignored items if necessary.
+ * The calling function must deal with the dropped object on failure.
+ *
+ * Optionally put the object at the top or bottom of the pile
+ */
+bool floor_carry(struct chunk *c, struct loc grid, struct object *drop,
+				 bool *note)
+{
+	int n = 0;
+	struct object *obj, *ignore = floor_get_oldest_ignored(player, c, grid);
+
+	/* Fail if the square can't hold objects */
+	if (!square_isobjectholding(c, grid))
+		return false;
+
+	/* Scan objects in that grid for combination */
+	for (obj = square_object(c, grid); obj; obj = obj->next) {
+		/* Check for combination */
+		if (object_mergeable(obj, drop, OSTACK_FLOOR)) {
+			/* Combine the items */
+			object_absorb(obj, drop);
+
+			/* Note the pile */
+			if (square_isview(c, grid)) {
+				square_note_spot(c, grid);
+			}
+
+			/* Don't mention if ignored */
+			if (ignore_item_ok(player, obj)) {
+				*note = false;
+			}
+
+			/* Result */
+			return true;
+		}
+
+		/* Count objects */
+		n++;
+	}
+
+	/* The stack is already too large */
+	if (n >= z_info->floor_size || (!OPT(player, birth_stacking) && n)) {
+		/* Delete the oldest ignored object */
+		if (ignore) {
+			struct chunk *p_c = (c == cave) ? player->cave : NULL;
+			square_excise_object(c, grid, ignore);
+			delist_object(c, ignore);
+			object_delete(c, p_c, &ignore);
+		} else {
+			return false;
+		}
+	}
+
+	/* Location */
+	drop->grid = grid;
+
+	/* Forget monster */
+	drop->held_m_idx = 0;
+
+	/* Link to the first object in the pile */
+	pile_insert(&c->squares[grid.y][grid.x].obj, drop);
+
+	/* Record in the level list */
+	list_object(c, drop);
+
+	/* If there's a known version, put it in the player's view of the
+	 * cave but at an unknown location.  square_note_spot() will move
+	 * it to the correct place if seen. */
+	if (drop->known) {
+		drop->known->oidx = drop->oidx;
+		drop->known->held_m_idx = 0;
+		drop->known->grid = loc(0, 0);
+		player->cave->objects[drop->oidx] = drop->known;
+	}
+
+	/* Redraw */
+	square_note_spot(c, grid);
+	square_light_spot(c, grid);
+
+	/* Don't mention if ignored */
+	if (ignore_item_ok(player, drop)) {
+		*note = false;
+	}
+
+	/* Result */
+	return true;
+}
+
+/**
+ * Delete an object when the floor fails to carry it, and attempt to remove
+ * it from the object list
+ */
+static void floor_carry_fail(struct chunk *c, struct object *drop, bool broke)
+{
+	struct object *known = drop->known;
+
+	/* Delete completely */
+	if (known) {
+		char o_name[80];
+		const char *verb = broke ?
+			VERB_AGREEMENT(drop->number, "breaks", "break") :
+			VERB_AGREEMENT(drop->number, "disappears", "disappear");
+		object_desc(o_name, sizeof(o_name), drop, ODESC_BASE, player);
+		msg("The %s %s.", o_name, verb);
+		if (!loc_is_zero(known->grid))
+			square_excise_object(player->cave, known->grid, known);
+		delist_object(player->cave, known);
+		object_delete(player->cave, NULL, &known);
+	}
+	delist_object(c, drop);
+	object_delete(c, player->cave, &drop);
+}
+
+/**
+ * Find a grid near the given one for an object to fall on
+ *
+ * We check several locations to see if we can find a location at which
+ * the object can combine, stack, or be placed.  Artifacts will try very
+ * hard to be placed, including "teleporting" to a useful grid if needed.
+ *
+ * If prefer_pile is true, does not apply a penalty for putting different types
+ * items in the same grid.
+ *
+ * If no appropriate grid is found, the given grid is unchanged
+ */
+static void drop_find_grid(const struct player *p, struct chunk *c,
+		struct object *drop, bool prefer_pile, struct loc *grid)
+{
+	int best_score = -1;
+	struct loc start = *grid;
+	struct loc best = start;
+	int i, dy, dx;
+	struct object *obj;
+
+	/* Scan local grids */
+	for (dy = -3; dy <= 3; dy++) {
+		for (dx = -3; dx <= 3; dx++) {
+			bool combine = false;
+			int dist = (dy * dy) + (dx * dx);
+			struct loc try = loc_sum(start, loc(dx, dy));
+			int num_shown = 0;
+			int num_ignored = 0;
+			int score;
+
+			/* Lots of reasons to say no */
+			if ((dist > 10) ||
+				!square_in_bounds_fully(c, try) ||
+				!los(c, start, try) ||
+				!square_isfloor(c, try) ||
+				square_istrap(c, try))
+				continue;
+
+			/* Analyse the grid for carrying the new object */
+			for (obj = square_object(c, try); obj; obj = obj->next){
+				/* Check for possible combination */
+				if (object_mergeable(obj, drop, OSTACK_FLOOR))
+					combine = true;
+
+				/* Count objects */
+				if (!ignore_item_ok(p, obj))
+					num_shown++;
+				else
+					num_ignored++;
+			}
+			if (!combine)
+				num_shown++;
+
+			/* Disallow if the stack size is too big */
+			if ((!OPT(p, birth_stacking) && (num_shown > 1)) ||
+				((num_shown + num_ignored) > z_info->floor_size &&
+				 !floor_get_oldest_ignored(p, c, try)))
+				continue;
+
+			/* Score the location based on how close and how full the grid is */
+			score = 1000 -
+				(dist + (prefer_pile ? 0 : num_shown * 5));
+
+			if ((score < best_score) || ((score == best_score) && one_in_(2)))
+				continue;
+
+			best_score = score;
+			best = try;
+		}
+	}
+
+	/* Return if we have a score, otherwise fail or try harder for artifacts */
+	if (best_score >= 0) {
+		*grid = best;
+		return;
+	} else if (!drop->artifact) {
+		return;
+	}
+	for (i = 0; i < 2000; i++) {
+		/* Start bouncing from grid to grid, stopping if we find an empty one */
+		if (i < 1000) {
+			best = rand_loc(best, 1, 1);
+			/* Keep in bounds. */
+			best.x = MAX(0, MIN(best.x, c->width - 1));
+			best.y = MAX(0, MIN(best.y, c->height - 1));
+		} else {
+			/* Now go to purely random locations */
+			best = loc(randint0(c->width), randint0(c->height));
+		}
+		if (square_canputitem(c, best)) {
+			*grid = best;
+			return;
+		}
+	}
+}
+
+/**
+ * Let an object fall to the ground at or near a location.
+ *
+ * The initial location is assumed to be "square_in_bounds_fully(cave, )".
+ *
+ * This function takes a parameter "chance".  This is the percentage
+ * chance that the item will "disappear" instead of drop.  If the object
+ * has been thrown, then this is the chance of disappearance on contact.
+ *
+ * This function will produce a description of a drop event under the player
+ * when "verbose" is true.
+ *
+ * If "prefer_pile" is true, the penalty for putting different types of items
+ * in the same square is not applied.
+ *
+ * The calling function needs to deal with the consequences of the dropped
+ * object being destroyed or absorbed into an existing pile.
+ */
+void drop_near(struct chunk *c, struct object **dropped, int chance,
+			   struct loc grid, bool verbose, bool prefer_pile)
+{
+	char o_name[80];
+	struct loc best = grid;
+	bool dont_ignore = verbose && !ignore_item_ok(player, *dropped);
+
+	/* Only called in the current level */
+	assert(c == cave);
+
+	/* Describe object */
+	object_desc(o_name, sizeof(o_name), *dropped, ODESC_BASE, player);
+
+	/* Handle normal breakage */
+	if (!((*dropped)->artifact) && (randint0(100) < chance)) {
+		floor_carry_fail(c, *dropped, true);
+		return;
+	}
+
+	/* Find the best grid and drop the item, destroying if there's no space */
+	drop_find_grid(player, c, *dropped, prefer_pile, &best);
+	if (floor_carry(c, best, *dropped, &dont_ignore)) {
+		sound(MSG_DROP);
+		if (dont_ignore && (square(c, best)->mon < 0)) {
+			msg("You feel something roll beneath your feet.");
+		}
+	} else {
+		floor_carry_fail(c, *dropped, false);
+	}
+}
+
+/**
+ * This will push objects off a square.
+ *
+ * The methodology is to load all objects on the square into a queue. Replace
+ * the previous square with a type that does not allow for objects. Drop the
+ * objects. Last, put the square back to its original type.
+ */
+void push_object(struct loc grid)
+{
+	/* Save the original terrain feature */
+	struct feature *feat_old = square_feat(cave, grid);
+	struct object *obj = square_object(cave, grid);
+	struct queue *queue = q_new(z_info->floor_size);
+	struct trap *trap = square_trap(cave, grid);
+
+	/* Push all objects on the square, stripped of pile info, into the queue */
+	while (obj) {
+		struct object *next = obj->next;
+		/* In case the object is known, make a copy to work with
+		 * and try to delete the original which will orphan it to
+		 * serve as a placeholder for the known version. */
+		struct object *newobj = object_new();
+
+		object_copy(newobj, obj);
+		newobj->oidx = 0;
+		newobj->grid = loc(0, 0);
+		if (newobj->known) {
+			newobj->known = object_new();
+			object_copy(newobj->known, obj->known);
+			newobj->known->oidx = 0;
+			newobj->known->grid = loc(0, 0);
+		}
+		q_push_ptr(queue, newobj);
+
+		delist_object(cave, obj);
+		object_delete(cave, player->cave, &obj);
+
+		/* Next object */
+		obj = next;
+	}
+
+	/* Disassociate the objects from the square */
+	square_set_obj(cave, grid, NULL);
+
+	/* Set feature to an open door */
+	square_force_floor(cave, grid);
+	square_add_door(cave, grid, false);
+
+	/* Drop objects back onto the floor */
+	while (q_len(queue) > 0) {
+		/* Take object from the queue */
+		obj = q_pop_ptr(queue);
+
+		/* Unrevealed mimics require special handling, as always. */
+		if (obj->mimicking_m_idx) {
+			struct monster *mimic =
+				cave_monster(cave, obj->mimicking_m_idx);
+			int d;
+
+			assert(mimic);
+			/*
+			 * Reset since the current value is a dangling
+			 * reference to a deleted object.
+			 */
+			mimic->mimicked_obj = NULL;
+
+			/* Try to find a location; use closer grids first. */
+			d = 1;
+			while (1) {
+				struct loc newgrid;
+				bool dummy = true;
+
+				if (d >= 4) {
+					/*
+					 * Give up.  Destroy both the mimic
+					 * and the object.
+					 */
+					delete_monster_idx(cave, obj->mimicking_m_idx);
+					if (obj->known) {
+						object_delete(player->cave, NULL, &obj->known);
+					}
+					object_delete(cave, player->cave, &obj);
+					break;
+				}
+				if (scatter_ext(cave, &newgrid, 1, grid, d,
+						true, square_isempty) > 0
+						&& floor_carry(cave, newgrid,
+						obj, &dummy)) {
+					/*
+					 * Move the monster and give it the
+					 * object.
+					 */
+					monster_swap(grid, newgrid);
+					mimic->mimicked_obj = obj;
+					break;
+				}
+				++d;
+			}
+		} else {
+			/* Drop the object */
+			drop_near(cave, &obj, 0, grid, false, false);
+		}
+	}
+
+	/* Reset cave feature, remove trap if needed */
+	square_set_feat(cave, grid, feat_old->fidx);
+	if (trap && !square_istrappable(cave, grid)) {
+		square_destroy_trap(cave, grid);
+	}
+
+	q_free(queue);
 }
 
 /**
