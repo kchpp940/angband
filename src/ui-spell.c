@@ -155,6 +155,7 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 		bool worked = player->spell_flags[spell_index] & PY_SPELL_WORKED;
 		bool not_forgotten =
 			!(player->spell_flags[spell_index] & PY_SPELL_FORGOTTEN);
+		char buf[512];
 
 		text_out_hook = text_out_to_screen;
 		text_out_wrap = 0;
@@ -163,10 +164,19 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 
 		Term_gotoxy(loc->col, loc->row + loc->page_rows);
 
-		spell_info_text_out_detail(info,
-			worked && not_forgotten,
-			worked && not_forgotten,
-			false);
+		if (info->text) {
+			text_out("\n%s\n", info->text);
+		}
+
+		if (worked && not_forgotten) {
+			if (spell_info_format_damage(info, buf, sizeof(buf)) > 0) {
+				text_out("%s", buf);
+			}
+			if (spell_info_format_side_effects(info, buf,
+				sizeof(buf)) > 0) {
+				text_out("%s", buf);
+			}
+		}
 
 		text_out("\n");
 
@@ -331,7 +341,7 @@ int textui_get_spell_from_book(struct player *p, const char *verb,
 	track_object(p->upkeep, book);
 	handle_stuff(p);
 
-	m = spell_menu_new(book, spell_filter, false);
+	m = spell_menu_new(book, spell_filter, true);
 	if (m) {
 		int spell_index = spell_menu_select(m, noun, verb);
 		spell_menu_destroy(m);

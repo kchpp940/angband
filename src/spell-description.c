@@ -1,10 +1,18 @@
 /**
  * \file spell-description.c
- * \brief Unified spell description generator from effect/projection data
+ * \brief Unified spell description builder and formatters
  *
- * Builds structured spell information and formats both short menu-line
- * strings and detailed browse-view descriptions from a single pass over
- * the spell's effect chain.
+ * Two layers, strictly separated:
+ *
+ *   1. DATA BUILDING — spell_info_build() walks the effect chain and
+ *      fills fully-typed struct fields.  No display strings are produced.
+ *
+ *   2. TEXT FORMATTING — spell_info_format_*() and spell_rv_format_dice()
+ *      read the struct fields and produce char-buffer text fragments.
+ *      They have no side effects and do not touch globals beyond reading
+ *      the provided info.
+ *
+ * Rendering (text_out, textblock, file I/O) is entirely the caller's job.
  */
 
 #include "angband.h"
@@ -15,90 +23,83 @@
 #include "player-timed.h"
 #include "project.h"
 #include "spell-description.h"
-#include "z-color.h"
 #include "z-form.h"
-#include "z-textblock.h"
 #include "z-util.h"
 
 
-static size_t append_rv_to_dice_str(char *buffer, size_t size, random_value *rv)
-{
-	size_t offset = 0;
+/* ========================================================================
+ * Layer 1 — Internal data mappers (effect → typed field; no text output)
+ * ======================================================================== */
 
-	if (rv->base > 0) {
-		offset += strnfmt(buffer + offset, size - offset, "%d", rv->base);
-
-		if (rv->dice > 0 && rv->sides > 0) {
-			offset += strnfmt(buffer + offset, size - offset, "+");
-		}
-	}
-
-	if (rv->dice == 1 && rv->sides > 0) {
-		offset += strnfmt(buffer + offset, size - offset, "d%d", rv->sides);
-	} else if (rv->dice > 1 && rv->sides > 0) {
-		offset += strnfmt(buffer + offset, size - offset, "%dd%d", rv->dice,
-						  rv->sides);
-	}
-
-	return offset;
-}
-
-
-static const char *timed_idx_to_name(int idx)
+static const char *map_timed_idx_to_name(int idx)
 {
 	if (idx < 0 || idx >= TMD_MAX) return "";
 	return timed_effects[idx].name ? timed_effects[idx].name : "";
 }
 
 
-static void spell_effect_fill_extra(struct spell_effect_info *ei,
-	const struct effect *effect)
+static enum spell_effect_kind map_effect_to_kind(const struct effect *effect)
 {
+	if (effect_damages(effect)) return SPELL_EFFECT_DAMAGE;
 	switch (effect->index) {
-	case EF_SPHERE:
-		if (effect->radius) {
-			strnfmt(ei->extra, sizeof(ei->extra), ", rad %d", effect->radius);
-		} else {
-			my_strcpy(ei->extra, ", rad 2", sizeof(ei->extra));
+	case EF_HEAL_HP:                    return SPELL_EFFECT_HEAL;
+	case EF_CURE:
+	case EF_TIMED_SET:
+	case EF_TIMED_INC:
+	case EF_TIMED_INC_NO_RES:
+	case EF_TIMED_DEC:                 return SPELL_EFFECT_TIMED;
+	case EF_SUMMON:                     return SPELL_EFFECT_SUMMON;
+	case EF_TELEPORT:
+	case EF_TELEPORT_TO:
+	case EF_TELEPORT_LEVEL:             return SPELL_EFFECT_TELEPORT;
+	default:
+		if (effect->index >= EF_DETECT_TRAPS
+			&& effect->index <= EF_DETECT_SOUL) {
+			return SPELL_EFFECT_DETECT;
 		}
-		break;
-	case EF_BALL:
-	case EF_STAR_BALL: {
-		int rad = effect->radius;
-		if (effect->other) {
-			rad += player->lev / effect->other;
-		}
-		if (rad) {
-			strnfmt(ei->extra, sizeof(ei->extra), ", rad %d", rad);
-		} else {
-			my_strcpy(ei->extra, "rad 2", sizeof(ei->extra));
-		}
-		break;
+		return SPELL_EFFECT_OTHER;
 	}
-	case EF_STRIKE:
-		if (effect->radius) {
-			strnfmt(ei->extra, sizeof(ei->extra), ", rad %d", effect->radius);
-		}
-		break;
+}
+
+
+static void map_effect_fill_explicit_params(struct spell_effect_info *ei,
+	const struct effect *effect, const random_value *rv)
+{
+	ei->beam_length = 0;
+	ei->projectile_count = 0;
+	ei->heal_pct_floor = 0;
+	ei->teleport_random = false;
+
+	switch (effect->index) {
 	case EF_SHORT_BEAM: {
-		int beam_len = effect->radius;
+		int len = effect->radius;
 		if (effect->other) {
-			beam_len += player->lev / effect->other;
-			beam_len = MIN(beam_len, (int)z_info->max_range);
+			len += player->lev / effect->other;
+			len = MIN(len, (int)z_info->max_range);
 		}
-		strnfmt(ei->extra, sizeof(ei->extra), ", len %d", beam_len);
+		ei->beam_length = len;
 		break;
 	}
-	case EF_SWARM: {
-		random_value rv = ei->dice_rv;
-		strnfmt(ei->extra, sizeof(ei->extra), "x%d", rv.m_bonus);
+	case EF_SWARM:
+		ei->projectile_count = rv->m_bonus;
 		break;
-	}
+	case EF_HEAL_HP:
+		ei->heal_pct_floor = rv->m_bonus;
+		break;
+	case EF_TELEPORT:
+	case EF_TELEPORT_TO:
+	case EF_TELEPORT_LEVEL:
+		ei->teleport_random = (rv->m_bonus != 0);
+		break;
 	default:
 		break;
 	}
 }
 
+
+/* ========================================================================
+ * Layer 1 (public) — Build structured spell_info from effect chain
+ * ======================================================================== */
 
 struct spell_info *spell_info_build(const struct class_spell *spell,
 	int spell_index)
@@ -142,73 +143,46 @@ struct spell_info *spell_info_build(const struct class_spell *spell,
 
 		ei = mem_zalloc(sizeof(*ei));
 		ei->next = NULL;
-		ei->info_label = type ? type : "";
-		ei->projection_name = "";
-		ei->timed_name = "";
-		ei->dice_rv = (random_value){ 0, 0, 0, 0 };
-		ei->dice_str[0] = '\0';
-		ei->extra[0] = '\0';
-		ei->avg_damage = 0;
-		ei->range = 0;
-		ei->radius = 0;
-		ei->is_damage = false;
-		ei->needs_aim = false;
 
 		if (effect->dice != NULL) {
 			dice_roll(effect->dice, &rv);
 		} else if (have_shared) {
 			rv = shared_rv;
 		}
-
 		ei->dice_rv = rv;
+
+		ei->kind = map_effect_to_kind(effect);
+		ei->info_label = type ? type : "";
+		ei->projection_name = "";
+		ei->timed_name = "";
+		ei->avg_damage = 0;
+		ei->range = 0;
+		ei->radius = 0;
+		ei->is_damage = false;
+		ei->needs_aim = false;
 
 		proj = effect_projection(effect);
 		if (proj && strlen(proj) > 0) {
 			ei->projection_name = proj;
 		}
 
-		if (effect_damages(effect)) {
-			ei->kind = SPELL_EFFECT_DAMAGE;
+		switch (ei->kind) {
+		case SPELL_EFFECT_DAMAGE:
 			ei->is_damage = true;
 			ei->needs_aim = true;
 			ei->avg_damage = effect_avg_damage(effect,
 				have_shared ? shared_dice : NULL);
 			ei->range = effect_range(effect);
 			ei->radius = effect_radius(effect);
-			append_rv_to_dice_str(ei->dice_str, sizeof(ei->dice_str), &rv);
-		} else if (effect->index == EF_HEAL_HP) {
-			ei->kind = SPELL_EFFECT_HEAL;
-			append_rv_to_dice_str(ei->dice_str, sizeof(ei->dice_str), &rv);
-			if (rv.m_bonus) {
-				strnfmt(ei->extra, sizeof(ei->extra), "/%d%%", rv.m_bonus);
-			}
-		} else if (effect->index == EF_CURE
-				   || effect->index == EF_TIMED_SET
-				   || effect->index == EF_TIMED_INC
-				   || effect->index == EF_TIMED_INC_NO_RES
-				   || effect->index == EF_TIMED_DEC) {
-			ei->kind = SPELL_EFFECT_TIMED;
-			ei->timed_name = timed_idx_to_name(effect->subtype);
-			append_rv_to_dice_str(ei->dice_str, sizeof(ei->dice_str), &rv);
-		} else if (effect->index == EF_SUMMON) {
-			ei->kind = SPELL_EFFECT_SUMMON;
-		} else if (effect->index == EF_TELEPORT
-				   || effect->index == EF_TELEPORT_TO
-				   || effect->index == EF_TELEPORT_LEVEL) {
-			ei->kind = SPELL_EFFECT_TELEPORT;
-			append_rv_to_dice_str(ei->dice_str, sizeof(ei->dice_str), &rv);
-			if (rv.m_bonus) {
-				my_strcpy(ei->extra, "random", sizeof(ei->extra));
-			}
-		} else if (effect->index >= EF_DETECT_TRAPS
-				   && effect->index <= EF_DETECT_SOUL) {
-			ei->kind = SPELL_EFFECT_DETECT;
-		} else {
-			ei->kind = SPELL_EFFECT_OTHER;
-			append_rv_to_dice_str(ei->dice_str, sizeof(ei->dice_str), &rv);
+			break;
+		case SPELL_EFFECT_TIMED:
+			ei->timed_name = map_timed_idx_to_name(effect->subtype);
+			break;
+		default:
+			break;
 		}
 
-		spell_effect_fill_extra(ei, effect);
+		map_effect_fill_explicit_params(ei, effect, &rv);
 
 		*link = ei;
 		link = &ei->next;
@@ -223,7 +197,6 @@ void spell_info_free(struct spell_info *info)
 	struct spell_effect_info *ei, *next;
 
 	if (!info) return;
-
 	for (ei = info->effects; ei; ei = next) {
 		next = ei->next;
 		mem_free(ei);
@@ -232,25 +205,81 @@ void spell_info_free(struct spell_info *info)
 }
 
 
+/* ========================================================================
+ * Layer 2 — Public text formatters (pure: read struct → char buffer)
+ * ======================================================================== */
+
+size_t spell_rv_format_dice(const random_value *rv, char *buf, size_t len)
+{
+	size_t off = 0;
+	if (!rv || !buf || len == 0) return 0;
+	buf[0] = '\0';
+
+	if (rv->base > 0) {
+		off += strnfmt(buf + off, len - off, "%d", rv->base);
+		if (rv->dice > 0 && rv->sides > 0) {
+			off += strnfmt(buf + off, len - off, "+");
+		}
+	}
+	if (rv->dice == 1 && rv->sides > 0) {
+		off += strnfmt(buf + off, len - off, "d%d", rv->sides);
+	} else if (rv->dice > 1 && rv->sides > 0) {
+		off += strnfmt(buf + off, len - off, "%dd%d", rv->dice, rv->sides);
+	}
+	return off;
+}
+
+
+/* Helper: produce the "extra" display fragment for an effect (rad/len/xN/%) */
+static size_t fmt_extra_for_display(const struct spell_effect_info *ei,
+	char *buf, size_t len)
+{
+	size_t off = 0;
+	if (!buf || len == 0) return 0;
+	buf[0] = '\0';
+
+	if (ei->radius > 0) {
+		off += strnfmt(buf + off, len - off, ", rad %d", ei->radius);
+	}
+	if (ei->beam_length > 0) {
+		off += strnfmt(buf + off, len - off, ", len %d", ei->beam_length);
+	}
+	if (ei->projectile_count > 0) {
+		off += strnfmt(buf + off, len - off, "x%d", ei->projectile_count);
+	}
+	if (ei->heal_pct_floor > 0) {
+		off += strnfmt(buf + off, len - off, "/%d%%", ei->heal_pct_floor);
+	}
+	if (ei->teleport_random) {
+		off += strnfmt(buf + off, len - off, "random");
+	}
+	return off;
+}
+
+
 size_t spell_info_format_short(const struct spell_info *info, char *buf,
-							   size_t len)
+	size_t len)
 {
 	size_t offset = 0;
 	struct spell_effect_info *ei;
 	struct spell_effect_info *pre = NULL;
-	char pre_special[40] = "";
+	char pre_extra[64] = "";
 	random_value pre_rv = { 0, 0, 0, 0 };
 
 	if (!info || !buf || len == 0) return 0;
-
 	buf[0] = '\0';
 
 	for (ei = info->effects; ei; ei = ei->next) {
 		random_value rv = ei->dice_rv;
+		char dice_buf[32];
+		char extra_buf[64];
 		bool same_as_prev = false;
 
+		spell_rv_format_dice(&rv, dice_buf, sizeof(dice_buf));
+		fmt_extra_for_display(ei, extra_buf, sizeof(extra_buf));
+
 		if (pre && pre->kind == ei->kind
-			&& streq(pre_special, ei->extra)
+			&& streq(pre_extra, extra_buf)
 			&& pre_rv.base == rv.base
 			&& pre_rv.dice == rv.dice
 			&& pre_rv.sides == rv.sides
@@ -260,24 +289,21 @@ size_t spell_info_format_short(const struct spell_info *info, char *buf,
 			same_as_prev = true;
 		}
 
-		if ((strlen(ei->dice_str) > 0 || strlen(ei->extra) > 0)
+		if ((strlen(dice_buf) > 0 || strlen(extra_buf) > 1)
 			&& !same_as_prev) {
 			if (offset) {
 				offset += strnfmt(buf + offset, len - offset, ";");
 			}
-
 			offset += strnfmt(buf + offset, len - offset, " %s ",
 							  ei->info_label);
 			offset += strnfmt(buf + offset, len - offset, "%s",
-							  ei->dice_str);
-
-			if (strlen(ei->extra) > 1) {
+							  dice_buf);
+			if (strlen(extra_buf) > 1) {
 				offset += strnfmt(buf + offset, len - offset, "%s",
-								  ei->extra);
+								  extra_buf);
 			}
-
 			pre = ei;
-			my_strcpy(pre_special, ei->extra, sizeof(pre_special));
+			my_strcpy(pre_extra, extra_buf, sizeof(pre_extra));
 			pre_rv = rv;
 		}
 	}
@@ -286,267 +312,153 @@ size_t spell_info_format_short(const struct spell_info *info, char *buf,
 }
 
 
-static void spell_append_damage_summary(const struct spell_info *info,
-	textblock *tb)
+size_t spell_info_format_damage(const struct spell_info *info, char *buf,
+	size_t len)
 {
 	const struct spell_effect_info *ei;
 	int num_damaging = 0;
 	int i = 0;
+	size_t offset = 0;
+
+	if (!info || !buf || len == 0) return 0;
+	buf[0] = '\0';
 
 	for (ei = info->effects; ei; ei = ei->next) {
 		if (ei->is_damage) num_damaging++;
 	}
+	if (num_damaging == 0) return 0;
 
-	if (num_damaging == 0) return;
+	offset += strnfmt(buf + offset, len - offset, "  Inflicts an average of");
 
-	textblock_append(tb, "  Inflicts an average of");
 	for (ei = info->effects; ei; ei = ei->next) {
 		if (!ei->is_damage) continue;
 		if (num_damaging > 2 && i > 0) {
-			textblock_append(tb, ",");
+			offset += strnfmt(buf + offset, len - offset, ",");
 		}
 		if (num_damaging > 1 && i == num_damaging - 1) {
-			textblock_append(tb, " and");
+			offset += strnfmt(buf + offset, len - offset, " and");
 		}
-		textblock_append_c(tb, COLOUR_L_GREEN, " %d", ei->avg_damage);
+		offset += strnfmt(buf + offset, len - offset, " %d", ei->avg_damage);
 		if (strlen(ei->projection_name) > 0) {
-			textblock_append(tb, " %s", ei->projection_name);
+			offset += strnfmt(buf + offset, len - offset, " %s",
+				ei->projection_name);
 		}
 		if (ei->radius > 0) {
-			textblock_append(tb, " (radius %d)", ei->radius);
+			offset += strnfmt(buf + offset, len - offset, " (radius %d)",
+				ei->radius);
 		} else if (ei->range > 0) {
-			textblock_append(tb, " (range %d)", ei->range);
+			offset += strnfmt(buf + offset, len - offset, " (range %d)",
+				ei->range);
+		} else if (ei->beam_length > 0) {
+			offset += strnfmt(buf + offset, len - offset, " (length %d)",
+				ei->beam_length);
 		}
 		i++;
 	}
-	textblock_append(tb, " damage.\n");
+	offset += strnfmt(buf + offset, len - offset, " damage.\n");
+
+	return offset;
 }
 
 
-static void spell_append_side_effects(const struct spell_info *info,
-	textblock *tb)
+size_t spell_info_format_side_effects(const struct spell_info *info,
+	char *buf, size_t len)
 {
 	const struct spell_effect_info *ei;
 	bool has_any = false;
+	size_t offset = 0;
+	char dice_buf[32];
+
+	if (!info || !buf || len == 0) return 0;
+	buf[0] = '\0';
 
 	for (ei = info->effects; ei; ei = ei->next) {
 		if (ei->kind == SPELL_EFFECT_TIMED && strlen(ei->timed_name) > 0) {
 			if (!has_any) {
-				textblock_append(tb, "  Side effects:");
+				offset += strnfmt(buf + offset, len - offset,
+					"  Side effects:");
 				has_any = true;
 			}
-			textblock_append(tb, " %s", ei->timed_name);
-			if (strlen(ei->dice_str) > 0) {
-				textblock_append(tb, " (%s)", ei->dice_str);
+			offset += strnfmt(buf + offset, len - offset, " %s",
+				ei->timed_name);
+			spell_rv_format_dice(&ei->dice_rv, dice_buf, sizeof(dice_buf));
+			if (strlen(dice_buf) > 0) {
+				offset += strnfmt(buf + offset, len - offset, " (%s)",
+					dice_buf);
 			}
-			textblock_append(tb, ";");
+			offset += strnfmt(buf + offset, len - offset, ";");
 		} else if (ei->kind == SPELL_EFFECT_HEAL) {
 			if (!has_any) {
-				textblock_append(tb, "  Restores:");
+				offset += strnfmt(buf + offset, len - offset,
+					"  Restores:");
 				has_any = true;
 			}
-			textblock_append(tb, " %s HP", ei->dice_str);
-			if (strlen(ei->extra) > 0) {
-				textblock_append(tb, "%s", ei->extra);
+			spell_rv_format_dice(&ei->dice_rv, dice_buf, sizeof(dice_buf));
+			offset += strnfmt(buf + offset, len - offset, " %s HP",
+				dice_buf);
+			if (ei->heal_pct_floor > 0) {
+				offset += strnfmt(buf + offset, len - offset, "/%d%%",
+					ei->heal_pct_floor);
 			}
-			textblock_append(tb, ";");
+			offset += strnfmt(buf + offset, len - offset, ";");
 		} else if (ei->kind == SPELL_EFFECT_SUMMON) {
 			if (!has_any) {
-				textblock_append(tb, "  Effect:");
+				offset += strnfmt(buf + offset, len - offset,
+					"  Effect:");
 				has_any = true;
 			}
-			textblock_append(tb, " summons;");
+			offset += strnfmt(buf + offset, len - offset, " summons;");
 		} else if (ei->kind == SPELL_EFFECT_TELEPORT) {
 			if (!has_any) {
-				textblock_append(tb, "  Effect:");
+				offset += strnfmt(buf + offset, len - offset,
+					"  Effect:");
 				has_any = true;
 			}
-			textblock_append(tb, " teleport");
-			if (strlen(ei->dice_str) > 0) {
-				textblock_append(tb, " %s", ei->dice_str);
+			spell_rv_format_dice(&ei->dice_rv, dice_buf, sizeof(dice_buf));
+			offset += strnfmt(buf + offset, len - offset, " teleport");
+			if (strlen(dice_buf) > 0) {
+				offset += strnfmt(buf + offset, len - offset, " %s",
+					dice_buf);
 			}
-			if (strlen(ei->extra) > 0) {
-				textblock_append(tb, " (%s)", ei->extra);
+			if (ei->teleport_random) {
+				offset += strnfmt(buf + offset, len - offset,
+					" (random)");
 			}
-			textblock_append(tb, ";");
+			offset += strnfmt(buf + offset, len - offset, ";");
 		} else if (ei->kind == SPELL_EFFECT_DETECT) {
 			if (!has_any) {
-				textblock_append(tb, "  Effect:");
+				offset += strnfmt(buf + offset, len - offset,
+					"  Effect:");
 				has_any = true;
 			}
-			textblock_append(tb, " detect %s;", ei->info_label);
+			offset += strnfmt(buf + offset, len - offset,
+				" detect %s;", ei->info_label);
 		}
 	}
 
 	if (has_any) {
-		textblock_append(tb, "\n");
+		offset += strnfmt(buf + offset, len - offset, "\n");
 	}
+	return offset;
 }
 
 
-static void spell_append_limits(const struct spell_info *info, textblock *tb)
+size_t spell_info_format_limits(const struct spell_info *info,
+	char *buf, size_t len)
 {
-	textblock_append(tb, "  Level: %d, Mana: %d, Fail: %d%%",
+	size_t offset = 0;
+
+	if (!info || !buf || len == 0) return 0;
+	buf[0] = '\0';
+
+	offset += strnfmt(buf + offset, len - offset,
+		"  Level: %d, Mana: %d, Fail: %d%%",
 		info->limits.slevel, info->limits.mana,
 		info->limits.fail_percent);
 	if (info->needs_aim) {
-		textblock_append(tb, ", Requires aim");
+		offset += strnfmt(buf + offset, len - offset, ", Requires aim");
 	}
-	textblock_append(tb, ".\n");
-}
+	offset += strnfmt(buf + offset, len - offset, ".\n");
 
-
-void spell_info_append_detail(const struct spell_info *info,
-	textblock *tb, bool include_damage_summary,
-	bool include_side_effects, bool include_limits)
-{
-	if (!info || !tb) return;
-
-	if (info->text) {
-		textblock_append(tb, "\n%s\n", info->text);
-	}
-
-	if (include_damage_summary) {
-		spell_append_damage_summary(info, tb);
-	}
-
-	if (include_side_effects) {
-		spell_append_side_effects(info, tb);
-	}
-
-	if (include_limits) {
-		spell_append_limits(info, tb);
-	}
-}
-
-
-static void spell_text_out_damage_summary(const struct spell_info *info)
-{
-	const struct spell_effect_info *ei;
-	int num_damaging = 0;
-	int i = 0;
-
-	for (ei = info->effects; ei; ei = ei->next) {
-		if (ei->is_damage) num_damaging++;
-	}
-
-	if (num_damaging == 0) return;
-
-	text_out("  Inflicts an average of");
-	for (ei = info->effects; ei; ei = ei->next) {
-		if (!ei->is_damage) continue;
-		if (num_damaging > 2 && i > 0) {
-			text_out(",");
-		}
-		if (num_damaging > 1 && i == num_damaging - 1) {
-			text_out(" and");
-		}
-		text_out_c(COLOUR_L_GREEN, " %d", ei->avg_damage);
-		if (strlen(ei->projection_name) > 0) {
-			text_out(" %s", ei->projection_name);
-		}
-		if (ei->radius > 0) {
-			text_out(" (radius %d)", ei->radius);
-		} else if (ei->range > 0) {
-			text_out(" (range %d)", ei->range);
-		}
-		i++;
-	}
-	text_out(" damage.\n");
-}
-
-
-static void spell_text_out_side_effects(const struct spell_info *info)
-{
-	const struct spell_effect_info *ei;
-	bool has_any = false;
-
-	for (ei = info->effects; ei; ei = ei->next) {
-		if (ei->kind == SPELL_EFFECT_TIMED && strlen(ei->timed_name) > 0) {
-			if (!has_any) {
-				text_out("  Side effects:");
-				has_any = true;
-			}
-			text_out(" %s", ei->timed_name);
-			if (strlen(ei->dice_str) > 0) {
-				text_out(" (%s)", ei->dice_str);
-			}
-			text_out(";");
-		} else if (ei->kind == SPELL_EFFECT_HEAL) {
-			if (!has_any) {
-				text_out("  Restores:");
-				has_any = true;
-			}
-			text_out(" %s HP", ei->dice_str);
-			if (strlen(ei->extra) > 0) {
-				text_out("%s", ei->extra);
-			}
-			text_out(";");
-		} else if (ei->kind == SPELL_EFFECT_SUMMON) {
-			if (!has_any) {
-				text_out("  Effect:");
-				has_any = true;
-			}
-			text_out(" summons;");
-		} else if (ei->kind == SPELL_EFFECT_TELEPORT) {
-			if (!has_any) {
-				text_out("  Effect:");
-				has_any = true;
-			}
-			text_out(" teleport");
-			if (strlen(ei->dice_str) > 0) {
-				text_out(" %s", ei->dice_str);
-			}
-			if (strlen(ei->extra) > 0) {
-				text_out(" (%s)", ei->extra);
-			}
-			text_out(";");
-		} else if (ei->kind == SPELL_EFFECT_DETECT) {
-			if (!has_any) {
-				text_out("  Effect:");
-				has_any = true;
-			}
-			text_out(" detect %s;", ei->info_label);
-		}
-	}
-
-	if (has_any) {
-		text_out("\n");
-	}
-}
-
-
-static void spell_text_out_limits(const struct spell_info *info)
-{
-	text_out("  Level: %d, Mana: %d, Fail: %d%%",
-		info->limits.slevel, info->limits.mana,
-		info->limits.fail_percent);
-	if (info->needs_aim) {
-		text_out(", Requires aim");
-	}
-	text_out(".\n");
-}
-
-
-void spell_info_text_out_detail(const struct spell_info *info,
-	bool include_damage_summary, bool include_side_effects,
-	bool include_limits)
-{
-	if (!info) return;
-
-	if (info->text) {
-		text_out("\n%s\n", info->text);
-	}
-
-	if (include_damage_summary) {
-		spell_text_out_damage_summary(info);
-	}
-
-	if (include_side_effects) {
-		spell_text_out_side_effects(info);
-	}
-
-	if (include_limits) {
-		spell_text_out_limits(info);
-	}
+	return offset;
 }

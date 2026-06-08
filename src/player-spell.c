@@ -29,7 +29,6 @@
 #include "player-spell.h"
 #include "player-timed.h"
 #include "player-util.h"
-#include "project.h"
 #include "spell-description.h"
 #include "target.h"
 
@@ -553,8 +552,14 @@ bool spell_cast(int spell_index, int dir, struct command *cmd)
 bool spell_needs_aim(int spell_index)
 {
 	const struct class_spell *spell = spell_by_index(player, spell_index);
+	struct spell_info *info;
+	bool needs_aim;
+
 	assert(spell);
-	return effect_aim(spell->effect);
+	info = spell_info_build(spell, spell_index);
+	needs_aim = info ? info->needs_aim : false;
+	spell_info_free(info);
+	return needs_aim;
 }
 
 void get_spell_info(int spell_index, char *p, size_t len)
