@@ -481,6 +481,114 @@ AC_SUBST(TEST_WORKING_DIRECTORY)
 
 AC_SUBST(MAINFILES, ${MAINFILES})
 AC_SUBST(TEST_LIBS, ${TEST_LIBS})
+
+dnl ======================================================================
+dnl Unified Build Capability Declarations
+dnl ======================================================================
+dnl Translate the enable_* and detection results into canonical
+dnl ANGBAND_CAP_* macros so source code can read from a single place.
+
+dnl Player frontends
+AS_IF([test "$enable_curses" = "yes" && test "$with_curses" != "no"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_GCU], [1],
+        [Define to 1 if the Curses (GCU) frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_GCU], [0])])
+AS_IF([test "$enable_sdl" = "yes" && test "$with_sdl" != "no"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL], [1],
+        [Define to 1 if the SDL 1.x frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL], [0])])
+AS_IF([test "$enable_sdl2" = "yes" && test "$with_sdl2" != "no"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL2], [1],
+        [Define to 1 if the SDL 2.x frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL2], [0])])
+AS_IF([test "$enable_x11" = "yes" && test "$with_x11" != "no"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_X11], [1],
+        [Define to 1 if the X11 frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_X11], [0])])
+AS_IF([test "$enable_win" = "yes"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_WINDOWS], [1],
+        [Define to 1 if the Windows frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_WINDOWS], [0])])
+AC_DEFINE([ANGBAND_CAP_FRONTEND_IBM], [0])
+AC_DEFINE([ANGBAND_CAP_FRONTEND_COCOA], [0])
+
+dnl Sound support
+AS_IF([test "$enable_sdl_mixer" = "yes" && test "$found_sdl_mixer" = "yes"],
+    [ac_cv_angband_cap_sound_sdl=1],
+    [ac_cv_angband_cap_sound_sdl=0])
+AS_IF([test "$enable_sdl2_mixer" = "yes" && test "$found_sdl2_mixer" = "yes"],
+    [ac_cv_angband_cap_sound_sdl2=1],
+    [ac_cv_angband_cap_sound_sdl2=0])
+AS_IF([test "$enable_win" = "yes"],
+    [ac_cv_angband_cap_sound_windows=1],
+    [ac_cv_angband_cap_sound_windows=0])
+ac_cv_angband_cap_sound=0
+AS_IF([test "$ac_cv_angband_cap_sound_sdl" = "1" ||
+       test "$ac_cv_angband_cap_sound_sdl2" = "1" ||
+       test "$ac_cv_angband_cap_sound_windows" = "1"],
+    [ac_cv_angband_cap_sound=1])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_SDL],
+    [$ac_cv_angband_cap_sound_sdl],
+    [Define to 1 if SDL 1.x mixer sound support is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_SDL2],
+    [$ac_cv_angband_cap_sound_sdl2],
+    [Define to 1 if SDL 2.x mixer sound support is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_WINDOWS],
+    [$ac_cv_angband_cap_sound_windows],
+    [Define to 1 if Windows built-in sound is enabled])
+AC_DEFINE([ANGBAND_CAP_SOUND_COCOA], [0])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND],
+    [$ac_cv_angband_cap_sound],
+    [Define to 1 if any sound backend is enabled])
+
+dnl Auxiliary frontends
+AS_IF([test "$enable_spoil" = "yes"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SPOIL], [1],
+        [Define to 1 if the spoiler frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SPOIL], [0])])
+AS_IF([test "$enable_stats" = "yes" && test "$USE_STATS" = "1"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_STATS], [1],
+        [Define to 1 if the statistics frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_STATS], [0])])
+AS_IF([test "$enable_test" = "yes"],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_TEST], [1],
+        [Define to 1 if the test frontend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_FRONTEND_TEST], [0])])
+
+dnl Stats backend
+AS_IF([test "$enable_stats" = "yes" && test "$USE_STATS" = "1"],
+    [AC_DEFINE([ANGBAND_CAP_STATS_BACKEND], [1],
+        [Define to 1 if the statistics backend is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_STATS_BACKEND], [0])])
+
+dnl Borg support
+AS_IF([test "$enable_borg" = "yes"],
+    [AC_DEFINE([ANGBAND_CAP_BORG], [1],
+        [Define to 1 if Borg autoplay support is enabled])],
+    [AC_DEFINE([ANGBAND_CAP_BORG], [0])])
+AS_IF([test "$enable_borg_high_scores" = "yes"],
+    [AC_DEFINE([ANGBAND_CAP_BORG_HIGH_SCORES], [1],
+        [Define to 1 if Borg characters are allowed in high scores])],
+    [AC_DEFINE([ANGBAND_CAP_BORG_HIGH_SCORES], [0])])
+
+dnl Installation / path options
+AS_IF([test "x$wsetgid" = "xyes"],
+    [AC_DEFINE([ANGBAND_CAP_SETGID], [1],
+        [Define to 1 for a setgid shared installation])],
+    [AC_DEFINE([ANGBAND_CAP_SETGID], [0])])
+AS_IF([test "x$with_private_dirs" != "x"],
+    [AC_DEFINE([ANGBAND_CAP_PRIVATE_PATHS], [1],
+        [Define to 1 if using private user paths (~/.angband)])],
+    [AC_DEFINE([ANGBAND_CAP_PRIVATE_PATHS], [0])])
+AS_IF([test "x$with_gamedata_in_lib" = "xyes"],
+    [AC_DEFINE([ANGBAND_CAP_GAMEDATA_IN_LIB], [1],
+        [Define to 1 if gamedata is stored in the lib path])],
+    [AC_DEFINE([ANGBAND_CAP_GAMEDATA_IN_LIB], [0])])
+
+dnl Also make sure build-capabilities.h.in is tracked in case we want
+dnl to generate it later (currently the CMake build does that; for
+dnl Autotools we emit all the ANGBAND_CAP_* macros into autoconf.h).
+
 AC_CONFIG_FILES([mk/buildsys.mk mk/extra.mk])
 AC_OUTPUT
 

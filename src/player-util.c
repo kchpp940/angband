@@ -19,7 +19,6 @@
 #include "angband.h"
 #include "cave.h"
 #include "cmd-core.h"
-#include "game-event.h"
 #include "game-input.h"
 #include "game-world.h"
 #include "generate.h"
@@ -264,14 +263,15 @@ void take_hit(struct player *p, int dam, const char *kb_str)
 		}
 	}
 
-	/* Hitpoint warning - handled by EVENT_DANGER_HP in redraw_stuff()
-	 * to avoid repeated bells/messages during resting/running */
+	/* Hitpoint warning */
 	if (p->chp < warning) {
-		/* Send highlight event for the warning message, UI layer will
-		 * decide how to present it (sound, bell, visual alert) */
+		/* Bell on first notice */
 		if (old_chp > warning)
-			event_signal_message_highlight(MSG_HITPOINT_WARN,
-				"*** LOW HITPOINT WARNING! ***");
+			bell();
+
+		/* Message */
+		msgt(MSG_HITPOINT_WARN, "*** LOW HITPOINT WARNING! ***");
+		event_signal(EVENT_MESSAGE_FLUSH);
 	}
 }
 

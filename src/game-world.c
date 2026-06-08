@@ -19,7 +19,6 @@
 #include "angband.h"
 #include "cmds.h"
 #include "effects.h"
-#include "game-event.h"
 #include "game-world.h"
 #include "generate.h"
 #include "init.h"
@@ -909,11 +908,9 @@ static void process_player_cleanup(void)
 	}
 	player->upkeep->dropping = false;
 
-	/* Batch UI events - inventory changes and world processing results */
-	event_queue_begin();
+	/* Hack - update needed first because inventory may have changed */
 	update_stuff(player);
 	redraw_stuff(player);
-	event_queue_flush();
 }
 
 
@@ -938,9 +935,6 @@ void process_player(void)
 	/* Check for interrupts */
 	player_resting_complete_special(player);
 	event_signal(EVENT_CHECK_INTERRUPT);
-
-	/* Batch UI events during repeated commands/resting/running */
-	event_queue_begin();
 
 	/* Repeat until energy is reduced */
 	do {
@@ -1000,9 +994,6 @@ void process_player(void)
 
 	/* Notice stuff (if needed) */
 	notice_stuff(player);
-
-	/* Dispatch all batched UI events now that the turn is done */
-	event_queue_flush();
 }
 
 /**
@@ -1039,14 +1030,12 @@ void on_new_level(void)
 	/* Update display */
 	event_signal(EVENT_NEW_LEVEL_DISPLAY);
 
-	/* Update player - batch all UI for the new level */
+	/* Update player */
 	player->upkeep->update |= (PU_BONUS | PU_HP | PU_SPELLS | PU_INVEN);
 	player->upkeep->notice |= (PN_COMBINE);
-	event_queue_begin();
 	notice_stuff(player);
 	update_stuff(player);
 	redraw_stuff(player);
-	event_queue_flush();
 
 	/* Refresh */
 	event_signal(EVENT_REFRESH);
@@ -1078,12 +1067,10 @@ static void on_leave_level(void) {
 	/* Don't allow command repeat if moved away from item used. */
 	cmd_disable_repeat_floor_item();
 
-	/* Any pending processing - batch UI events when leaving a level */
-	event_queue_begin();
+	/* Any pending processing */
 	notice_stuff(player);
 	update_stuff(player);
 	redraw_stuff(player);
-	event_queue_flush();
 
 	/* Flush messages */
 	event_signal(EVENT_MESSAGE_FLUSH);
@@ -1136,11 +1123,9 @@ void run_game_loop(void)
 	/* Now that the player's turn is fully complete, we run the main loop 
 	 * until player input is needed again */
 	while (true) {
-		event_queue_begin();
 		notice_stuff(player);
 		handle_stuff(player);
 		event_signal(EVENT_REFRESH);
-		event_queue_flush();
 
 		/* Process the rest of the world, give the player energy and 
 		 * increment the turn counter unless we need to stop playing or
@@ -1154,12 +1139,10 @@ void run_game_loop(void)
 			/* Mark all monsters as ready to act when they have the energy */
 			reset_monsters();
 
-			/* Refresh - batch all UI events */
-			event_queue_begin();
+			/* Refresh */
 			notice_stuff(player);
 			handle_stuff(player);
 			event_signal(EVENT_REFRESH);
-			event_queue_flush();
 			if (player->is_dead || !player->upkeep->playing)
 				return;
 
@@ -1167,12 +1150,10 @@ void run_game_loop(void)
 			if (!(turn % 10) && !player->upkeep->generate_level) {
 				process_world(cave);
 
-				/* Refresh - batch all UI events */
-				event_queue_begin();
+				/* Refresh */
 				notice_stuff(player);
 				handle_stuff(player);
 				event_signal(EVENT_REFRESH);
-				event_queue_flush();
 				if (player->is_dead || !player->upkeep->playing)
 					return;
 			}

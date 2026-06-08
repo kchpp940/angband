@@ -546,6 +546,137 @@ endif()
 target_compile_definitions(OurExecutable PRIVATE "${ANGBAND_BUILD_ID_OPTION}")
 target_compile_definitions(OurCoreLib PRIVATE "${ANGBAND_BUILD_ID_OPTION}")
 
+# ======================================================================
+# Unified Build Capability Collection
+# ======================================================================
+# Collect all capability flags from the configuration phase into canonical
+# ANGBAND_CAP_* variables and generate the unified header.
+
+set(ANGBAND_CAP_FRONTEND_GCU       ${SUPPORT_GCU_FRONTEND})
+set(ANGBAND_CAP_FRONTEND_SDL       ${SUPPORT_SDL_FRONTEND})
+set(ANGBAND_CAP_FRONTEND_SDL2      ${SUPPORT_SDL2_FRONTEND})
+set(ANGBAND_CAP_FRONTEND_X11       ${SUPPORT_X11_FRONTEND})
+set(ANGBAND_CAP_FRONTEND_WINDOWS   ${SUPPORT_WINDOWS_FRONTEND})
+set(ANGBAND_CAP_FRONTEND_IBM       OFF)
+set(ANGBAND_CAP_FRONTEND_COCOA     OFF)
+
+set(ANGBAND_CAP_SOUND              OFF)
+set(ANGBAND_CAP_SOUND_SDL          ${SUPPORT_SDL_SOUND})
+set(ANGBAND_CAP_SOUND_SDL2         ${SUPPORT_SDL2_SOUND})
+set(ANGBAND_CAP_SOUND_WINDOWS      OFF)
+set(ANGBAND_CAP_SOUND_COCOA        OFF)
+
+if(SUPPORT_WINDOWS_FRONTEND)
+    set(ANGBAND_CAP_SOUND          ON)
+    set(ANGBAND_CAP_SOUND_WINDOWS  ON)
+endif()
+if(SUPPORT_SDL_SOUND OR SUPPORT_SDL2_SOUND)
+    set(ANGBAND_CAP_SOUND          ON)
+endif()
+
+set(ANGBAND_CAP_FRONTEND_SPOIL     ${SUPPORT_SPOIL_FRONTEND})
+set(ANGBAND_CAP_FRONTEND_STATS     ${SUPPORT_STATS_FRONTEND})
+set(ANGBAND_CAP_FRONTEND_TEST      ${SUPPORT_TEST_FRONTEND})
+set(ANGBAND_CAP_STATS_BACKEND      ${SUPPORT_STATS_BACKEND})
+set(ANGBAND_CAP_BORG               ${SUPPORT_BORG})
+set(ANGBAND_CAP_BORG_HIGH_SCORES   ${SUPPORT_BORG_HIGH_SCORES})
+
+set(ANGBAND_CAP_SETGID             OFF)
+set(ANGBAND_CAP_PRIVATE_PATHS      OFF)
+set(ANGBAND_CAP_GAMEDATA_IN_LIB    OFF)
+
+if(SHARED_INSTALL)
+    set(ANGBAND_CAP_SETGID         ON)
+endif()
+if(READONLY_INSTALL)
+    set(ANGBAND_CAP_PRIVATE_PATHS  ON)
+endif()
+
+# Generate the unified capability header.
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h"
+    @ONLY
+)
+
+# Make sure the generated header is on the include path and the capability
+# defines reach every compilation unit.
+target_include_directories(OurCoreLib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(OurExecutable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# ======================================================================
+# Configuration Report
+# ======================================================================
+
+message("")
+message("============================================================")
+message("  Angband Build Configuration Summary")
+message("============================================================")
+message("")
+message("  Installation mode:")
+if(SC_INSTALL)
+    message("    Self-contained (in-place)")
+elseif(SHARED_INSTALL)
+    message("    Shared (setgid, group: ${INSTALL_GROUP_ID})")
+elseif(READONLY_INSTALL)
+    message("    Read-only (private user paths)")
+endif()
+message("")
+message("  Player Frontends:")
+macro(_angband_report_cap _var _label)
+    if(${_var})
+        message("    ${_label}:  YES")
+    else()
+        message("    ${_label}:  NO")
+    endif()
+endmacro()
+_angband_report_cap(ANGBAND_CAP_FRONTEND_GCU       "Curses (GCU)              ")
+_angband_report_cap(ANGBAND_CAP_FRONTEND_SDL       "SDL 1.x                   ")
+_angband_report_cap(ANGBAND_CAP_FRONTEND_SDL2      "SDL 2.x                   ")
+_angband_report_cap(ANGBAND_CAP_FRONTEND_X11       "X11                       ")
+_angband_report_cap(ANGBAND_CAP_FRONTEND_WINDOWS   "Windows                   ")
+message("")
+message("  Sound Support:")
+_angband_report_cap(ANGBAND_CAP_SOUND_SDL          "SDL 1.x mixer             ")
+_angband_report_cap(ANGBAND_CAP_SOUND_SDL2         "SDL 2.x mixer             ")
+_angband_report_cap(ANGBAND_CAP_SOUND_WINDOWS      "Windows built-in          ")
+_angband_report_cap(ANGBAND_CAP_SOUND              "Generic sound (any)       ")
+message("")
+message("  Auxiliary Frontends:")
+_angband_report_cap(ANGBAND_CAP_FRONTEND_SPOIL     "Spoiler generation        ")
+_angband_report_cap(ANGBAND_CAP_FRONTEND_STATS     "Statistics                ")
+_angband_report_cap(ANGBAND_CAP_FRONTEND_TEST      "Test harness              ")
+message("")
+message("  Other Features:")
+_angband_report_cap(ANGBAND_CAP_STATS_BACKEND      "Statistics backend        ")
+_angband_report_cap(ANGBAND_CAP_BORG               "Borg autoplay             ")
+_angband_report_cap(ANGBAND_CAP_BORG_HIGH_SCORES   "Borg in high scores       ")
+_angband_report_cap(ANGBAND_CAP_SETGID             "Setgid shared install     ")
+_angband_report_cap(ANGBAND_CAP_PRIVATE_PATHS      "Private user paths        ")
+message("")
+
+# Validate: ensure at least one player frontend is available.
+set(_angband_has_player_frontend FALSE)
+foreach(_cap ANGBAND_CAP_FRONTEND_GCU
+             ANGBAND_CAP_FRONTEND_SDL
+             ANGBAND_CAP_FRONTEND_SDL2
+             ANGBAND_CAP_FRONTEND_X11
+             ANGBAND_CAP_FRONTEND_WINDOWS)
+    if(${_cap})
+        set(_angband_has_player_frontend TRUE)
+    endif()
+endforeach()
+if(NOT _angband_has_player_frontend)
+    message(WARNING "  *** No player frontend is enabled!  The game will not be playable. ***")
+    message(WARNING "      Enable at least one of: SUPPORT_GCU_FRONTEND,")
+    message(WARNING "      SUPPORT_SDL_FRONTEND, SUPPORT_SDL2_FRONTEND,")
+    message(WARNING "      SUPPORT_X11_FRONTEND, or SUPPORT_WINDOWS_FRONTEND.")
+    message("")
+endif()
+
+message("============================================================")
+message("")
+
 # Set up to generate documentation if requested.
 if(BUILD_DOC)
     include(src/cmake/modules/SphinxDocument.cmake)

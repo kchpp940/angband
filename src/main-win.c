@@ -58,11 +58,9 @@
 #include "buildid.h"
 #include "cmds.h"
 #include "cave.h"
-#include "game-event.h"
 #include "game-world.h"
 #include "grafmode.h"
 #include "init.h"
-#include "player-calcs.h"
 #include "savefile.h"
 #include "ui-command.h"
 #include "ui-display.h"
@@ -72,7 +70,6 @@
 #include "ui-map.h"
 #include "ui-output.h"
 #include "ui-prefs.h"
-#include "ui-term.h"
 #include "win/win-menu.h"
 
 /* Set the minimum version of Windows to accept:
@@ -5275,257 +5272,6 @@ static void init_stuff(void)
 
 
 /**
- * Tracks whether the Windows frontend has registered its lifecycle hooks.
- * win_reinit() is called both at startup and on restart-without-exiting,
- * so we guard against re-registering the lifecycle hooks. The UI event
- * handlers themselves are registered/unregistered inside the lifecycle
- * hooks so they correctly track world/game enter/leave boundaries.
- */
-static bool win_lifecycle_registered = false;
-static bool win_ui_handlers_registered = false;
-static bool win_game_handlers_registered = false;
-
-/**
- * Windows frontend handler for danger state events. Directly calls the
- * Term-level bell, then adds the platform-specific window caption/taskbar
- * flash on critical HP/Mana danger via FlashWindowEx. This is the sole
- * consumer of DANGER events in the Windows frontend.
- */
-static void win_handle_danger(game_event_type type, game_event_data *ev_data,
-							  void *user)
-{
-	if (!ev_data) return;
-
-	if (ev_data->danger.level == DANGER_CRITICAL &&
-		(type == EVENT_DANGER_HP)) {
-		if (Term)
-			Term_xtra(TERM_XTRA_NOISE, 0);
-	}
-
-	if (ev_data->danger.level == DANGER_CRITICAL && data[0].w) {
-		FLASHWINFO fwi;
-		fwi.cbSize = sizeof(fwi);
-		fwi.hwnd = data[0].w;
-		fwi.dwFlags = FLASHW_CAPTION | FLASHW_TRAY | FLASHW_TIMERNOFG;
-		fwi.uCount = 3;
-		fwi.dwTimeout = 0;
-		FlashWindowEx(&fwi);
-	}
-}
-
-/**
- * Windows frontend handler for end-of-frame flush. Directly calls
- * Term_fresh(). Windows GDI rendering uses Term_redraw_section -> BitBlt
- * so no explicit backbuffer swap is needed; hook retained for future
- * VSync throttling if needed.
- */
-static void win_handle_ui_flush(game_event_type type, game_event_data *ev_data,
-								void *user)
-{
-	(void)type; (void)ev_data; (void)user;
-	if (Term)
-		Term_fresh();
-}
-
-/**
- * Windows frontend handler for highlighted messages. Directly composes
- * event data and calls display_message() + message_flush().
- */
-static void win_handle_message_highlight(game_event_type type,
-										 game_event_data *ev_data, void *user)
-{
-	if (!ev_data) return;
-
-	int msg_type = ev_data->message_highlight.type;
-	const char *text = ev_data->message_highlight.text;
-
-	if (text) {
-		game_event_data mdata;
-		memset(&mdata, 0, sizeof(mdata));
-		mdata.message.type = msg_type;
-		mdata.message.msg = text;
-		display_message(type, &mdata, user);
-	}
-
-	message_flush(type, NULL, user);
-}
-
-/**
- * Windows frontend handler for status bar repaint requests. Merges flags
- * and calls update_statusline_aux() + update_sidebar() directly.
- */
-static void win_handle_statusbar(game_event_type type, game_event_data *ev_data,
-								 void *user)
-{
-	if (!ev_data) return;
-
-	uint32_t flags = ev_data->statusbar.flags;
-	if (!flags) return;
-
-	player->upkeep->redraw |= flags;
-
-	if (flags & (PR_MISC | PR_TITLE | PR_STATE | PR_STUDY | PR_DEPTH |
-	             PR_HEALTH | PR_SPEED | PR_STATS | PR_ARMOR | PR_HP |
-	             PR_MANA | PR_GOLD | PR_EXP)) {
-		int row = Term->hgt - 1;
-		if (Term->sidebar_mode == SIDEBAR_TOP) row = 3;
-		update_statusline_aux(row, COL_MAP);
-	}
-
-	if (flags & (PR_MISC | PR_TITLE | PR_STATE | PR_STUDY | PR_DEPTH |
-	             PR_HEALTH | PR_SPEED | PR_STATS | PR_ARMOR | PR_HP |
-	             PR_MANA | PR_GOLD | PR_EXP | PR_INVEN | PR_EQUIP)) {
-		game_event_type sb_type = EVENT_EXPERIENCE;
-		if (flags & PR_HP) sb_type = EVENT_HP;
-		else if (flags & PR_MANA) sb_type = EVENT_MANA;
-		else if (flags & PR_EXP) sb_type = EVENT_EXPERIENCE;
-		update_sidebar(sb_type, NULL, user);
-	}
-}
-
-/**
- * Windows frontend handler for full or partial map redraw requests.
- */
-static void win_handle_map_redraw(game_event_type type, game_event_data *ev_data,
-								  void *user)
-{
-	if (!ev_data) return;
-
-	if (ev_data->map_redraw.full || (ev_data->map_redraw.x1 == -1)) {
-		prt_map();
-	} else {
-		int x, y;
-		game_event_data pdata;
-		for (y = ev_data->map_redraw.y1; y <= ev_data->map_redraw.y2; y++) {
-			for (x = ev_data->map_redraw.x1; x <= ev_data->map_redraw.x2; x++) {
-				memset(&pdata, 0, sizeof(pdata));
-				pdata.point.x = x;
-				pdata.point.y = y;
-				update_maps(EVENT_MAP, &pdata, angband_term[0]);
-			}
-		}
-	}
-}
-
-/**
- * Windows frontend handler for subwindow repaints. Iterates all subwindows.
- */
-static void win_handle_subwindow(game_event_type type, game_event_data *ev_data,
-								 void *user)
-{
-	int i;
-	term *old = Term;
-
-	for (i = 1; i < ANGBAND_TERM_MAX; i++) {
-		if (!angband_term[i]) continue;
-
-		Term_activate(angband_term[i]);
-
-		if (window_flag[i] & PW_INVEN)
-			update_inven_subwindow(type, ev_data, angband_term[i]);
-		else if (window_flag[i] & PW_EQUIP)
-			update_equip_subwindow(type, ev_data, angband_term[i]);
-
-		if (window_flag[i] & PW_MONLIST)
-			update_monlist_subwindow(type, ev_data, angband_term[i]);
-
-		if (window_flag[i] & PW_ITEMLIST)
-			update_itemlist_subwindow(type, ev_data, angband_term[i]);
-
-		if (window_flag[i] & PW_MONSTER)
-			update_monster_subwindow(type, ev_data, angband_term[i]);
-
-		if (window_flag[i] & PW_OBJECT)
-			update_object_subwindow(type, ev_data, angband_term[i]);
-
-		if (window_flag[i] & PW_MESSAGE)
-			update_messages_subwindow(type, ev_data, angband_term[i]);
-	}
-
-	Term_activate(old);
-}
-
-/**
- * Windows frontend hook fired when entering the game world. Registers all
- * unified UI event consumers owned by the Windows frontend.
- */
-static void win_enter_world(game_event_type type, game_event_data *ev_data,
-							void *user)
-{
-	(void)type; (void)ev_data; (void)user;
-
-	if (win_ui_handlers_registered) return;
-	win_ui_handlers_registered = true;
-
-	event_add_handler(EVENT_DANGER_HP, win_handle_danger, NULL);
-	event_add_handler(EVENT_DANGER_MANA, win_handle_danger, NULL);
-	event_add_handler(EVENT_MESSAGE_HIGHLIGHT,
-					  win_handle_message_highlight, NULL);
-	event_add_handler(EVENT_STATUSBAR, win_handle_statusbar, NULL);
-	event_add_handler(EVENT_MAP_REDRAW, win_handle_map_redraw, NULL);
-	event_add_handler(EVENT_SUBWINDOW, win_handle_subwindow, NULL);
-	event_add_handler(EVENT_UI_FLUSH, win_handle_ui_flush, NULL);
-}
-
-/**
- * Windows frontend hook fired when leaving the game world. Unregisters all
- * UI event handlers registered in win_enter_world().
- */
-static void win_leave_world(game_event_type type, game_event_data *ev_data,
-							void *user)
-{
-	(void)type; (void)ev_data; (void)user;
-
-	if (!win_ui_handlers_registered) return;
-	win_ui_handlers_registered = false;
-
-	event_remove_handler(EVENT_DANGER_HP, win_handle_danger, NULL);
-	event_remove_handler(EVENT_DANGER_MANA, win_handle_danger, NULL);
-	event_remove_handler(EVENT_MESSAGE_HIGHLIGHT,
-						 win_handle_message_highlight, NULL);
-	event_remove_handler(EVENT_STATUSBAR, win_handle_statusbar, NULL);
-	event_remove_handler(EVENT_MAP_REDRAW, win_handle_map_redraw, NULL);
-	event_remove_handler(EVENT_SUBWINDOW, win_handle_subwindow, NULL);
-	event_remove_handler(EVENT_UI_FLUSH, win_handle_ui_flush, NULL);
-}
-
-/**
- * Windows frontend hook fired when entering an interactive game session.
- * Registers message and input-flush event consumers.
- */
-static void win_enter_game(game_event_type type, game_event_data *ev_data,
-						   void *user)
-{
-	(void)type; (void)ev_data; (void)user;
-
-	if (win_game_handlers_registered) return;
-	win_game_handlers_registered = true;
-
-	event_add_handler(EVENT_MESSAGE, display_message, NULL);
-	event_add_handler(EVENT_BELL, bell_message, NULL);
-	event_add_handler(EVENT_INPUT_FLUSH, flush, NULL);
-	event_add_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
-}
-
-/**
- * Windows frontend hook fired when leaving an interactive game session.
- * Unregisters all handlers registered by win_enter_game().
- */
-static void win_leave_game(game_event_type type, game_event_data *ev_data,
-						   void *user)
-{
-	(void)type; (void)ev_data; (void)user;
-
-	if (!win_game_handlers_registered) return;
-	win_game_handlers_registered = false;
-
-	event_remove_handler(EVENT_MESSAGE, display_message, NULL);
-	event_remove_handler(EVENT_BELL, bell_message, NULL);
-	event_remove_handler(EVENT_INPUT_FLUSH, flush, NULL);
-	event_remove_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
-}
-
-/**
  * Perform (as ui-game.c's reinit_hook) platform-specific actions necessary
  * when restarting without exiting.  Also called directly at startup.
  */
@@ -5546,19 +5292,6 @@ static void win_reinit(void)
 	 */
 	event_add_handler(EVENT_LEAVE_INIT, monitor_new_savefile, NULL);
 	event_add_handler(EVENT_LEAVE_GAME, finish_monitoring_savefile, NULL);
-
-	/* Register Windows frontend lifecycle hooks. win_reinit() is called on
-	 * both initial startup and restart-without-exiting, so guard against
-	 * double-registering the lifecycle hooks themselves. The UI event
-	 * handlers are registered/unregistered by the lifecycle hooks so they
-	 * correctly track world/game enter/leave boundaries. */
-	if (!win_lifecycle_registered) {
-		win_lifecycle_registered = true;
-		event_add_handler(EVENT_ENTER_WORLD, win_enter_world, NULL);
-		event_add_handler(EVENT_LEAVE_WORLD, win_leave_world, NULL);
-		event_add_handler(EVENT_ENTER_GAME,  win_enter_game,  NULL);
-		event_add_handler(EVENT_LEAVE_GAME,  win_leave_game,  NULL);
-	}
 }
 
 

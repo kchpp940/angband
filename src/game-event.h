@@ -100,15 +100,6 @@ typedef enum game_event_type
 	EVENT_GEN_ROOM_END, /* has flag in event data indicating success */
 	EVENT_GEN_TUNNEL_FINISHED, /* has tunnel in event data with results */
 
-	EVENT_DANGER_HP,    /* HP danger level changed */
-	EVENT_DANGER_MANA,  /* Mana danger level changed */
-	EVENT_UI_FLUSH,     /* End of frame: coalesce and render all pending UI updates */
-
-	EVENT_MESSAGE_HIGHLIGHT, /* Important message that needs highlighting (e.g. warnings) */
-	EVENT_STATUSBAR,    /* Status bar fields need repainting (uses PR_* flags) */
-	EVENT_MAP_REDRAW,   /* Full or partial map needs repainting */
-	EVENT_SUBWINDOW,    /* A subwindow needs repainting */
-
 	EVENT_END  /* Can be sent at the end of a series of events */
 } game_event_type;
 
@@ -205,52 +196,7 @@ typedef union
 		 */
 		bool early;
 	} tunnel;
-
-	struct
-	{
-		/* Danger level: 0=safe(green), 1=warning(yellow), 2=danger(red) */
-		int level;
-		/* Current value */
-		int cur;
-		/* Maximum value */
-		int max;
-	} danger;
-
-	struct
-	{
-		/* Message type (MSG_* constant) */
-		int type;
-		/* Message text */
-		const char *text;
-	} message_highlight;
-
-	struct
-	{
-		/* PR_* flags indicating which status bar fields need repainting */
-		uint32_t flags;
-	} statusbar;
-
-	struct
-	{
-		/* True for full redraw, false for incremental (only changed tiles) */
-		bool full;
-		/* Bounding box for partial redraw (-1 means full map) */
-		int x1, y1, x2, y2;
-	} map_redraw;
-
-	struct
-	{
-		/* Subwindow type identifier */
-		int type;
-	} subwindow;
 } game_event_data;
-
-typedef enum
-{
-	DANGER_SAFE = 0,
-	DANGER_WARNING = 1,
-	DANGER_CRITICAL = 2
-} danger_level_t;
 
 
 /**
@@ -301,15 +247,5 @@ void event_signal_missile(game_event_type type,
 void event_signal_size(game_event_type type, int h, int w);
 void event_signal_tunnel(game_event_type type, int nstep, int npierce, int ndug,
 	int dstart, int dend, bool early);
-void event_signal_danger(game_event_type type, int level, int cur, int max);
-
-void event_signal_message_highlight(int msg_type, const char *text);
-void event_signal_statusbar(uint32_t flags);
-void event_signal_map_redraw(bool full, int x1, int y1, int x2, int y2);
-void event_signal_subwindow(int type);
-
-void event_queue_begin(void);
-void event_queue_flush(void);
-bool event_queue_is_active(void);
 
 #endif /* INCLUDED_GAME_EVENT_H */

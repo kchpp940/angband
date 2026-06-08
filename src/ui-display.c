@@ -841,8 +841,8 @@ static const struct side_handler_t
  * important lower numbers.  As the screen gets smaller, the rows start to
  * disappear in the order of lowest to highest importance.
  */
-void update_sidebar(game_event_type type, game_event_data *data,
-					void *user)
+static void update_sidebar(game_event_type type, game_event_data *data,
+						   void *user)
 {
 	int x, y, row;
 	int max_priority;
@@ -1298,7 +1298,7 @@ static status_f *status_handlers[] =
   prt_descent, prt_state, prt_study, prt_tmd, prt_dtrap, prt_terrain };
 
 
-void update_statusline_aux(int row, int col)
+static void update_statusline_aux(int row, int col)
 {
 	size_t i;
 
@@ -1344,7 +1344,7 @@ static void trace_map_updates(game_event_type type, game_event_data *data,
 /**
  * Update either a single map grid or a whole map
  */
-void update_maps(game_event_type type, game_event_data *data, void *user)
+static void update_maps(game_event_type type, game_event_data *data, void *user)
 {
 	term *t = user;
 
@@ -1506,10 +1506,11 @@ void idle_update(void)
 	if (!OPT(player, animate_flicker) || (use_graphics != GRAPHICS_NONE))
 		return;
 
-	/* Animate shimmering monsters - only local Term changes, no global redraw */
+	/* Animate and redraw if necessary */
 	do_animation();
+	redraw_stuff(player);
 
-	/* Flush the animation to screen */
+	/* Refresh the main screen */
 	Term_fresh();
 }
 
@@ -1601,9 +1602,10 @@ static void display_explosion(game_event_type type, game_event_data *data,
 
 		/* We have all the grids at the current radius, so draw it */
 		if (new_radius) {
-			/* Flush all the grids at this radius - animation only,
-			 * no global state redraw to avoid flicker */
+			/* Flush all the grids at this radius */
 			Term_fresh();
+			if (player->upkeep->redraw)
+				redraw_stuff(player);
 
 			/* Delay to show this radius appearing */
 			if (drawn || drawing) {
@@ -1632,6 +1634,8 @@ static void display_explosion(game_event_type type, game_event_data *data,
 
 		/* Flush the explosion */
 		Term_fresh();
+		if (player->upkeep->redraw)
+			redraw_stuff(player);
 	}
 }
 
@@ -1663,9 +1667,13 @@ static void display_bolt(game_event_type type, game_event_data *data,
 		print_rel(c, a, y, x);
 		move_cursor_relative(y, x);
 		Term_fresh();
+		if (player->upkeep->redraw)
+			redraw_stuff(player);
 		Term_xtra(TERM_XTRA_DELAY, msec);
 		event_signal_point(EVENT_MAP, x, y);
 		Term_fresh();
+		if (player->upkeep->redraw)
+			redraw_stuff(player);
 
 		/* Display "beam" grids */
 		if (beam) {
@@ -1700,11 +1708,13 @@ static void display_missile(game_event_type type, game_event_data *data,
 		move_cursor_relative(y, x);
 
 		Term_fresh();
+		if (player->upkeep->redraw) redraw_stuff(player);
 
 		Term_xtra(TERM_XTRA_DELAY, msec);
 		event_signal_point(EVENT_MAP, x, y);
 
 		Term_fresh();
+		if (player->upkeep->redraw) redraw_stuff(player);
 	}
 }
 
@@ -1719,8 +1729,8 @@ static void display_missile(game_event_type type, game_event_data *data,
  */
 static bool flip_inven;
 
-void update_inven_subwindow(game_event_type type, game_event_data *data,
-							void *user)
+static void update_inven_subwindow(game_event_type type, game_event_data *data,
+				       void *user)
 {
 	term *old = Term;
 	term *inv_term = user;
@@ -1739,7 +1749,7 @@ void update_inven_subwindow(game_event_type type, game_event_data *data,
 	Term_activate(old);
 }
 
-void update_equip_subwindow(game_event_type type, game_event_data *data,
+static void update_equip_subwindow(game_event_type type, game_event_data *data,
 				   void *user)
 {
 	term *old = Term;
@@ -1797,8 +1807,8 @@ void toggle_inven_equip(void)
 	Term_activate(old);
 }
 
-void update_itemlist_subwindow(game_event_type type,
-							   game_event_data *data, void *user)
+static void update_itemlist_subwindow(game_event_type type,
+									  game_event_data *data, void *user)
 {
 	term *old = Term;
 	term *inv_term = user;
@@ -1814,8 +1824,8 @@ void update_itemlist_subwindow(game_event_type type,
 	Term_activate(old);
 }
 
-void update_monlist_subwindow(game_event_type type,
-							  game_event_data *data, void *user)
+static void update_monlist_subwindow(game_event_type type,
+									 game_event_data *data, void *user)
 {
 	term *old = Term;
 	term *inv_term = user;
@@ -1832,8 +1842,8 @@ void update_monlist_subwindow(game_event_type type,
 }
 
 
-void update_monster_subwindow(game_event_type type,
-							  game_event_data *data, void *user)
+static void update_monster_subwindow(game_event_type type,
+									 game_event_data *data, void *user)
 {
 	term *old = Term;
 	term *inv_term = user;
@@ -1853,8 +1863,8 @@ void update_monster_subwindow(game_event_type type,
 }
 
 
-void update_object_subwindow(game_event_type type,
-							 game_event_data *data, void *user)
+static void update_object_subwindow(game_event_type type,
+									game_event_data *data, void *user)
 {
 	term *old = Term;
 	term *inv_term = user;
@@ -1873,8 +1883,8 @@ void update_object_subwindow(game_event_type type,
 }
 
 
-void update_messages_subwindow(game_event_type type,
-							   game_event_data *data, void *user)
+static void update_messages_subwindow(game_event_type type,
+									  game_event_data *data, void *user)
 {
 	term *old = Term;
 	term *inv_term = user;
@@ -2468,52 +2478,9 @@ static void show_splashscreen(game_event_type type, game_event_data *data,
 
 /**
  * ------------------------------------------------------------------------
- * Frontend-owned event consumption.
- *
- * The following unified UI events are NO LONGER handled in the generic
- * ui-display.c layer.  Each frontend (SDL2, Windows, GCU) registers its
- * own handlers in its EVENT_ENTER_WORLD / EVENT_ENTER_GAME lifecycle
- * hooks and owns the complete rendering pipeline:
- *
- *   EVENT_DANGER_HP         -- frontend calls Term_xtra(TERM_XTRA_NOISE)
- *                              + platform flash (SDL_FlashWindow /
- *                              FlashWindowEx / curses flash())
- *   EVENT_DANGER_MANA       -- same
- *   EVENT_MESSAGE_HIGHLIGHT -- frontend calls display_message() +
- *                              message_flush() directly
- *   EVENT_STATUSBAR         -- frontend ORs into player->upkeep->redraw
- *                              + calls update_statusline_aux() and
- *                              update_sidebar() directly
- *   EVENT_MAP_REDRAW        -- frontend calls prt_map() or iterates with
- *                              update_maps() directly
- *   EVENT_SUBWINDOW         -- frontend iterates angband_term[] and calls
- *                              update_inven_subwindow / update_equip_subwindow
- *                              / update_monlist_subwindow / update_itemlist_
- *                              subwindow / update_monster_subwindow /
- *                              update_object_subwindow / update_messages_
- *                              subwindow directly
- *   EVENT_UI_FLUSH          -- frontend calls Term_fresh() + any
- *                              platform present/swap
- *   EVENT_MESSAGE / _BELL / _INPUT_FLUSH / _MESSAGE_FLUSH
- *                         -- frontend registers display_message /
- *                              bell_message / flush / message_flush
- *                              directly from ui-input.c
- *
- * The pure Term-level rendering primitives (update_statusline_aux,
- * update_sidebar, update_maps, prt_map, update_*_subwindow, Term_fresh,
- * display_message, message_flush, bell_message, flush) remain defined
- * here and in ui-input.c. They are exported from ui-display.h /
- * ui-input.h so frontends can compose them into their own event handlers.
- *
- * Nothing in this file emits events; frontends are the sole consumers.
- * ------------------------------------------------------------------------
- */
-
-/**
- * ------------------------------------------------------------------------
  * Visual updates betweeen player turns.
  * ------------------------------------------------------------------------ */
-static void display_refresh(game_event_type type, game_event_data *data, void *user)
+static void refresh(game_event_type type, game_event_data *data, void *user)
 {
 	/* Place cursor on player/target */
 	if (OPT(player, show_target) && target_sighted()) {
@@ -2754,11 +2721,9 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 	/* Allow big cursor */
 	smlcurs = false;
 
-	/* Redraw stuff - batch initial world UI events */
-	event_queue_begin();
+	/* Redraw stuff */
 	player->upkeep->redraw |= (PR_INVEN | PR_EQUIP | PR_MONSTER | PR_MESSAGE);
 	redraw_stuff(player);
-	event_queue_flush();
 
 	/* Because of the "flexible" sidebar, all these things trigger
 	   the same function. */
@@ -2801,7 +2766,7 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 	event_add_handler(EVENT_CHECK_INTERRUPT, check_for_player_interrupt, NULL);
 
 	/* Refresh the screen and put the cursor in the appropriate place */
-	event_add_handler(EVENT_REFRESH, display_refresh, NULL);
+	event_add_handler(EVENT_REFRESH, refresh, NULL);
 
 	/* Do the visual updates required on a new dungeon level */
 	event_add_handler(EVENT_NEW_LEVEL_DISPLAY, new_level_display_update, NULL);
@@ -2814,13 +2779,6 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 
 	/* Allow the player to cheat death, if appropriate */
 	event_add_handler(EVENT_CHEAT_DEATH, cheat_death, NULL);
-
-	/* NOTE: Unified UI event handlers (DANGER_HP/MANA, MESSAGE_HIGHLIGHT,
-	 * STATUSBAR, MAP_REDRAW, SUBWINDOW, UI_FLUSH) are NO LONGER registered
-	 * here. Each frontend (SDL2/Windows/GCU) registers them independently
-	 * in its own EVENT_ENTER_WORLD handler so it can add platform-specific
-	 * effects (window flash, sound, visual bell, etc.) alongside the pure
-	 * Term rendering provided by ui_display_handle_*(). */
 
 	/* Decrease "icky" depth */
 	screen_save_depth--;
@@ -2870,7 +2828,7 @@ static void ui_leave_world(game_event_type type, game_event_data *data,
 	event_remove_handler(EVENT_CHECK_INTERRUPT, check_for_player_interrupt, NULL);
 
 	/* Refresh the screen and put the cursor in the appropriate place */
-	event_remove_handler(EVENT_REFRESH, display_refresh, NULL);
+	event_remove_handler(EVENT_REFRESH, refresh, NULL);
 
 	/* Do the visual updates required on a new dungeon level */
 	event_remove_handler(EVENT_NEW_LEVEL_DISPLAY, new_level_display_update, NULL);
@@ -2883,10 +2841,6 @@ static void ui_leave_world(game_event_type type, game_event_data *data,
 
 	/* Allow the player to cheat death, if appropriate */
 	event_remove_handler(EVENT_CHEAT_DEATH, cheat_death, NULL);
-
-	/* NOTE: Unified UI event handlers are NO LONGER deregistered here.
-	 * Each frontend (SDL2/Windows/GCU) owns the registration lifecycle in
-	 * its own EVENT_LEAVE_WORLD handler. See init_display(). */
 
 	/* Prepare to interact with a store */
 	event_add_handler(EVENT_USE_STORE, use_store, NULL);
@@ -2901,25 +2855,33 @@ static void ui_leave_world(game_event_type type, game_event_data *data,
 static void ui_enter_game(game_event_type type, game_event_data *data,
 						  void *user)
 {
-	(void)type; (void)data; (void)user;
+	/* Display a message to the player */
+	event_add_handler(EVENT_MESSAGE, display_message, NULL);
 
-	/* NOTE: Message/display event handlers (EVENT_MESSAGE, EVENT_BELL,
-	 * EVENT_INPUT_FLUSH, EVENT_MESSAGE_FLUSH) are NO LONGER registered
-	 * here. Each frontend registers them in its own EVENT_ENTER_GAME
-	 * handler, together with platform-specific extras. See the
-	 * corresponding frontend init in main-sdl2.c/main-win.c/main-gcu.c.
-	 *
-	 * This hook is retained as a lifecycle anchor for future generic
-	 * state that needs to enter/leave with the game session. */
+	/* Display a message and make a noise to the player */
+	event_add_handler(EVENT_BELL, bell_message, NULL);
+
+	/* Tell the UI to ignore all pending input */
+	event_add_handler(EVENT_INPUT_FLUSH, flush, NULL);
+
+	/* Print all waiting messages */
+	event_add_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
 }
 
 static void ui_leave_game(game_event_type type, game_event_data *data,
 						  void *user)
 {
-	(void)type; (void)data; (void)user;
+	/* Display a message to the player */
+	event_remove_handler(EVENT_MESSAGE, display_message, NULL);
 
-	/* NOTE: See ui_enter_game(). Message event handlers are owned and
-	 * deregistered by each frontend. */
+	/* Display a message and make a noise to the player */
+	event_remove_handler(EVENT_BELL, bell_message, NULL);
+
+	/* Tell the UI to ignore all pending input */
+	event_remove_handler(EVENT_INPUT_FLUSH, flush, NULL);
+
+	/* Print all waiting messages */
+	event_remove_handler(EVENT_MESSAGE_FLUSH, message_flush, NULL);
 }
 
 void init_display(void)
