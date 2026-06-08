@@ -19,7 +19,7 @@
 
 #include "borg-item-val.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../init.h"
 #include "../obj-tval.h"

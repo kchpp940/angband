@@ -119,7 +119,7 @@ struct keypress *inkey_next = NULL;
  */
 static bool keymap_auto_more;
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 /*
  * Mega-Hack -- special "inkey_hack" hook.  XXX XXX XXX
@@ -129,7 +129,7 @@ static bool keymap_auto_more;
  */
 struct keypress(*inkey_hack)(int flush_first) = NULL;
 
-#endif /* ALLOW_BORG */
+#endif /* ANGBAND_CAP_BORG */
 
 /**
  * Get a keypress from the user.
@@ -220,7 +220,7 @@ ui_event inkey_ex(void)
 	/* Forget pointer */
 	inkey_next = NULL;
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 	/* Mega-Hack -- Use the special hook */
 	if (inkey_hack)
 	{
@@ -236,7 +236,7 @@ ui_event inkey_ex(void)
 			return (ke);
 		}
 	}
-#endif /* ALLOW_BORG */
+#endif /* ANGBAND_CAP_BORG */
 
 	/* Get the cursor state */
 	(void)Term_get_cursor(&cursor_state);

@@ -338,7 +338,7 @@ void init_file_paths(const char *configpath, const char *libpath, const char *da
 }
 
 	/* Paths generally containing configuration data for Angband. */
-#ifdef GAMEDATA_IN_LIB
+#if ANGBAND_CAP_GAMEDATA_IN_LIB
 	BUILD_DIRECTORY_PATH(ANGBAND_DIR_GAMEDATA, libpath, "gamedata");
 #else
 	BUILD_DIRECTORY_PATH(ANGBAND_DIR_GAMEDATA, configpath, "gamedata");
@@ -385,11 +385,11 @@ void init_file_paths(const char *configpath, const char *libpath, const char *da
 	/* Build the path to the archive directory. */
 	BUILD_DIRECTORY_PATH(ANGBAND_DIR_ARCHIVE, ANGBAND_DIR_USER, "archive");
 
-#ifdef USE_PRIVATE_PATHS
+#if ANGBAND_CAP_PRIVATE_PATHS
 	userpath = ANGBAND_DIR_USER;
-#else /* !USE_PRIVATE_PATHS */
+#else
 	userpath = (char *)datapath;
-#endif /* USE_PRIVATE_PATHS */
+#endif
 
 	/* Build the path to the score and save directories */
 	BUILD_DIRECTORY_PATH(ANGBAND_DIR_SCORES, userpath, "scores");

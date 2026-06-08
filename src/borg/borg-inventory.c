@@ -19,7 +19,7 @@
 
 #include "borg-inventory.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../obj-desc.h"
 

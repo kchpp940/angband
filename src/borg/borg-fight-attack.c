@@ -19,7 +19,7 @@
 
 #include "borg-fight-attack.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../generate.h"
 #include "../obj-slays.h"

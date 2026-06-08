@@ -23,7 +23,7 @@
 #include "player-birth.h"
 #include "ui-game.h"
 
-#ifdef USE_TEST
+#if ANGBAND_CAP_FRONTEND_TEST
 
 static int prompt = 0;
 static int verbose = 0;

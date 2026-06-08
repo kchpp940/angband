@@ -19,7 +19,7 @@
 
 #include "borg-init.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../obj-ignore.h"
 #include "../player-calcs.h"

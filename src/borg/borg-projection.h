@@ -22,7 +22,7 @@
 #include "../angband.h"
 #include "../z-type.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 /*
  * Current targetted location

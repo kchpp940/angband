@@ -23,7 +23,7 @@
  */
 #include "../angband.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 /*
  * Allow the borg to play continously.  Reset all values,

@@ -19,7 +19,7 @@
 
 #include "borg-flow-glyph.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "borg-cave.h"
 #include "borg-flow-misc.h"

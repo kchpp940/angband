@@ -23,7 +23,7 @@
  */
 #include "../angband.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 extern int          borg_numb_live_unique;
 extern unsigned int borg_first_living_unique;

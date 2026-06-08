@@ -21,7 +21,7 @@
  */
 #include "../angband.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 /* dynamically loaded activations */
 extern int act_dragon_power;

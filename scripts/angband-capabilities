@@ -1,0 +1,247 @@
+#!/bin/sh
+# ============================================================================
+#  Angband Unified Build Capability Engine
+# ============================================================================
+#  Single source of truth for capability derivation, validation, default
+#  fallback, and reporting.  Both CMake and Autotools call this script so
+#  neither build system maintains its own copy of the rules.
+#
+#  Usage:
+#    angband-capabilities <mode> [<inputs...>]
+#
+#  Modes:
+#    cmake       -- Emit CMake `set(ANGBAND_CAP_* 0/1 PARENT_SCOPE)` lines.
+#    autotools   -- Emit shell `ac_cv_angband_cap_*=0/1` assignments that
+#                   configure.ac then turns into AC_DEFINEs.
+#    report      -- Emit a human-readable configuration report.
+#    validate    -- Exit non-zero if the configuration is invalid (e.g. no
+#                   player frontend enabled); write warnings to stderr.
+#    list        -- Emit all known capability names (one per line).
+#
+#  Inputs are passed as `NAME=VALUE` pairs on the command line, where NAME
+#  is a capability without the `ANGBAND_CAP_` prefix and VALUE is 0 or 1.
+#  Any capability not listed defaults to 0.
+#
+#  Example:
+#    scripts/angband-capabilities report \
+#        FRONTEND_GCU=1 FRONTEND_SDL2=0 SOUND_SDL2=0 FRONTEND_SPOIL=1
+# ============================================================================
+
+set -u
+
+# ---------------------------------------------------------------------------
+#  1.  Canonical capability registry (order matters for the report).
+#      Each entry: NAME|CATEGORY|DISPLAY_LABEL
+#      Labels use '_' instead of spaces so we stay within shell word rules;
+#      they get translated back at display time.
+# ---------------------------------------------------------------------------
+CAP_01="FRONTEND_GCU|player|Curses_(GCU)"
+CAP_02="FRONTEND_SDL|player|SDL_1.x"
+CAP_03="FRONTEND_SDL2|player|SDL_2.x"
+CAP_04="FRONTEND_X11|player|X11"
+CAP_05="FRONTEND_WINDOWS|player|Windows"
+CAP_06="FRONTEND_IBM|player|IBM_DOS"
+CAP_07="FRONTEND_COCOA|player|Cocoa_macOS"
+CAP_08="SOUND_SDL|sound|SDL_1.x_mixer"
+CAP_09="SOUND_SDL2|sound|SDL_2.x_mixer"
+CAP_10="SOUND_WINDOWS|sound|Windows_built-in"
+CAP_11="SOUND_COCOA|sound|Cocoa_built-in"
+CAP_12="SOUND|sound|Generic_sound_(any)"
+CAP_13="FRONTEND_SPOIL|aux|Spoiler_generation"
+CAP_14="FRONTEND_STATS|aux|Statistics"
+CAP_15="FRONTEND_TEST|aux|Test_harness"
+CAP_16="STATS_BACKEND|other|Statistics_backend"
+CAP_17="BORG|other|Borg_autoplay"
+CAP_18="BORG_HIGH_SCORES|other|Borg_in_high_scores"
+CAP_19="SETGID|other|Setgid_shared_install"
+CAP_20="PRIVATE_PATHS|other|Private_user_paths"
+CAP_21="GAMEDATA_IN_LIB|other|Gamedata_in_lib"
+CAP_COUNT=21
+
+# Helper: iterate every capability and call a handler function with the
+# three fields (name, category, display-label).  Avoids subshell pitfalls
+# of `something | while read`.
+cap_for_each() {
+    _handler=$1
+    _i=1
+    while [ "$_i" -le "$CAP_COUNT" ]; do
+        # Zero-pad the index
+        _idx=$(printf '%02d' "$_i")
+        eval "_entry=\$CAP_${_idx}"
+        _name="${_entry%%|*}"
+        _rest="${_entry#*|}"
+        _cat="${_rest%%|*}"
+        _label_raw="${_rest#*|}"
+        _label=$(printf '%s' "$_label_raw" | tr '_' ' ')
+        "$_handler" "$_name" "$_cat" "$_label"
+        _i=$((_i + 1))
+    done
+}
+
+# ---------------------------------------------------------------------------
+#  2.  Parse command-line inputs into the `cap_in_*` shell variables.
+# ---------------------------------------------------------------------------
+MODE="${1:-}"
+if [ -z "$MODE" ]; then
+    echo "angband-capabilities: missing mode (cmake|autotools|report|validate|list)" >&2
+    exit 2
+fi
+shift
+
+# Default every input to 0.
+_cap_init_one() { eval "cap_in_$1=0"; }
+cap_for_each _cap_init_one
+
+# Override with values supplied on the command line.
+for _arg in "$@"; do
+    _k="${_arg%%=*}"
+    _v="${_arg#*=}"
+    if [ "$_v" != "0" ] && [ "$_v" != "1" ]; then
+        echo "angband-capabilities: bad value for $_k (expected 0 or 1, got '$_v')" >&2
+        exit 2
+    fi
+    eval "cap_in_${_k}='${_v}'"
+done
+
+# ---------------------------------------------------------------------------
+#  3.  Derived / synthetic capabilities.
+#      Computed here so both build systems agree on the derivation rules.
+# ---------------------------------------------------------------------------
+# SOUND is the OR of every concrete sound backend.
+if [ "$cap_in_SOUND_SDL" = "1" ] || \
+   [ "$cap_in_SOUND_SDL2" = "1" ] || \
+   [ "$cap_in_SOUND_WINDOWS" = "1" ] || \
+   [ "$cap_in_SOUND_COCOA" = "1" ]; then
+    cap_out_SOUND=1
+else
+    cap_out_SOUND=0
+fi
+
+# Everything else passes through verbatim.
+_cap_copy_one() {
+    if [ "$1" = "SOUND" ]; then return 0; fi
+    eval "cap_out_$1=\$cap_in_$1"
+}
+cap_for_each _cap_copy_one
+
+# ---------------------------------------------------------------------------
+#  4.  Dependency / consistency validation.
+# ---------------------------------------------------------------------------
+WARN=""
+HAS_PLAYER_FRONTEND=0
+
+_cap_check_player() {
+    eval "_val=\$cap_out_$1"
+    if [ "$2" = "player" ] && [ "$_val" = "1" ]; then
+        HAS_PLAYER_FRONTEND=1
+    fi
+}
+cap_for_each _cap_check_player
+
+if [ "$HAS_PLAYER_FRONTEND" = "0" ]; then
+    WARN="${WARN}*** No player frontend is enabled!  The game will not be playable.
+    Enable at least one of: FRONTEND_GCU, FRONTEND_SDL,
+    FRONTEND_SDL2, FRONTEND_X11, FRONTEND_WINDOWS.
+"
+fi
+
+# BORG_HIGH_SCORES without BORG -> force off, warn.
+if [ "$cap_out_BORG_HIGH_SCORES" = "1" ] && [ "$cap_out_BORG" = "0" ]; then
+    WARN="${WARN}BORG_HIGH_SCORES requires BORG; forcing BORG_HIGH_SCORES off.
+"
+    cap_out_BORG_HIGH_SCORES=0
+fi
+
+# SETGID and PRIVATE_PATHS are mutually exclusive -> keep SETGID, clear
+# PRIVATE_PATHS, warn.
+if [ "$cap_out_SETGID" = "1" ] && [ "$cap_out_PRIVATE_PATHS" = "1" ]; then
+    WARN="${WARN}SETGID (shared install) and PRIVATE_PATHS are mutually exclusive;
+    keeping SETGID, clearing PRIVATE_PATHS.
+"
+    cap_out_PRIVATE_PATHS=0
+fi
+
+# ---------------------------------------------------------------------------
+#  5.  Output dispatch
+# ---------------------------------------------------------------------------
+emit_cmake() {
+    _cmake_one() {
+        eval "_val=\$cap_out_$1"
+        echo "set(ANGBAND_CAP_$1 ${_val})"
+    }
+    cap_for_each _cmake_one
+}
+
+emit_autotools() {
+    _at_one() {
+        eval "_val=\$cap_out_$1"
+        _lower=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
+        echo "ac_cv_angband_cap_${_lower}=${_val}"
+    }
+    cap_for_each _at_one
+}
+
+emit_report() {
+    echo "============================================================"
+    echo "  Angband Build Configuration Summary"
+    echo "============================================================"
+    echo ""
+
+    _last_cat=""
+    _prev_category_done=""
+
+    _report_one() {
+        if [ "$2" != "$_last_cat" ]; then
+            # Blank line between categories (except the very first one).
+            if [ -n "$_last_cat" ]; then
+                echo ""
+            fi
+            case "$2" in
+                player) echo "  Player Frontends:" ;;
+                sound)  echo "  Sound Support:" ;;
+                aux)    echo "  Auxiliary Frontends:" ;;
+                other)  echo "  Other Features:" ;;
+            esac
+            _last_cat="$2"
+        fi
+
+        eval "_val=\$cap_out_$1"
+        if [ "$_val" = "1" ]; then
+            printf "    %-26s:  YES\n" "$3"
+        else
+            printf "    %-26s:  NO\n"  "$3"
+        fi
+    }
+    cap_for_each _report_one
+
+    echo ""
+    if [ -n "$WARN" ]; then
+        echo "$WARN"
+    fi
+    echo "============================================================"
+}
+
+emit_list() {
+    _list_one() { echo "$1"; }
+    cap_for_each _list_one
+}
+
+case "$MODE" in
+    cmake)     emit_cmake ;;
+    autotools) emit_autotools ;;
+    report)    emit_report ;;
+    validate)
+        if [ -n "$WARN" ]; then
+            echo "$WARN" >&2
+        fi
+        if [ "$HAS_PLAYER_FRONTEND" = "0" ]; then
+            exit 1
+        fi
+        exit 0
+        ;;
+    list)      emit_list ;;
+    *)
+        echo "angband-capabilities: unknown mode '$MODE'" >&2
+        exit 2
+        ;;
+esac

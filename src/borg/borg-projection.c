@@ -19,7 +19,7 @@
 
 #include "borg-projection.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../cave.h"
 

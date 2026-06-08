@@ -23,7 +23,7 @@
  */
 #include "../angband.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 /*
  * Destroy a junky floor item

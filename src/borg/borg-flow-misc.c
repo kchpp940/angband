@@ -19,7 +19,7 @@
 
 #include "borg-flow-misc.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../cave.h"
 #include "../store.h"

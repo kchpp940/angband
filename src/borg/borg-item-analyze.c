@@ -19,7 +19,7 @@
 
 #include "borg-item-analyze.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../init.h"
 #include "../obj-curse.h"

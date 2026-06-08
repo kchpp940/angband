@@ -19,7 +19,7 @@
 
 #include "borg-item-use.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../effects.h"
 #include "../ui-menu.h"

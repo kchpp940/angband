@@ -547,135 +547,112 @@ target_compile_definitions(OurExecutable PRIVATE "${ANGBAND_BUILD_ID_OPTION}")
 target_compile_definitions(OurCoreLib PRIVATE "${ANGBAND_BUILD_ID_OPTION}")
 
 # ======================================================================
-# Unified Build Capability Collection
+# Unified Build Capability Engine (shared with Autotools)
 # ======================================================================
-# Collect all capability flags from the configuration phase into canonical
-# ANGBAND_CAP_* variables and generate the unified header.
+# All derivation, validation, and reporting lives in a single shell
+# script: scripts/angband-capabilities.  CMake and Autotools both call
+# into it so neither build system maintains its own copy of the rules.
+#
+# Step 1: Build the argument list for the shared script.
+set(_cap_args "")
+macro(_add_cap_arg _cmake_var _cap_name)
+    if(${_cmake_var})
+        list(APPEND _cap_args "${_cap_name}=1")
+    else()
+        list(APPEND _cap_args "${_cap_name}=0")
+    endif()
+endmacro()
+_add_cap_arg(SUPPORT_GCU_FRONTEND      FRONTEND_GCU)
+_add_cap_arg(SUPPORT_SDL_FRONTEND      FRONTEND_SDL)
+_add_cap_arg(SUPPORT_SDL2_FRONTEND     FRONTEND_SDL2)
+_add_cap_arg(SUPPORT_X11_FRONTEND      FRONTEND_X11)
+_add_cap_arg(SUPPORT_WINDOWS_FRONTEND  FRONTEND_WINDOWS)
+_add_cap_arg(SUPPORT_SDL_SOUND         SOUND_SDL)
+_add_cap_arg(SUPPORT_SDL2_SOUND        SOUND_SDL2)
+_add_cap_arg(SUPPORT_SPOIL_FRONTEND    FRONTEND_SPOIL)
+_add_cap_arg(SUPPORT_STATS_FRONTEND    FRONTEND_STATS)
+_add_cap_arg(SUPPORT_TEST_FRONTEND     FRONTEND_TEST)
+_add_cap_arg(SUPPORT_STATS_BACKEND     STATS_BACKEND)
+_add_cap_arg(SUPPORT_BORG              BORG)
+_add_cap_arg(SUPPORT_BORG_HIGH_SCORES  BORG_HIGH_SCORES)
 
-set(ANGBAND_CAP_FRONTEND_GCU       ${SUPPORT_GCU_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_SDL       ${SUPPORT_SDL_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_SDL2      ${SUPPORT_SDL2_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_X11       ${SUPPORT_X11_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_WINDOWS   ${SUPPORT_WINDOWS_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_IBM       OFF)
-set(ANGBAND_CAP_FRONTEND_COCOA     OFF)
-
-set(ANGBAND_CAP_SOUND              OFF)
-set(ANGBAND_CAP_SOUND_SDL          ${SUPPORT_SDL_SOUND})
-set(ANGBAND_CAP_SOUND_SDL2         ${SUPPORT_SDL2_SOUND})
-set(ANGBAND_CAP_SOUND_WINDOWS      OFF)
-set(ANGBAND_CAP_SOUND_COCOA        OFF)
-
+# SOUND_WINDOWS is implicit with the Windows frontend; SOUND_COCOA and
+# FRONTEND_IBM/COCOA are handled only by their respective native builds.
 if(SUPPORT_WINDOWS_FRONTEND)
-    set(ANGBAND_CAP_SOUND          ON)
-    set(ANGBAND_CAP_SOUND_WINDOWS  ON)
+    list(APPEND _cap_args "SOUND_WINDOWS=1")
+else()
+    list(APPEND _cap_args "SOUND_WINDOWS=0")
 endif()
-if(SUPPORT_SDL_SOUND OR SUPPORT_SDL2_SOUND)
-    set(ANGBAND_CAP_SOUND          ON)
-endif()
+list(APPEND _cap_args "SOUND_COCOA=0" "FRONTEND_IBM=0" "FRONTEND_COCOA=0")
 
-set(ANGBAND_CAP_FRONTEND_SPOIL     ${SUPPORT_SPOIL_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_STATS     ${SUPPORT_STATS_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_TEST      ${SUPPORT_TEST_FRONTEND})
-set(ANGBAND_CAP_STATS_BACKEND      ${SUPPORT_STATS_BACKEND})
-set(ANGBAND_CAP_BORG               ${SUPPORT_BORG})
-set(ANGBAND_CAP_BORG_HIGH_SCORES   ${SUPPORT_BORG_HIGH_SCORES})
-
-set(ANGBAND_CAP_SETGID             OFF)
-set(ANGBAND_CAP_PRIVATE_PATHS      OFF)
-set(ANGBAND_CAP_GAMEDATA_IN_LIB    OFF)
-
+# Installation / path options.
 if(SHARED_INSTALL)
-    set(ANGBAND_CAP_SETGID         ON)
+    list(APPEND _cap_args "SETGID=1")
+else()
+    list(APPEND _cap_args "SETGID=0")
 endif()
 if(READONLY_INSTALL)
-    set(ANGBAND_CAP_PRIVATE_PATHS  ON)
+    list(APPEND _cap_args "PRIVATE_PATHS=1")
+else()
+    list(APPEND _cap_args "PRIVATE_PATHS=0")
+endif()
+list(APPEND _cap_args "GAMEDATA_IN_LIB=0")
+
+set(_cap_script "${CMAKE_CURRENT_SOURCE_DIR}/scripts/angband-capabilities")
+
+# Step 2: Import the canonical ANGBAND_CAP_* values from the script.
+execute_process(
+    COMMAND "${_cap_script}" cmake ${_cap_args}
+    OUTPUT_VARIABLE _cap_cmake_output
+    RESULT_VARIABLE _cap_cmake_rc
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT _cap_cmake_rc EQUAL 0)
+    message(FATAL_ERROR "angband-capabilities cmake mode failed (rc=${_cap_cmake_rc})")
+endif()
+# The script emits `set(ANGBAND_CAP_FOO 0/1 PARENT_SCOPE)` lines.
+include("${_cap_cmake_output}" OPTIONAL RESULT_VARIABLE _cap_included)
+if(NOT _cap_included)
+    # Fallback: evaluate the output directly via a temporary CMake file.
+    set(_cap_tmp_cmake "${CMAKE_CURRENT_BINARY_DIR}/angband-capabilities.cmake")
+    file(WRITE "${_cap_tmp_cmake}" "${_cap_cmake_output}\n")
+    include("${_cap_tmp_cmake}")
 endif()
 
-# Generate the unified capability header.
+# Step 3: Generate the unified capability header for the source tree.
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h.in"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h"
     @ONLY
 )
-
-# Make sure the generated header is on the include path and the capability
-# defines reach every compilation unit.
 target_include_directories(OurCoreLib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_include_directories(OurExecutable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# ======================================================================
-# Configuration Report
-# ======================================================================
-
+# Step 4: Print the human-readable configuration report (same output as
+#         `./configure` in the Autotools build).
 message("")
-message("============================================================")
-message("  Angband Build Configuration Summary")
-message("============================================================")
-message("")
-message("  Installation mode:")
-if(SC_INSTALL)
-    message("    Self-contained (in-place)")
-elseif(SHARED_INSTALL)
-    message("    Shared (setgid, group: ${INSTALL_GROUP_ID})")
-elseif(READONLY_INSTALL)
-    message("    Read-only (private user paths)")
-endif()
-message("")
-message("  Player Frontends:")
-macro(_angband_report_cap _var _label)
-    if(${_var})
-        message("    ${_label}:  YES")
-    else()
-        message("    ${_label}:  NO")
-    endif()
-endmacro()
-_angband_report_cap(ANGBAND_CAP_FRONTEND_GCU       "Curses (GCU)              ")
-_angband_report_cap(ANGBAND_CAP_FRONTEND_SDL       "SDL 1.x                   ")
-_angband_report_cap(ANGBAND_CAP_FRONTEND_SDL2      "SDL 2.x                   ")
-_angband_report_cap(ANGBAND_CAP_FRONTEND_X11       "X11                       ")
-_angband_report_cap(ANGBAND_CAP_FRONTEND_WINDOWS   "Windows                   ")
-message("")
-message("  Sound Support:")
-_angband_report_cap(ANGBAND_CAP_SOUND_SDL          "SDL 1.x mixer             ")
-_angband_report_cap(ANGBAND_CAP_SOUND_SDL2         "SDL 2.x mixer             ")
-_angband_report_cap(ANGBAND_CAP_SOUND_WINDOWS      "Windows built-in          ")
-_angband_report_cap(ANGBAND_CAP_SOUND              "Generic sound (any)       ")
-message("")
-message("  Auxiliary Frontends:")
-_angband_report_cap(ANGBAND_CAP_FRONTEND_SPOIL     "Spoiler generation        ")
-_angband_report_cap(ANGBAND_CAP_FRONTEND_STATS     "Statistics                ")
-_angband_report_cap(ANGBAND_CAP_FRONTEND_TEST      "Test harness              ")
-message("")
-message("  Other Features:")
-_angband_report_cap(ANGBAND_CAP_STATS_BACKEND      "Statistics backend        ")
-_angband_report_cap(ANGBAND_CAP_BORG               "Borg autoplay             ")
-_angband_report_cap(ANGBAND_CAP_BORG_HIGH_SCORES   "Borg in high scores       ")
-_angband_report_cap(ANGBAND_CAP_SETGID             "Setgid shared install     ")
-_angband_report_cap(ANGBAND_CAP_PRIVATE_PATHS      "Private user paths        ")
-message("")
-
-# Validate: ensure at least one player frontend is available.
-set(_angband_has_player_frontend FALSE)
-foreach(_cap ANGBAND_CAP_FRONTEND_GCU
-             ANGBAND_CAP_FRONTEND_SDL
-             ANGBAND_CAP_FRONTEND_SDL2
-             ANGBAND_CAP_FRONTEND_X11
-             ANGBAND_CAP_FRONTEND_WINDOWS)
-    if(${_cap})
-        set(_angband_has_player_frontend TRUE)
-    endif()
-endforeach()
-if(NOT _angband_has_player_frontend)
-    message(WARNING "  *** No player frontend is enabled!  The game will not be playable. ***")
-    message(WARNING "      Enable at least one of: SUPPORT_GCU_FRONTEND,")
-    message(WARNING "      SUPPORT_SDL_FRONTEND, SUPPORT_SDL2_FRONTEND,")
-    message(WARNING "      SUPPORT_X11_FRONTEND, or SUPPORT_WINDOWS_FRONTEND.")
-    message("")
+execute_process(
+    COMMAND "${_cap_script}" report ${_cap_args}
+    OUTPUT_VARIABLE _cap_report
+    RESULT_VARIABLE _cap_report_rc
+)
+if(_cap_report_rc EQUAL 0)
+    message("${_cap_report}")
+else()
+    message(WARNING "angband-capabilities report mode failed")
 endif()
 
-message("============================================================")
-message("")
+# Step 5: Validate the configuration (warnings to stderr, non-zero exit
+#         for hard errors like "no player frontend").
+execute_process(
+    COMMAND "${_cap_script}" validate ${_cap_args}
+    RESULT_VARIABLE _cap_validate_rc
+    ERROR_VARIABLE _cap_validate_err
+)
+if(NOT _cap_validate_rc EQUAL 0)
+    message(WARNING "Configuration validation failed:")
+    message(WARNING "${_cap_validate_err}")
+endif()
 
 # Set up to generate documentation if requested.
 if(BUILD_DOC)

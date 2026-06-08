@@ -17,7 +17,7 @@
  */
 
 #include "angband.h"
-#if defined(MACH_O_CARBON) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2)
+#if defined(MACH_O_CARBON) && ANGBAND_CAP_SOUND && !ANGBAND_CAP_SOUND_SDL && !ANGBAND_CAP_SOUND_SDL2
 #include "sound.h"
 #include "snd-cocoa.h"
 #import <Cocoa/Cocoa.h>

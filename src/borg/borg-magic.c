@@ -19,7 +19,7 @@
 
 #include "borg-magic.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../effects.h"
 #include "../player-spell.h"

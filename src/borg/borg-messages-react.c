@@ -19,7 +19,7 @@
 
 #include "borg-messages-react.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../cmds.h"
 

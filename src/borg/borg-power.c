@@ -20,7 +20,7 @@
 
 #include "borg-power.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../cmd-core.h"
 #include "../player-calcs.h"

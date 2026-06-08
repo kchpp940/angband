@@ -19,7 +19,7 @@
 
 #include "borg-messages.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../mon-msg.h"
 #include "../ui-term.h"

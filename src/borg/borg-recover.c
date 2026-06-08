@@ -19,7 +19,7 @@
 
 #include "borg-recover.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../ui-event.h"
 

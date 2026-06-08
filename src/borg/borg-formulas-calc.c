@@ -19,7 +19,7 @@
 
 #include "borg-formulas-calc.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 #include "borg-formulas.h"
 #include "borg-io.h"
 

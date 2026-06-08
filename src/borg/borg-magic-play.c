@@ -19,7 +19,7 @@
 
 #include "borg-magic-play.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../effect-handler.h"
 #include "../effects.h"

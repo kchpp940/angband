@@ -2150,7 +2150,7 @@ const char *window_flag_desc[32] =
 	"Display status",
 	"Display item list",
 	"Display player (topbar)",
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 	"Display borg messages",
 	"Display borg status",
 #else

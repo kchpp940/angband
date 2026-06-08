@@ -21,7 +21,7 @@
  */
 #include "../angband.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 /* s_val's and k_val's now dynamically loaded */
 extern int sv_food_apple;

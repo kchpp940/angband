@@ -19,7 +19,7 @@
 
 #include "borg-store-sell.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../obj-util.h"
 #include "../ui-menu.h"

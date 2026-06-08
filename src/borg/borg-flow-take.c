@@ -19,7 +19,7 @@
 
 #include "borg-flow-take.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../monster.h"
 #include "../obj-knowledge.h"

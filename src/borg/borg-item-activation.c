@@ -19,7 +19,7 @@
 
 #include "borg-item-activation.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "borg-init.h"
 #include "borg-io.h"

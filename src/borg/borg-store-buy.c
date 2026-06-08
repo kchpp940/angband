@@ -19,7 +19,7 @@
 
 #include "borg-store-buy.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../obj-util.h"
 #include "../player-calcs.h"

@@ -23,10 +23,10 @@
 #include "snd-sdl.h"
 #include "sound.h"
 
-#if defined(SOUND_SDL) || defined(SOUND_SDL2)
+#if ANGBAND_CAP_SOUND_SDL || ANGBAND_CAP_SOUND_SDL2
 #include "SDL.h"
 #include "SDL_mixer.h"
-#if defined(SOUND_SDL2)
+#if ANGBAND_CAP_SOUND_SDL2
 #include "SDL_revision.h"
 #endif
 #endif
@@ -55,7 +55,7 @@ static const struct sound_file_type supported_sound_files[] = { {".mp3", SDL_MUS
 								{".ogg", SDL_CHUNK},
 								{"", SDL_NULL} };
 
-#ifdef SOUND_SDL2
+#if ANGBAND_CAP_SOUND_SDL2
 static bool print_sdl_details = false;
 #endif
 
@@ -82,7 +82,7 @@ static bool open_audio_sdl(void)
 		return false;
 	}
 
-#ifdef SOUND_SDL2
+#if ANGBAND_CAP_SOUND_SDL2
 	if (print_sdl_details) {
 		const SDL_version *pv;
 		const char *driver_name;
@@ -265,7 +265,7 @@ errr init_sound_sdl(struct sound_hooks *hooks, int argc, char **argv)
 	hooks->unload_sound_hook = unload_sound_sdl;
 	hooks->play_sound_hook = play_sound_sdl;
 
-#ifdef SOUND_SDL2
+#if ANGBAND_CAP_SOUND_SDL2
 	{
 		int i;
 

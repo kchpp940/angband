@@ -70,10 +70,10 @@ struct player_options {
 
 extern int *option_page[OPT_PAGE_MAX];
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 /* Screensaver variables for the borg.  apw */
 extern bool screensaver;
-#endif /* ALLOW_BORG */
+#endif /* ANGBAND_CAP_BORG */
 
 /**
  * Functions

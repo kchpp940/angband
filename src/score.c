@@ -289,8 +289,8 @@ void enter_score(const struct player *p, const time_t *death_time)
 	if (p->noscore & (NOSCORE_WIZARD | NOSCORE_DEBUG)) {
 		msg("Score not registered for wizards.");
 		event_signal(EVENT_MESSAGE_FLUSH);
-#ifdef ALLOW_BORG
-#ifndef SCORE_BORGS
+#if ANGBAND_CAP_BORG
+#if !ANGBAND_CAP_BORG_HIGH_SCORES
 	}	else if (p->noscore & (NOSCORE_BORG)) {
 		msg("Score not registered for borgs.");
 		event_signal(EVENT_MESSAGE_FLUSH);

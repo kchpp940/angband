@@ -483,50 +483,101 @@ AC_SUBST(MAINFILES, ${MAINFILES})
 AC_SUBST(TEST_LIBS, ${TEST_LIBS})
 
 dnl ======================================================================
-dnl Unified Build Capability Declarations
+dnl Unified Build Capability Engine (shared with CMake)
 dnl ======================================================================
-dnl Translate the enable_* and detection results into canonical
-dnl ANGBAND_CAP_* macros so source code can read from a single place.
+dnl All derivation, validation, and reporting lives in a single shell
+dnl script: scripts/angband-capabilities.  Autotools and CMake both call
+dnl into it so neither build system maintains its own copy of the rules.
 
+dnl Step 1: Build the argument list for the shared script.
+CAP_ARGS=""
 dnl Player frontends
 AS_IF([test "$enable_curses" = "yes" && test "$with_curses" != "no"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_GCU], [1],
-        [Define to 1 if the Curses (GCU) frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_GCU], [0])])
+    [CAP_ARGS="$CAP_ARGS FRONTEND_GCU=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_GCU=0"])
 AS_IF([test "$enable_sdl" = "yes" && test "$with_sdl" != "no"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL], [1],
-        [Define to 1 if the SDL 1.x frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL], [0])])
+    [CAP_ARGS="$CAP_ARGS FRONTEND_SDL=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_SDL=0"])
 AS_IF([test "$enable_sdl2" = "yes" && test "$with_sdl2" != "no"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL2], [1],
-        [Define to 1 if the SDL 2.x frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SDL2], [0])])
+    [CAP_ARGS="$CAP_ARGS FRONTEND_SDL2=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_SDL2=0"])
 AS_IF([test "$enable_x11" = "yes" && test "$with_x11" != "no"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_X11], [1],
-        [Define to 1 if the X11 frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_X11], [0])])
+    [CAP_ARGS="$CAP_ARGS FRONTEND_X11=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_X11=0"])
 AS_IF([test "$enable_win" = "yes"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_WINDOWS], [1],
-        [Define to 1 if the Windows frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_WINDOWS], [0])])
-AC_DEFINE([ANGBAND_CAP_FRONTEND_IBM], [0])
-AC_DEFINE([ANGBAND_CAP_FRONTEND_COCOA], [0])
-
-dnl Sound support
+    [CAP_ARGS="$CAP_ARGS FRONTEND_WINDOWS=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_WINDOWS=0"])
+dnl IBM DOS and Cocoa are handled only by their own native build systems.
+CAP_ARGS="$CAP_ARGS FRONTEND_IBM=0 FRONTEND_COCOA=0"
+dnl Sound
 AS_IF([test "$enable_sdl_mixer" = "yes" && test "$found_sdl_mixer" = "yes"],
-    [ac_cv_angband_cap_sound_sdl=1],
-    [ac_cv_angband_cap_sound_sdl=0])
+    [CAP_ARGS="$CAP_ARGS SOUND_SDL=1"],
+    [CAP_ARGS="$CAP_ARGS SOUND_SDL=0"])
 AS_IF([test "$enable_sdl2_mixer" = "yes" && test "$found_sdl2_mixer" = "yes"],
-    [ac_cv_angband_cap_sound_sdl2=1],
-    [ac_cv_angband_cap_sound_sdl2=0])
+    [CAP_ARGS="$CAP_ARGS SOUND_SDL2=1"],
+    [CAP_ARGS="$CAP_ARGS SOUND_SDL2=0"])
 AS_IF([test "$enable_win" = "yes"],
-    [ac_cv_angband_cap_sound_windows=1],
-    [ac_cv_angband_cap_sound_windows=0])
-ac_cv_angband_cap_sound=0
-AS_IF([test "$ac_cv_angband_cap_sound_sdl" = "1" ||
-       test "$ac_cv_angband_cap_sound_sdl2" = "1" ||
-       test "$ac_cv_angband_cap_sound_windows" = "1"],
-    [ac_cv_angband_cap_sound=1])
+    [CAP_ARGS="$CAP_ARGS SOUND_WINDOWS=1"],
+    [CAP_ARGS="$CAP_ARGS SOUND_WINDOWS=0"])
+CAP_ARGS="$CAP_ARGS SOUND_COCOA=0"
+dnl Auxiliary frontends
+AS_IF([test "$enable_spoil" = "yes"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_SPOIL=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_SPOIL=0"])
+AS_IF([test "$enable_stats" = "yes" && test "$USE_STATS" = "1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_STATS=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_STATS=0"])
+AS_IF([test "$enable_test" = "yes"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_TEST=1"],
+    [CAP_ARGS="$CAP_ARGS FRONTEND_TEST=0"])
+dnl Stats backend
+AS_IF([test "$enable_stats" = "yes" && test "$USE_STATS" = "1"],
+    [CAP_ARGS="$CAP_ARGS STATS_BACKEND=1"],
+    [CAP_ARGS="$CAP_ARGS STATS_BACKEND=0"])
+dnl Borg
+AS_IF([test "$enable_borg" = "yes"],
+    [CAP_ARGS="$CAP_ARGS BORG=1"],
+    [CAP_ARGS="$CAP_ARGS BORG=0"])
+AS_IF([test "$enable_borg_high_scores" = "yes"],
+    [CAP_ARGS="$CAP_ARGS BORG_HIGH_SCORES=1"],
+    [CAP_ARGS="$CAP_ARGS BORG_HIGH_SCORES=0"])
+dnl Installation / path options
+AS_IF([test "x$wsetgid" = "xyes"],
+    [CAP_ARGS="$CAP_ARGS SETGID=1"],
+    [CAP_ARGS="$CAP_ARGS SETGID=0"])
+AS_IF([test "x$with_private_dirs" != "x"],
+    [CAP_ARGS="$CAP_ARGS PRIVATE_PATHS=1"],
+    [CAP_ARGS="$CAP_ARGS PRIVATE_PATHS=0"])
+AS_IF([test "x$with_gamedata_in_lib" = "xyes"],
+    [CAP_ARGS="$CAP_ARGS GAMEDATA_IN_LIB=1"],
+    [CAP_ARGS="$CAP_ARGS GAMEDATA_IN_LIB=0"])
+
+dnl Step 2: Evaluate the canonical capability values from the shared script.
+eval `$srcdir/scripts/angband-capabilities autotools $CAP_ARGS`
+
+dnl Step 3: Emit all 21 ANGBAND_CAP_* macros into autoconf.h.
+dnl         The list must exactly match the registry in scripts/angband-capabilities.
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_GCU],
+    [$ac_cv_angband_cap_frontend_gcu],
+    [Define to 1 if the Curses (GCU) frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_SDL],
+    [$ac_cv_angband_cap_frontend_sdl],
+    [Define to 1 if the SDL 1.x frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_SDL2],
+    [$ac_cv_angband_cap_frontend_sdl2],
+    [Define to 1 if the SDL 2.x frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_X11],
+    [$ac_cv_angband_cap_frontend_x11],
+    [Define to 1 if the X11 frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_WINDOWS],
+    [$ac_cv_angband_cap_frontend_windows],
+    [Define to 1 if the Windows frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_IBM],
+    [$ac_cv_angband_cap_frontend_ibm],
+    [Define to 1 if the IBM DOS frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_COCOA],
+    [$ac_cv_angband_cap_frontend_cocoa],
+    [Define to 1 if the Cocoa macOS frontend is enabled])
 AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_SDL],
     [$ac_cv_angband_cap_sound_sdl],
     [Define to 1 if SDL 1.x mixer sound support is enabled])
@@ -536,54 +587,52 @@ AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_SDL2],
 AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_WINDOWS],
     [$ac_cv_angband_cap_sound_windows],
     [Define to 1 if Windows built-in sound is enabled])
-AC_DEFINE([ANGBAND_CAP_SOUND_COCOA], [0])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_COCOA],
+    [$ac_cv_angband_cap_sound_cocoa],
+    [Define to 1 if Cocoa built-in sound is enabled])
 AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND],
     [$ac_cv_angband_cap_sound],
     [Define to 1 if any sound backend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_SPOIL],
+    [$ac_cv_angband_cap_frontend_spoil],
+    [Define to 1 if the spoiler frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_STATS],
+    [$ac_cv_angband_cap_frontend_stats],
+    [Define to 1 if the statistics frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_TEST],
+    [$ac_cv_angband_cap_frontend_test],
+    [Define to 1 if the test frontend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_STATS_BACKEND],
+    [$ac_cv_angband_cap_stats_backend],
+    [Define to 1 if the statistics backend is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_BORG],
+    [$ac_cv_angband_cap_borg],
+    [Define to 1 if Borg autoplay support is enabled])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_BORG_HIGH_SCORES],
+    [$ac_cv_angband_cap_borg_high_scores],
+    [Define to 1 if Borg characters are allowed in high scores])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_SETGID],
+    [$ac_cv_angband_cap_setgid],
+    [Define to 1 for a setgid shared installation])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_PRIVATE_PATHS],
+    [$ac_cv_angband_cap_private_paths],
+    [Define to 1 if using private user paths (~/.angband)])
+AC_DEFINE_UNQUOTED([ANGBAND_CAP_GAMEDATA_IN_LIB],
+    [$ac_cv_angband_cap_gamedata_in_lib],
+    [Define to 1 if gamedata is stored in the lib path])
 
-dnl Auxiliary frontends
-AS_IF([test "$enable_spoil" = "yes"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SPOIL], [1],
-        [Define to 1 if the spoiler frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_SPOIL], [0])])
-AS_IF([test "$enable_stats" = "yes" && test "$USE_STATS" = "1"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_STATS], [1],
-        [Define to 1 if the statistics frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_STATS], [0])])
-AS_IF([test "$enable_test" = "yes"],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_TEST], [1],
-        [Define to 1 if the test frontend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_FRONTEND_TEST], [0])])
+dnl Step 4: Print the shared human-readable report (same output as CMake).
+echo
+$srcdir/scripts/angband-capabilities report $CAP_ARGS
 
-dnl Stats backend
-AS_IF([test "$enable_stats" = "yes" && test "$USE_STATS" = "1"],
-    [AC_DEFINE([ANGBAND_CAP_STATS_BACKEND], [1],
-        [Define to 1 if the statistics backend is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_STATS_BACKEND], [0])])
-
-dnl Borg support
-AS_IF([test "$enable_borg" = "yes"],
-    [AC_DEFINE([ANGBAND_CAP_BORG], [1],
-        [Define to 1 if Borg autoplay support is enabled])],
-    [AC_DEFINE([ANGBAND_CAP_BORG], [0])])
-AS_IF([test "$enable_borg_high_scores" = "yes"],
-    [AC_DEFINE([ANGBAND_CAP_BORG_HIGH_SCORES], [1],
-        [Define to 1 if Borg characters are allowed in high scores])],
-    [AC_DEFINE([ANGBAND_CAP_BORG_HIGH_SCORES], [0])])
-
-dnl Installation / path options
-AS_IF([test "x$wsetgid" = "xyes"],
-    [AC_DEFINE([ANGBAND_CAP_SETGID], [1],
-        [Define to 1 for a setgid shared installation])],
-    [AC_DEFINE([ANGBAND_CAP_SETGID], [0])])
-AS_IF([test "x$with_private_dirs" != "x"],
-    [AC_DEFINE([ANGBAND_CAP_PRIVATE_PATHS], [1],
-        [Define to 1 if using private user paths (~/.angband)])],
-    [AC_DEFINE([ANGBAND_CAP_PRIVATE_PATHS], [0])])
-AS_IF([test "x$with_gamedata_in_lib" = "xyes"],
-    [AC_DEFINE([ANGBAND_CAP_GAMEDATA_IN_LIB], [1],
-        [Define to 1 if gamedata is stored in the lib path])],
-    [AC_DEFINE([ANGBAND_CAP_GAMEDATA_IN_LIB], [0])])
+dnl Step 5: Validate the configuration (warnings to stderr, non-zero exit
+dnl         would be fatal — here we let configure continue but surface
+dnl         the warnings via AC_MSG_WARN).
+CAP_VALIDATE_OUT=`$srcdir/scripts/angband-capabilities validate $CAP_ARGS 2>&1 || true`
+if test -n "$CAP_VALIDATE_OUT"; then
+    AC_MSG_WARN([Configuration validation:
+$CAP_VALIDATE_OUT])
+fi
 
 dnl Also make sure build-capabilities.h.in is tracked in case we want
 dnl to generate it later (currently the CMake build does that; for

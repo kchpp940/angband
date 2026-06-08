@@ -19,7 +19,7 @@
 
 #include "borg-flow-kill.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../game-world.h"
 #include "../monster.h"

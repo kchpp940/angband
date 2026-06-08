@@ -20,7 +20,7 @@
 
 #include "borg-home-power.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "borg-home-notice.h"
 #include "borg-magic.h"

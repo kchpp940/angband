@@ -19,7 +19,7 @@
 
 #include "borg-reincarnate.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../cmd-core.h"
 #include "../game-world.h"

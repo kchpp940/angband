@@ -23,7 +23,7 @@
  */
 #include "../angband.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 extern int16_t  borg_msg_len;
 extern int16_t  borg_msg_siz;

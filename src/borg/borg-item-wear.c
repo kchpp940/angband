@@ -19,7 +19,7 @@
 
 #include "borg-item-wear.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../ui-menu.h"
 

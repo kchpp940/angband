@@ -24,7 +24,7 @@
 #include "../angband.h"
 #include "../ui-input.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 extern bool borg_dont_react;
 

@@ -16,7 +16,7 @@
 #include "unit-test.h"
 #include "z-util.h"
 
-#if defined(SOUND_SDL) || defined(SOUND_SDL2)
+#if ANGBAND_CAP_SOUND_SDL || ANGBAND_CAP_SOUND_SDL2
 #include "sound.h"
 #include "snd-sdl.h"
 
@@ -27,7 +27,7 @@ errr init_sound_sdl(struct sound_hooks *hooks, int argc, char **argv)
 
 #endif
 
-#if !defined(WIN32_CONSOLE_MODE) && defined(WINDOWS) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2)
+#if !defined(WIN32_CONSOLE_MODE) && ANGBAND_CAP_FRONTEND_WINDOWS && ANGBAND_CAP_SOUND && !ANGBAND_CAP_SOUND_SDL && !ANGBAND_CAP_SOUND_SDL2
 #include "sound.h"
 #include "snd-win.h"
 

@@ -19,7 +19,7 @@
 
 #include "borg-think.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../player-util.h"
 #include "../ui-game.h"

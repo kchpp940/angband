@@ -18,14 +18,14 @@
 
 #include "angband.h"
 
-#ifdef USE_SDL2
+#if ANGBAND_CAP_FRONTEND_SDL2
 
 #include "sdl2/pui-ctrl.h"
 #include "sdl2/pui-dlg.h"
 #include "sdl2/pui-misc.h"
 #include "sdl2/pui-win.h"
 #include "SDL_image.h"
-#ifdef SOUND_SDL2
+#if ANGBAND_CAP_SOUND_SDL2
 #include "SDL_mixer.h"
 #endif
 #include "SDL_revision.h"
@@ -37,7 +37,7 @@
 #include "init.h"
 #include "parser.h"
 #include "player-calcs.h"
-#ifdef SOUND_SDL2
+#if ANGBAND_CAP_SOUND_SDL2
 #include "sound.h"
 #endif
 #include "ui-command.h"
@@ -2279,7 +2279,7 @@ static void show_sdl_details(struct sdlpui_window *window, int x, int y)
 				vc.major, vr.minor, vc.patch);
 			sdlpui_simple_info_add_label(window->detaild, label,
 				SDLPUI_HOR_LEFT);
-#ifdef SOUND_SDL2
+#if ANGBAND_CAP_SOUND_SDL2
 			if (is_sound_inited()) {
 				pvr = Mix_Linked_Version();
 				SDL_MIXER_VERSION(&vc);
@@ -2430,7 +2430,7 @@ static void show_sdl_details(struct sdlpui_window *window, int x, int y)
 					label, SDLPUI_HOR_LEFT);
 			}
 		}
-#ifdef SOUND_SDL2
+#if ANGBAND_CAP_SOUND_SDL2
 		if (window->index == MAIN_WINDOW && is_sound_inited()) {
 			const char *driver_name;
 			int freq, n_chan;

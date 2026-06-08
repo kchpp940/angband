@@ -22,7 +22,7 @@
  */
 #include "../angband.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 extern int weapon_swap; /* location of my swap weapon (+1 so zero is none) */
 extern int armour_swap; /* my swap of armour (+1 so zero is none) */

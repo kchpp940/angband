@@ -19,7 +19,7 @@
 
 #include "borg-prepared.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "borg-flow-kill.h"
 #include "borg-formulas.h"

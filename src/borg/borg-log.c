@@ -19,7 +19,7 @@
 
 #include "borg-log.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../game-input.h"
 #include "../game-world.h"

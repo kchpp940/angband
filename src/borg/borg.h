@@ -24,7 +24,7 @@
 #include "../angband.h"
 #include "../obj-ignore.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "borg-trait.h"
 

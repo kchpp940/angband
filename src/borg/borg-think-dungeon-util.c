@@ -19,7 +19,7 @@
 
 #include "borg-think-dungeon-util.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../game-world.h"
 #include "../ui-event.h"

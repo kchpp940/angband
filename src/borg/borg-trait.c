@@ -20,7 +20,7 @@
 
 #include "borg-trait.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../effects.h"
 #include "../obj-util.h"

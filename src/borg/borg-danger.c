@@ -19,7 +19,7 @@
 
 #include "borg-danger.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../game-world.h"
 #include "../player-calcs.h"

@@ -19,7 +19,7 @@
 
 #include "borg-fight-defend.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../player-timed.h"
 #include "../ui-term.h"

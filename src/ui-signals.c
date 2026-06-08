@@ -156,7 +156,7 @@ static void handle_signal_simple(int sig)
 		return;
 	}
 	if (signal_count >= 5) {
-#ifdef SETGID
+#if ANGBAND_CAP_SETGID
 		/* Cause of "death" */
 		my_strcpy(player->died_from, "Interrupting", sizeof(player->died_from));
 
@@ -188,7 +188,7 @@ static void handle_signal_simple(int sig)
 		Term_erase(0, 0, 255);
 
 		/* Display the cause */
-#ifdef SETGID
+#if ANGBAND_CAP_SETGID
 		Term_putstr(0, 0, -1, COLOUR_WHITE, "Another interrupt (CTRL-c) will kill your character!");
 #else
 		Term_putstr(0, 0, -1, COLOUR_WHITE, "Another interrupt (CTRL-c) will quit without saving!");

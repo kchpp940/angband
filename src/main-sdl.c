@@ -119,7 +119,7 @@
  *   Windows machines.
  */
 
-#ifdef USE_SDL
+#if ANGBAND_CAP_FRONTEND_SDL
 
 #include "main.h"
 #include "SDL.h"

@@ -19,7 +19,7 @@
 
 #include "borg-think-store.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../store.h"
 #include "../ui-menu.h"

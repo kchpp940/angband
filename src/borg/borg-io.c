@@ -19,7 +19,7 @@
 
 #include "borg-io.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../ui-term.h"
 

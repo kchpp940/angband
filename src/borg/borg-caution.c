@@ -19,7 +19,7 @@
 
 #include "borg-caution.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../player-timed.h"
 #include "../ui-event.h"

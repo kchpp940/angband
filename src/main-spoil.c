@@ -18,7 +18,7 @@
 
 #include "angband.h"
 
-#ifdef USE_SPOIL
+#if ANGBAND_CAP_FRONTEND_SPOIL
 
 #include "datafile.h"
 #include "game-world.h"

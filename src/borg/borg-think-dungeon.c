@@ -19,7 +19,7 @@
 
 #include "borg-think-dungeon.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../ui-command.h"
 #include "../ui-menu.h"

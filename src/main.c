@@ -28,7 +28,7 @@
 #include "ui-prefs.h"
 #include "ui-signals.h"
 
-#ifdef SOUND
+#if ANGBAND_CAP_SOUND
 #include "sound.h"
 #endif
 
@@ -46,7 +46,7 @@
  * all the others use this file for their "main()" function.
  */
 
-#if defined(WIN32_CONSOLE_MODE) || !defined(WINDOWS) || defined(USE_SDL) || defined(USE_SDL2)
+#if defined(WIN32_CONSOLE_MODE) || !defined(WINDOWS) || ANGBAND_CAP_FRONTEND_SDL || ANGBAND_CAP_FRONTEND_SDL2
 
 #include "main.h"
 
@@ -54,7 +54,7 @@
  * On some platforms, SDL2 uses a macro to replace main() with another name
  * to hook into the platform-specific initialization.  Account for that here.
  */
-#ifdef USE_SDL2
+#if ANGBAND_CAP_FRONTEND_SDL2
 #include "SDL_main.h"
 #endif
 
@@ -63,37 +63,37 @@
  */
 static const struct module modules[] =
 {
-#ifdef USE_X11
+#if ANGBAND_CAP_FRONTEND_X11
 	{ "x11", help_x11, init_x11, false, true },
-#endif /* USE_X11 */
+#endif
 
-#ifdef USE_SDL
+#if ANGBAND_CAP_FRONTEND_SDL
 	{ "sdl", help_sdl, init_sdl, false, false },
-#endif /* USE_SDL */
+#endif
 
-#ifdef USE_SDL2
+#if ANGBAND_CAP_FRONTEND_SDL2
 	{ "sdl2", help_sdl2, init_sdl2, false, false },
-#endif /* USE_SDL2 */
+#endif
 
-#ifdef USE_GCU
+#if ANGBAND_CAP_FRONTEND_GCU
 	{ "gcu", help_gcu, init_gcu, true, false },
-#endif /* USE_GCU */
+#endif
 
-#ifdef USE_TEST
+#if ANGBAND_CAP_FRONTEND_TEST
 	{ "test", help_test, init_test, false, true },
-#endif /* !USE_TEST */
+#endif
 
-#ifdef USE_STATS
+#if ANGBAND_CAP_FRONTEND_STATS
 	{ "stats", help_stats, init_stats, false, true },
-#endif /* USE_STATS */
+#endif
 
-#ifdef USE_SPOIL
+#if ANGBAND_CAP_FRONTEND_SPOIL
 	{ "spoil", help_spoil, init_spoil, false, true },
 #endif
 
-#ifdef USE_IBM
+#if ANGBAND_CAP_FRONTEND_IBM
 	{ "ibm", help_ibm, init_ibm, false, true },
-#endif /* USE_IBM */
+#endif
 };
 
 /**
@@ -134,7 +134,7 @@ static void extended_quit_hook(const char *s)
 {
 	textui_cleanup();
 	cleanup_angband();
-#ifdef SOUND
+#if ANGBAND_CAP_SOUND
 	close_sound();
 #endif
 	if (quit_nested) {
@@ -185,7 +185,7 @@ static void init_stuff(void)
 }
 
 
-#ifdef SOUND
+#if ANGBAND_CAP_SOUND
 /* State shared by generic_reinit() and main(). */
 static const char *soundstr = NULL;
 static int saved_argc = 0;
@@ -199,7 +199,7 @@ static char **saved_argv = NULL;
  */
 static void generic_reinit(void)
 {
-#ifdef SOUND
+#if ANGBAND_CAP_SOUND
 	/* Initialise sound */
 	init_sound(soundstr, saved_argc, saved_argv);
 #endif
@@ -251,7 +251,7 @@ static void change_path(const char *info)
 
 	for (i = 0; i < N_ELEMENTS(change_path_values); i++) {
 		if (my_stricmp(path, change_path_values[i].name) == 0) {
-#ifdef SETGID
+#if ANGBAND_CAP_SETGID
 			if (!change_path_values[i].setgid_ok)
 				quit_fmt("Can't redefine path to %s dir on multiuser setup",
 						 path);
@@ -361,12 +361,12 @@ int main(int argc, char *argv[])
 
 #endif /* UNIX */
 
-#ifdef SETGID
+#if ANGBAND_CAP_SETGID
 
 	/* Save the effective GID for later recall */
 	player_egid = getegid();
 
-#endif /* UNIX */
+#endif
 
 
 	/* Drop permissions */
@@ -423,11 +423,11 @@ int main(int argc, char *argv[])
 				 * But if the player is running with per-user saves, they
 				 * can do whatever the hell they want.
 				 */
-#ifdef SETGID
+#if ANGBAND_CAP_SETGID
 				savefile_set_name(arg, true, false);
 #else
 				savefile_set_name(arg, false, false);
-#endif /* SETGID */
+#endif
 
 				continue;
 			}
@@ -440,7 +440,7 @@ int main(int argc, char *argv[])
 				if (!*arg) goto usage;
 				mstr = arg;
 				continue;
-#ifdef SOUND
+#if ANGBAND_CAP_SOUND
 			case 's':
 				if (!*arg) goto usage;
 				soundstr = arg;
@@ -468,13 +468,13 @@ int main(int argc, char *argv[])
 				puts("  -u<who>        Use your <who> savefile");
 				puts("  -d<dir>=<path> Override a specific directory with <path>. <path> can be:");
 				for (i = 0; i < (int)N_ELEMENTS(change_path_values); i++) {
-#ifdef SETGID
+#if ANGBAND_CAP_SETGID
 					if (!change_path_values[i].setgid_ok) continue;
 #endif
 					printf("    %s (default is %s)\n", change_path_values[i].name, *change_path_values[i].path);
 				}
 				puts("                 Multiple -d options are allowed.");
-#ifdef SOUND
+#if ANGBAND_CAP_SOUND
 				puts("  -s<mod>        Use sound module <sys>:");
 				print_sound_help();
 #endif
@@ -554,7 +554,7 @@ int main(int argc, char *argv[])
 	 * Set action that needs to be done if restarting without exiting.
 	 * Also need to do it now.
 	 */
-#ifdef SOUND
+#if ANGBAND_CAP_SOUND
 	saved_argc = argc;
 	saved_argv = argv;
 #endif

@@ -19,7 +19,7 @@
 
 #include "borg-flow-stairs.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "borg-flow-kill.h"
 #include "borg-flow.h"

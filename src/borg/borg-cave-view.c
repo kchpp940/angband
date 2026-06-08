@@ -19,7 +19,7 @@
 
 #include "borg-cave-view.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "borg-cave-view.h"
 

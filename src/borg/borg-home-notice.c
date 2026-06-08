@@ -19,7 +19,7 @@
 
 #include "borg-home-notice.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../init.h"
 #include "../obj-util.h"

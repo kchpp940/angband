@@ -59,7 +59,7 @@
 #include "angband.h"
 
 
-#ifdef USE_IBM
+#if ANGBAND_CAP_FRONTEND_IBM
 
 #include "main.h"
 

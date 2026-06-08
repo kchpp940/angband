@@ -19,7 +19,7 @@
 
 #include "borg-item-enchant.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 #include "../ui-menu.h"
 

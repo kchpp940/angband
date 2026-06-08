@@ -19,7 +19,7 @@
 
 #include "borg-util.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 bool (*borg_sort_comp)(void *u, void *v, int a, int b);
 void (*borg_sort_swap)(void *u, void *v, int a, int b);

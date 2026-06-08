@@ -115,7 +115,7 @@ void do_cmd_note(void)
 	history_add(player, note, HIST_USER_INPUT);
 }
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 
 extern void do_cmd_borg(void);
 

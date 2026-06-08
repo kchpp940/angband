@@ -19,7 +19,7 @@
 
 #include "borg-formulas.h"
 
-#ifdef ALLOW_BORG
+#if ANGBAND_CAP_BORG
 #include "../cmd-core.h"
 #include "../obj-util.h"
 #include "../player-spell.h"

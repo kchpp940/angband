@@ -70,7 +70,7 @@
  * connectivity.
 */
 
-#ifdef USE_STATS
+#if ANGBAND_CAP_STATS_BACKEND
 
 /*** Statsgen ***/
 
