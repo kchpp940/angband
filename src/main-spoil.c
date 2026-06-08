@@ -20,6 +20,7 @@
 
 #ifdef USE_SPOIL
 
+#include "data-init.h"
 #include "datafile.h"
 #include "game-world.h"
 #include "init.h"
@@ -271,15 +272,16 @@ errr init_spoil(int argc, char *argv[]) {
 
 	/* Generate the spoilers using the unified initialization system. */
 	{
-		struct init_result *ir = init_create_result();
-		init_set_stage_status(ir, INIT_STAGE_PATHS, INIT_STATUS_COMPLETE);
-		if (!init_angband_with_result(ir)) {
-			init_print_report(ir);
+		struct dinit_result *ir = dinit_create_result();
+		dinit_mark_paths_ready(ir);
+		dinit_set_global(ir);
+		if (!dinit_run_spoil(ir)) {
+			dinit_print_report(ir);
 			printf("init-spoil: initialization failed - %s\n", ir->error_summary);
-			init_destroy_result(ir);
+			dinit_destroy_result(ir);
 			return 1;
 		}
-		init_destroy_result(ir);
+		dinit_destroy_result(ir);
 	}
 
 	if (load_randart) {

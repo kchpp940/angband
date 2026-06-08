@@ -9,6 +9,7 @@
 #include "h-basic.h"
 #include "cave.h"
 #include "config.h"
+#include "data-init.h"
 #include "init.h"
 #include "mon-make.h"
 #include "mon-util.h"
@@ -79,19 +80,20 @@ void set_file_paths(void) {
  * Call this function to simulate init_stuff() and populate the *_info arrays
  */
 void read_edit_files(void) {
-	struct init_result *result;
+	struct dinit_result *result;
 
 	set_file_paths();
 
-	result = init_create_result();
-	init_set_stage_status(result, INIT_STAGE_PATHS, INIT_STATUS_COMPLETE);
+	result = dinit_create_result();
+	dinit_mark_paths_ready(result);
+	dinit_set_global(result);
 
-	if (!init_test_data_only(result)) {
-		init_print_report(result);
+	if (!dinit_run_test(result)) {
+		dinit_print_report(result);
 		quit_fmt("Test data initialization failed: %s", result->error_summary);
 	}
 
-	init_destroy_result(result);
+	dinit_destroy_result(result);
 }
 
 struct chunk *t_build_arena(int height, int width) {

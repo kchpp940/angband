@@ -17,6 +17,7 @@
  */
 
 #include "angband.h"
+#include "data-init.h"
 #include "init.h"
 #include "savefile.h"
 #include "ui-birth.h"
@@ -564,14 +565,18 @@ int main(int argc, char *argv[])
 	/* Set up the display handlers and things. */
 	init_display();
 	{
-		struct init_result *ir = init_create_result();
-		init_set_stage_status(ir, INIT_STAGE_PATHS, INIT_STATUS_COMPLETE);
-		init_set_stage_status(ir, INIT_STAGE_DIRS, INIT_STATUS_COMPLETE);
-		if (!init_angband_with_result(ir)) {
-			init_print_report(ir);
+		struct dinit_result *ir = dinit_create_result();
+		dinit_mark_paths_ready(ir);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_USER,     DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_SAVE,     DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_SCORES,   DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_ARCHIVE,  DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_PANIC,    DINIT_STATUS_COMPLETE);
+		dinit_set_global(ir);
+		if (!dinit_run_full(ir)) {
+			dinit_print_report(ir);
 			quit_fmt("Initialization failed: %s", ir->error_summary);
 		}
-		global_init_result = ir;
 	}
 	textui_init();
 

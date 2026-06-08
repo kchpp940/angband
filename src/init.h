@@ -217,59 +217,6 @@ struct init_module {
 	void (*cleanup)(void);
 };
 
-typedef enum {
-	INIT_STAGE_NOT_STARTED = 0,
-	INIT_STAGE_PATHS,
-	INIT_STAGE_DIRS,
-	INIT_STAGE_MESSAGES,
-	INIT_STAGE_CONSTANTS,
-	INIT_STAGE_VISUALS,
-	INIT_STAGE_ARRAYS,
-	INIT_STAGE_PLAYER,
-	INIT_STAGE_GENERATE,
-	INIT_STAGE_RUNES,
-	INIT_STAGE_OBJ_MAKE,
-	INIT_STAGE_IGNORE,
-	INIT_STAGE_MON_MAKE,
-	INIT_STAGE_STORE,
-	INIT_STAGE_OPTIONS,
-	INIT_STAGE_UI_PLAYER,
-	INIT_STAGE_UI_EQUIP_CMP,
-	INIT_STAGE_LISTS,
-	INIT_STAGE_RNG,
-	INIT_STAGE_COMPLETE,
-	INIT_STAGE_MAX
-} init_stage_t;
-
-typedef enum {
-	INIT_STATUS_PENDING = 0,
-	INIT_STATUS_IN_PROGRESS,
-	INIT_STATUS_COMPLETE,
-	INIT_STATUS_FAILED
-} init_status_t;
-
-struct init_stage_info {
-	init_stage_t stage;
-	const char *name;
-	const char *description;
-	init_status_t status;
-	errr error_code;
-	char error_message[256];
-	int dependency_count;
-	init_stage_t dependencies[4];
-};
-
-struct init_result {
-	bool success;
-	init_stage_t failed_stage;
-	char error_summary[512];
-	struct init_stage_info stages[INIT_STAGE_MAX];
-};
-
-typedef bool (*init_stage_func_t)(struct init_result *result);
-
-extern struct init_result *global_init_result;
-
 extern bool play_again;
 
 extern const char *list_element_names[];
@@ -328,20 +275,19 @@ extern void create_needed_dirs(void);
 extern bool init_angband(void);
 extern void cleanup_angband(void);
 
-extern struct init_result *init_create_result(void);
-extern void init_destroy_result(struct init_result *result);
-extern void init_reset_result(struct init_result *result);
-extern const char *init_stage_name(init_stage_t stage);
-extern const char *init_status_name(init_status_t status);
-extern bool init_stage_has_completed(struct init_result *result, init_stage_t stage);
-extern bool init_check_dependencies(struct init_result *result, init_stage_t stage);
-extern void init_record_error(struct init_result *result, init_stage_t stage, errr code, const char *fmt, ...);
-extern void init_set_stage_status(struct init_result *result, init_stage_t stage, init_status_t status);
-extern bool init_run_stage(struct init_result *result, init_stage_t stage);
-extern bool init_run_all_stages(struct init_result *result);
-extern void init_print_report(struct init_result *result);
-extern bool init_setup_paths(struct init_result *result, const char *config, const char *lib, const char *data);
-extern bool init_angband_with_result(struct init_result *result);
-extern bool init_test_data_only(struct init_result *result);
+/* Subsystem initialization modules, defined in each subsystem's .c file */
+extern struct init_module z_quark_module;
+extern struct init_module generate_module;
+extern struct init_module rune_module;
+extern struct init_module obj_make_module;
+extern struct init_module ignore_module;
+extern struct init_module mon_make_module;
+extern struct init_module player_module;
+extern struct init_module store_module;
+extern struct init_module messages_module;
+extern struct init_module options_module;
+extern struct init_module ui_player_module;
+extern struct init_module ui_equip_cmp_module;
+extern struct init_module ui_visuals_module;
 
 #endif /* INCLUDED_INIT_H */

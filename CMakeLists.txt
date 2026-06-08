@@ -179,6 +179,7 @@ add_library(OurCoreLib OBJECT
         src/cmd-spoil.c
         src/cmd-wizard.c
         src/datafile.c
+        src/data-init.c
         src/debug.c
         src/effect-handler-attack.c
         src/effect-handler-general.c
