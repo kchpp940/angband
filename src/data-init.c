@@ -70,6 +70,10 @@ static void dinit_setup_defaults(struct dinit_result *r)
 		r->stages[i].datafile         = NULL;
 	}
 
+	/* ----- Quark string table – first, everything else may use it ----- */
+	r->stages[DINIT_STAGE_QUARKS].name        = "quarks";
+	r->stages[DINIT_STAGE_QUARKS].description = "Interned quark string table";
+
 	/* ----- Path validation ----- */
 	r->stages[DINIT_STAGE_PATHS_CONFIG].name        = "paths_config";
 	r->stages[DINIT_STAGE_PATHS_CONFIG].description = "Config directory path set";
@@ -279,6 +283,7 @@ const char *dinit_stage_name(dinit_stage_t s)
 	switch (s) {
 #define CASE(x) case DINIT_STAGE_##x: return #x
 		CASE(NOT_STARTED);
+		CASE(QUARKS);
 		CASE(PATHS_CONFIG); CASE(PATHS_LIB); CASE(PATHS_DATA);
 		CASE(DIRS_GAMEDATA); CASE(DIRS_USER); CASE(DIRS_SAVE);
 		CASE(DIRS_SCORES);   CASE(DIRS_ARCHIVE); CASE(DIRS_PANIC);
@@ -527,6 +532,12 @@ static bool dinit_run_one(struct dinit_result *r, dinit_stage_t s)
 	info->status = DINIT_STATUS_IN_PROGRESS;
 
 	switch (s) {
+	/* --- Quark string table – runs first, no dependencies --- */
+	case DINIT_STAGE_QUARKS:
+		if (!dinit_exec_module(r, s, &z_quark_module)) return false;
+		info->status = DINIT_STATUS_COMPLETE;
+		break;
+
 	/* --- path stages are externally driven (mark_paths_ready) --- */
 	case DINIT_STAGE_PATHS_CONFIG:
 	case DINIT_STAGE_PATHS_LIB:

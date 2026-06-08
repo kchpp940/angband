@@ -4471,34 +4471,15 @@ static void cleanup_arrays(void)
 	cleanup_parser(pl[0].parser);
 }
 
-static struct init_module arrays_module = {
-	.name = "arrays",
-	.init = init_arrays,
-	.cleanup = cleanup_arrays
-};
 
-
-static struct init_module *modules[] = {
-	&z_quark_module,
-	&messages_module,
-	&ui_visuals_module, /* This needs to load before monsters and objects. */
-	&arrays_module,
-	&player_module,
-	&generate_module,
-	&rune_module,
-	&obj_make_module,
-	&ignore_module,
-	&mon_make_module,
-	&store_module,
-	&options_module,
-	&ui_player_module,
-	&ui_equip_cmp_module,
-	NULL
-};
 
 /**
  * Initialise Angband's data stores and allocate memory for structures,
  * etc, so that the game can get started.
+ *
+ * This is the legacy entry point – it wraps the unified staged data-init
+ * system.  New code should call dinit_run_full() directly to get detailed
+ * per-stage error reporting.
  *
  * The only input/output in this file should be via event_signal_string().
  * We cannot rely on any particular UI as this part should be UI-agnostic.
@@ -4512,27 +4493,30 @@ static struct init_module *modules[] = {
  */
 bool init_angband(void)
 {
-	int i;
+	struct dinit_result *ir = dinit_global();
 
-	event_signal(EVENT_ENTER_INIT);
+	if (!ir) {
+		ir = dinit_create_result();
+		dinit_set_global(ir);
+	} else {
+		dinit_reset_result(ir);
+	}
 
-	init_game_constants();
+	/*
+	 * Paths and user directories are assumed to already be set up by the
+	 * caller before this point (via init_file_paths + create_needed_dirs).
+	 */
+	dinit_mark_paths_ready(ir);
+	dinit_set_status(ir, DINIT_STAGE_DIRS_USER,    DINIT_STATUS_COMPLETE);
+	dinit_set_status(ir, DINIT_STAGE_DIRS_SAVE,    DINIT_STATUS_COMPLETE);
+	dinit_set_status(ir, DINIT_STAGE_DIRS_SCORES,  DINIT_STATUS_COMPLETE);
+	dinit_set_status(ir, DINIT_STAGE_DIRS_ARCHIVE, DINIT_STATUS_COMPLETE);
+	dinit_set_status(ir, DINIT_STAGE_DIRS_PANIC,   DINIT_STATUS_COMPLETE);
 
-	/* Initialise modules */
-	for (i = 0; modules[i]; i++)
-		if (modules[i]->init)
-			modules[i]->init();
-
-	/* Initialize some other things */
-	event_signal_message(EVENT_INITSTATUS, 0, "Initializing other stuff...");
-
-	/* List display codes */
-	monster_list_init();
-	object_list_init();
-
-	/* Initialise RNG */
-	event_signal_message(EVENT_INITSTATUS, 0, "Getting the dice rolling...");
-	Rand_init();
+	if (!dinit_run_full(ir)) {
+		dinit_print_report(ir);
+		return false;
+	}
 
 	return true;
 }
@@ -4552,9 +4536,21 @@ void cleanup_angband(void)
 	mem_free(chunk_list);
 	chunk_list = NULL;
 
-	for (i = 0; modules[i]; i++)
-		if (modules[i]->cleanup)
-			modules[i]->cleanup();
+	/* Clean up all subsystems in reverse init order. */
+	if (ui_equip_cmp_module.cleanup)  ui_equip_cmp_module.cleanup();
+	if (ui_player_module.cleanup)     ui_player_module.cleanup();
+	if (options_module.cleanup)       options_module.cleanup();
+	if (store_module.cleanup)         store_module.cleanup();
+	if (mon_make_module.cleanup)      mon_make_module.cleanup();
+	if (ignore_module.cleanup)        ignore_module.cleanup();
+	if (obj_make_module.cleanup)      obj_make_module.cleanup();
+	if (rune_module.cleanup)          rune_module.cleanup();
+	if (generate_module.cleanup)      generate_module.cleanup();
+	if (player_module.cleanup)        player_module.cleanup();
+	cleanup_arrays();
+	if (ui_visuals_module.cleanup)    ui_visuals_module.cleanup();
+	if (messages_module.cleanup)      messages_module.cleanup();
+	if (z_quark_module.cleanup)       z_quark_module.cleanup();
 
 	event_remove_all_handlers();
 

@@ -49,6 +49,9 @@ typedef enum {
 typedef enum {
 	DINIT_STAGE_NOT_STARTED = 0,
 
+	/* --- Very early core subsystems (no data files, no paths needed) --- */
+	DINIT_STAGE_QUARKS,           /* quark string table */
+
 	/* --- Path validation --- */
 	DINIT_STAGE_PATHS_CONFIG,     /* config path is set */
 	DINIT_STAGE_PATHS_LIB,        /* lib path is set */
