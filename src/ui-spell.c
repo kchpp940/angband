@@ -20,13 +20,13 @@
 #include "cmds.h"
 #include "cmd-core.h"
 #include "effects.h"
-#include "effects-info.h"
 #include "game-input.h"
 #include "obj-tval.h"
 #include "obj-util.h"
 #include "object.h"
 #include "player-calcs.h"
 #include "player-spell.h"
+#include "spell-description.h"
 #include "ui-menu.h"
 #include "ui-output.h"
 #include "ui-spell.h"
@@ -151,56 +151,27 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 	const struct class_spell *spell = spell_by_index(player, spell_index);
 
 	if (d->show_description) {
-		struct spell_info *info = spell_info_build(spell_index);
-		int num_damaging = 0;
-		struct spell_effect_info *ei;
+		struct spell_info *info = spell_info_build(spell, spell_index);
+		bool worked = player->spell_flags[spell_index] & PY_SPELL_WORKED;
+		bool not_forgotten =
+			!(player->spell_flags[spell_index] & PY_SPELL_FORGOTTEN);
 
-		/* Redirect output to the screen */
 		text_out_hook = text_out_to_screen;
 		text_out_wrap = 0;
 		text_out_indent = loc->col - 1;
 		text_out_pad = 1;
 
 		Term_gotoxy(loc->col, loc->row + loc->page_rows);
-		/* Spell description */
-		text_out("\n%s", spell->text);
 
-		if (info) {
-			for (ei = info->effects; ei; ei = ei->next) {
-				if (ei->is_damage) {
-					num_damaging++;
-				}
-			}
-		}
+		spell_info_text_out_detail(info,
+			worked && not_forgotten,
+			worked && not_forgotten,
+			false);
 
-		if (num_damaging > 0
-			&& (player->spell_flags[spell_index] & PY_SPELL_WORKED)
-			&& !(player->spell_flags[spell_index] & PY_SPELL_FORGOTTEN)) {
-			int i = 0;
-
-			text_out("  Inflicts an average of");
-			for (ei = info->effects; ei; ei = ei->next) {
-				if (ei->is_damage) {
-					if (num_damaging > 2 && i > 0) {
-						text_out(",");
-					}
-					if (num_damaging > 1 && i == num_damaging - 1) {
-						text_out(" and");
-					}
-					text_out_c(COLOUR_L_GREEN, " %d", ei->avg_damage);
-					if (strlen(ei->projection_name) > 0) {
-						text_out(" %s", ei->projection_name);
-					}
-					i++;
-				}
-			}
-			text_out(" damage.");
-		}
-		text_out("\n\n");
+		text_out("\n");
 
 		spell_info_free(info);
 
-		/* XXX */
 		text_out_pad = 0;
 		text_out_indent = 0;
 	}

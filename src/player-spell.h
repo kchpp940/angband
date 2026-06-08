@@ -16,6 +16,8 @@
  *    are included in all such copies.  Other copyrights may also apply.
  */
 
+#include "spell-description.h"
+
 void player_spells_init(struct player *p);
 void player_spells_free(struct player *p);
 struct magic_realm *class_magic_realms(const struct player_class *c,
@@ -38,43 +40,6 @@ int16_t spell_chance(int spell_index);
 void spell_learn(int spell_index);
 bool spell_cast(int spell_index, int dir, struct command *cmd);
 
-enum spell_effect_kind {
-	SPELL_EFFECT_DAMAGE,
-	SPELL_EFFECT_HEAL,
-	SPELL_EFFECT_TIMED,
-	SPELL_EFFECT_SUMMON,
-	SPELL_EFFECT_TELEPORT,
-	SPELL_EFFECT_DETECT,
-	SPELL_EFFECT_OTHER
-};
-
-struct spell_effect_info {
-	struct spell_effect_info *next;
-	enum spell_effect_kind kind;
-	const char *projection_name;
-	int avg_damage;
-	int range;
-	int radius;
-	random_value dice_rv;
-	char dice_str[32];
-	char extra[64];
-	const char *info_label;
-	bool is_damage;
-};
-
-struct spell_info {
-	struct spell_effect_info *effects;
-	int mana;
-	int slevel;
-	int fail;
-	bool needs_aim;
-};
-
-struct spell_info *spell_info_build(int spell_index);
-void spell_info_free(struct spell_info *info);
-size_t spell_info_format_short(const struct spell_info *info, char *buf, size_t len);
-
 extern void get_spell_info(int index, char *buf, size_t len);
 extern bool cast_spell(int tval, int index, int dir);
 extern bool spell_needs_aim(int spell_index);
-
