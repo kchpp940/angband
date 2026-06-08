@@ -31,7 +31,7 @@
 #include "obj-info.h"
 #include "obj-tval.h"
 #include "obj-util.h"
-#include "obj-transfer.h"
+
 #include "player-calcs.h"
 #include "player-timed.h"
 #include "player-util.h"

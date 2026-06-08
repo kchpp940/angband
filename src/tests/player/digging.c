@@ -13,7 +13,6 @@
 #include "obj-knowledge.h"
 #include "obj-make.h"
 #include "obj-pile.h"
-#include "obj-transfer.h"
 #include "obj-util.h"
 #include "player.h"
 #include "player-birth.h"

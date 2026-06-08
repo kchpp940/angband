@@ -700,10 +700,6 @@ void inven_wield(struct object *obj, int slot)
 
 	/* ========== Execute phase: modify state only now ========== */
 
-	/* Increase equipment counter if the slot was empty */
-	if (old == NULL)
-		player->upkeep->equip_cnt++;
-
 	/* It's either a gear object or a floor object */
 	if (object_is_carried(player, obj)) {
 		/* Split off a new object if necessary */
@@ -742,7 +738,11 @@ void inven_wield(struct object *obj, int slot)
 		/*
 		 * Old item is no longer equipped; either it stays in the gear
 		 * list as inventory, or we excise it and drop it explicitly.
+		 *
+		 * Clear the slot first so gear_excise_object() (if called) won't
+		 * double-decrement equip_cnt when it checks for equipped items.
 		 */
+		player->body.slots[slot].obj = NULL;
 		player->upkeep->equip_cnt--;
 
 		if (old_fits) {
@@ -770,6 +770,7 @@ void inven_wield(struct object *obj, int slot)
 
 	/* Wear the new stuff */
 	player->body.slots[slot].obj = wielded;
+	player->upkeep->equip_cnt++;
 
 	/* Do any ID-on-wield */
 	object_learn_on_wield(player, wielded);

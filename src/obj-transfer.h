@@ -1,6 +1,12 @@
 /**
  * \file obj-transfer.h
- * \brief Unified object transfer plan layer
+ * \brief Unified object transfer plan layer — INTERNAL HEADER
+ *
+ * This is an INTERNAL orchestration layer.  Do NOT include this header
+ * from outside the object movement subsystem.  External callers should
+ * use the public APIs re-exported from obj-pile.h (floor_object_for_use,
+ * floor_carry, drop_near, push_object) and obj-gear.h (gear_object_for_use,
+ * inven_carry, inven_drop, inven_carry_num, inven_carry_okay).
  *
  * This module provides a "plan first, execute second" abstraction for all
  * object movements between floor piles, the player's pack/quiver, and
@@ -13,6 +19,9 @@
  *   obj-pile  (list/stack primitives)    <- bottom layer, no upward deps
  *   obj-gear  (pack/quiver capacity + equipment primitives)  <- depends on obj-pile
  *   obj-transfer  (this file: orchestration/plans)  <- depends on both
+ *
+ * Only obj-transfer.c, obj-gear.c, and cmd-pickup.c should include this
+ * header directly; also the unit tests that exercise the planner internals.
  *
  * Copyright (c) 1997 Ben Harrison, James E. Wilson, Robert A. Koeneke
  *

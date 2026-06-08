@@ -2,6 +2,15 @@
  * \file: obj-gear.h
  * \brief management of inventory, equipment and quiver
  *
+ * Capacity strategies (quiver_absorb_num, pack_overflow) and equipment
+ * primitives (inven_wield, inven_takeoff) live here; see obj-pile.h for
+ * pile primitives.
+ *
+ * Also re-exports the public pack-level transfer APIs (gear_object_for_use,
+ * inven_carry, inven_drop, etc.).  The underlying transfer planning layer
+ * lives in obj-transfer.h and is only for internal use by obj-gear,
+ * cmd-pickup, and the test harness.
+ *
  * Copyright (c) 1997 Ben Harrison, James E. Wilson, Robert A. Koeneke
  * Copyright (c) 2014 Nick McConnell
  *
@@ -61,6 +70,19 @@ void pack_overflow(struct object *obj);
 int preferred_quiver_slot(const struct object *obj);
 void quiver_absorb_num(const struct player *p, const struct object *obj,
 		int *n_add_pack, int *n_to_quiver);
+
+/*
+ * Public pack-level transfer APIs (implemented in obj-transfer.c).
+ * These are re-exported here so callers do not need to include the
+ * internal transfer planning layer directly.
+ */
+struct object *gear_object_for_use(struct player *p, struct object *obj,
+	int num, bool message, bool *none_left);
+int inven_carry_num(const struct player *p, const struct object *obj);
+bool inven_carry_okay(const struct object *obj);
+void inven_carry(struct player *p, struct object *obj, bool absorb,
+				 bool message);
+void inven_drop(struct object *obj, int amt);
 
 
 #endif /* OBJECT_GEAR_H */

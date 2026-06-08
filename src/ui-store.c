@@ -33,7 +33,7 @@
 #include "obj-pile.h"
 #include "obj-tval.h"
 #include "obj-util.h"
-#include "obj-transfer.h"
+
 #include "player-calcs.h"
 #include "player-history.h"
 #include "player-util.h"

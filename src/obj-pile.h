@@ -5,8 +5,10 @@
  * Pile/list primitives only: object lifecycle, linked-list insert/excise,
  * stacking/merging helpers, floor scanning, pile charges display.
  *
- * Higher-level object movements (pickup, drop, carry, wield, takeoff) and
- * the unified quantity / capacity planning live in obj-transfer.h / .c.
+ * Also re-exports the public floor-level transfer APIs (floor_object_for_use,
+ * floor_carry, drop_near, push_object).  The underlying transfer planning
+ * layer lives in obj-transfer.h and is only for internal use by obj-gear,
+ * cmd-pickup, and the test harness.
  *
  * Copyright (c) 1997 Ben Harrison, James E. Wilson, Robert A. Koeneke
  *
@@ -92,5 +94,18 @@ int scan_distant_floor(struct object **items, int max_size, struct player *p,
 int scan_items(struct object **item_list, size_t item_list_max,
 		struct player *p, int mode, item_tester tester);
 bool item_is_available(struct object *obj);
+
+/*
+ * Public floor-level transfer APIs (implemented in obj-transfer.c).
+ * These are re-exported here so callers do not need to include the
+ * internal transfer planning layer directly.
+ */
+struct object *floor_object_for_use(struct player *p, struct object *obj,
+	int num, bool message, bool *none_left);
+bool floor_carry(struct chunk *c, struct loc grid, struct object *drop,
+	bool *notice);
+void drop_near(struct chunk *c, struct object **dest, int chance,
+	struct loc grid, bool kill_held_m_idx, bool verbose);
+void push_object(struct loc grid);
 
 #endif /* OBJECT_PILE_H */

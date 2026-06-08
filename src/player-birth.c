@@ -31,7 +31,6 @@
 #include "obj-knowledge.h"
 #include "obj-make.h"
 #include "obj-pile.h"
-#include "obj-transfer.h"
 #include "obj-power.h"
 #include "obj-properties.h"
 #include "obj-randart.h"

@@ -22,7 +22,6 @@
 #include "generate.h"
 #include "obj-ignore.h"
 #include "obj-pile.h"
-#include "obj-transfer.h"
 #include "obj-util.h"
 #include "player-calcs.h"
 #include "player-timed.h"
