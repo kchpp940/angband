@@ -731,12 +731,9 @@ static bool start_game(bool new_game)
 	exists = file_exists(loadpath);
 	safe_setuid_drop();
 	if (exists) {
-		if (!savefile_load(loadpath, arg_wizard)) {
+		if (!savefile_load_and_restore(loadpath, arg_wizard, LOAD_RESTORE_GAME)) {
 			return false;
 		}
-		character_generated = true;
-		player->upkeep->playing = true;
-		post_load();
 	}
 
 	/* No living character loaded */

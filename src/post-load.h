@@ -29,6 +29,27 @@
 #define POST_LOAD_H
 
 /**
+ * Mode for savefile_load_and_restore(): determines how much of the runtime
+ * state is rebuilt after deserialization.
+ */
+typedef enum {
+	LOAD_RESTORE_NONE = 0,
+	LOAD_RESTORE_GAME = 1,
+} load_restore_mode;
+
+/**
+ * Unified entry point: deserialize a savefile, then (optionally) restore
+ * runtime state.  Replaces the open-coded "savefile_load + flags +
+ * post_load" pattern that used to be duplicated across ui-game, tests, and
+ * spoiler mode.
+ *
+ * Returns true on success.  On failure the savefile could not be
+ * deserialized and no state markers are set.
+ */
+bool savefile_load_and_restore(const char *path, bool cheat_death,
+			       load_restore_mode mode);
+
+/**
  * Recompute derived runtime state after a successful savefile_load().
  *
  * Order matters:

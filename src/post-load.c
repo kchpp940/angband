@@ -23,10 +23,44 @@
  */
 
 #include "angband.h"
+#include "game-world.h"
 #include "obj-knowledge.h"
 #include "player-calcs.h"
 #include "player-util.h"
 #include "post-load.h"
+#include "savefile.h"
+
+/**
+ * Unified entry point: deserialize a savefile, then (optionally) restore
+ * runtime state.  Replaces the open-coded "savefile_load + flags +
+ * post_load" pattern that used to be duplicated across ui-game, tests, and
+ * spoiler mode.
+ *
+ * - LOAD_RESTORE_NONE: only set character_generated / playing markers;
+ *   useful for non-interactive tools that just need deserialized data
+ *   (artifact spoiler generation, etc.) and do not want UI side effects.
+ * - LOAD_RESTORE_GAME: full post_load() state restoration including view,
+ *   monster visibility, and UI dirty flags; use for normal game startup
+ *   and tests that exercise game systems.
+ *
+ * Returns true on success.  On failure the savefile could not be
+ * deserialized and no state markers are set.
+ */
+bool savefile_load_and_restore(const char *path, bool cheat_death,
+			       load_restore_mode mode)
+{
+	bool ok = savefile_load(path, cheat_death);
+	if (!ok)
+		return false;
+
+	character_generated = true;
+	player->upkeep->playing = true;
+
+	if (mode == LOAD_RESTORE_GAME)
+		post_load();
+
+	return true;
+}
 
 /**
  * Post-load state restoration.
