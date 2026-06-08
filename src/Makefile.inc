@@ -166,6 +166,15 @@ depgen:
  player-calcs.h player-timed.h list-player-timed.h player-util.h \
  project.h list-projections.h trap.h list-trap-flags.h ui-input.h \
  ui-event.h ui-term.h ui-map.h ui-output.h wizard.h
+./data-init.o: data-init.c angband.h h-basic.h z-bitflag.h z-form.h z-virt.h \
+ z-color.h z-util.h z-rand.h config.h game-event.h z-type.h message.h \
+ list-message.h player.h guid.h obj-properties.h z-file.h list-tvals.h \
+ list-object-flags.h list-kind-flags.h list-stats.h \
+ list-object-modifiers.h object.h z-quark.h z-dice.h z-expression.h \
+ list-elements.h list-origins.h option.h list-options.h \
+ list-player-flags.h datafile.h parser.h list-parser-errors.h \
+ game-world.h cave.h list-square-flags.h list-terrain-flags.h \
+ list-terrain.h init.h mon-list.h obj-init.h obj-list.h ui-visuals.h
 ./datafile.o: datafile.c angband.h h-basic.h z-bitflag.h z-form.h z-virt.h \
  z-color.h z-util.h z-rand.h config.h game-event.h z-type.h message.h \
  list-message.h player.h guid.h obj-properties.h z-file.h list-tvals.h \

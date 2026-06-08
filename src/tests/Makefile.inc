@@ -574,8 +574,8 @@ depgen:
  ../h-basic.h ../z-virt.h
 ./z-virt/string.o: z-virt/string.c unit-test.h unit-test-types.h ../z-util.h \
  ../h-basic.h ../z-virt.h
-./test-utils.o: test-utils.c ../h-basic.h ../config.h ../init.h \
- ../h-basic.h ../z-bitflag.h ../z-form.h ../z-virt.h ../z-file.h \
+./test-utils.o: test-utils.c ../h-basic.h ../config.h ../data-init.h \
+ ../init.h ../h-basic.h ../z-bitflag.h ../z-form.h ../z-virt.h ../z-file.h \
  ../z-rand.h ../datafile.h ../object.h ../z-type.h ../z-quark.h \
  ../z-dice.h ../z-expression.h ../obj-properties.h ../list-tvals.h \
  ../list-object-flags.h ../list-kind-flags.h ../list-stats.h \
