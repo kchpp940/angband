@@ -16,8 +16,6 @@
  *    are included in all such copies.  Other copyrights may also apply.
  */
 
-#include "spell-description.h"
-
 void player_spells_init(struct player *p);
 void player_spells_free(struct player *p);
 struct magic_realm *class_magic_realms(const struct player_class *c,
@@ -43,3 +41,4 @@ bool spell_cast(int spell_index, int dir, struct command *cmd);
 extern void get_spell_info(int index, char *buf, size_t len);
 extern bool cast_spell(int tval, int index, int dir);
 extern bool spell_needs_aim(int spell_index);
+

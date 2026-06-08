@@ -1136,26 +1136,19 @@ void do_cmd_cast(struct command *cmd)
 	/* Get the spell */
 	spell = spell_by_index(player, spell_index);
 
-	/* Verify "dangerous" spells using the shared spell-description layer */
-	{
-		struct spell_info *info = spell_info_build(spell, spell_index);
-		if (info && info->limits.mana > player->csp) {
-			const char *verb = spell->realm->verb;
-			const char *noun = spell->realm->spell_noun;
+	/* Verify "dangerous" spells */
+	if (spell->smana > player->csp) {
+		const char *verb = spell->realm->verb;
+		const char *noun = spell->realm->spell_noun;
 
-			/* Warning */
-			msg("You do not have enough mana to %s this %s.", verb, noun);
+		/* Warning */
+		msg("You do not have enough mana to %s this %s.", verb, noun);
 
-			/* Flush input */
-			event_signal(EVENT_INPUT_FLUSH);
+		/* Flush input */
+		event_signal(EVENT_INPUT_FLUSH);
 
-			/* Verify */
-			if (!get_check("Attempt it anyway? ")) {
-				spell_info_free(info);
-				return;
-			}
-		}
-		spell_info_free(info);
+		/* Verify */
+		if (!get_check("Attempt it anyway? ")) return;
 	}
 
 	if (spell_needs_aim(spell_index)) {

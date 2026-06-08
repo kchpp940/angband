@@ -77,8 +77,6 @@ struct effect *effect_next(struct effect *effect);
 bool effect_damages(const struct effect *effect);
 int effect_avg_damage(const struct effect *effect, const dice_t *shared_dice);
 const char *effect_projection(const struct effect *effect);
-int effect_range(const struct effect *effect);
-int effect_radius(const struct effect *effect);
 struct effect_object_property *effect_summarize_properties(
 	const struct effect *ef, int *unsummarized_count);
 

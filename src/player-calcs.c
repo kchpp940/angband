@@ -2672,6 +2672,14 @@ static const struct flag_event_trigger redraw_events[] =
 	{ PR_MESSAGE, EVENT_MESSAGE },
 };
 
+static int calc_danger_level(int cur, int max, int warn_pct)
+{
+	if (max <= 0) return DANGER_SAFE;
+	if (cur >= max) return DANGER_SAFE;
+	if (cur > (max * warn_pct) / 10) return DANGER_WARNING;
+	return DANGER_CRITICAL;
+}
+
 /**
  * Handle "player->upkeep->redraw"
  */
@@ -2679,6 +2687,8 @@ void redraw_stuff(struct player *p)
 {
 	size_t i;
 	uint32_t redraw = p->upkeep->redraw;
+	static int last_hp_danger = -1;
+	static int last_mana_danger = -1;
 
 	/* Redraw stuff */
 	if (!redraw) return;
@@ -2690,10 +2700,8 @@ void redraw_stuff(struct player *p)
 	if (!map_is_visible()) 
 		redraw &= PR_SUBWINDOW;
 
-	/* Hack - rarely update while resting or running, makes it over quicker */
-	if (((player_resting_count(p) % 100) || (p->upkeep->running % 100))
-		&& !(redraw & (PR_MESSAGE | PR_MAP)))
-		return;
+	/* Batch all UI events together and deduplicate */
+	event_queue_begin();
 
 	/* For each listed flag, send the appropriate signal to the UI */
 	for (i = 0; i < N_ELEMENTS(redraw_events); i++) {
@@ -2709,16 +2717,38 @@ void redraw_stuff(struct player *p)
 		event_signal_point(EVENT_MAP, -1, -1);
 	}
 
+	/* Send danger state events when HP or mana danger level changes */
+	if (redraw & PR_HP) {
+		int hp_danger = calc_danger_level(p->chp, p->mhp, p->opts.hitpoint_warn);
+		if (hp_danger != last_hp_danger) {
+			event_signal_danger(EVENT_DANGER_HP, hp_danger, p->chp, p->mhp);
+			last_hp_danger = hp_danger;
+		}
+	}
+	if (redraw & PR_MANA) {
+		int mana_danger = calc_danger_level(p->csp, p->msp, p->opts.hitpoint_warn);
+		if (mana_danger != last_mana_danger) {
+			event_signal_danger(EVENT_DANGER_MANA, mana_danger, p->csp, p->msp);
+			last_mana_danger = mana_danger;
+		}
+	}
+
 	p->upkeep->redraw &= ~redraw;
 
 	/* Map is not shown, subwindow updates only */
-	if (!map_is_visible()) return;
+	if (!map_is_visible()) {
+		event_queue_flush();
+		return;
+	}
 
 	/*
 	 * Do any plotting, etc. delayed from earlier - this set of updates
 	 * is over.
 	 */
 	event_signal(EVENT_END);
+
+	/* Dispatch all batched events at once, avoiding flicker */
+	event_queue_flush();
 }
 
 

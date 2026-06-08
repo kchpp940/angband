@@ -29,8 +29,19 @@
 #include "player-spell.h"
 #include "player-timed.h"
 #include "player-util.h"
-#include "spell-description.h"
+#include "project.h"
 #include "target.h"
+
+/**
+ * Used by get_spell_info() to pass information as it iterates through effects.
+ */
+struct spell_info_iteration_state {
+	const struct effect *pre;
+	char pre_special[40];
+	random_value pre_rv;
+	random_value shared_rv;
+	bool have_shared;
+};
 
 /**
  * Stat Table (INT/WIS) -- Minimum failure rate (percentage)
@@ -552,110 +563,158 @@ bool spell_cast(int spell_index, int dir, struct command *cmd)
 bool spell_needs_aim(int spell_index)
 {
 	const struct class_spell *spell = spell_by_index(player, spell_index);
-	struct spell_info *info;
-	bool needs_aim;
-
 	assert(spell);
-	info = spell_info_build(spell, spell_index);
-	needs_aim = info ? info->needs_aim : false;
-	spell_info_free(info);
-	return needs_aim;
+	return effect_aim(spell->effect);
 }
 
-
-/* ---- Local helper: build short menu-row info line (consumer-formatted) ---- */
-
-static size_t fmt_extra_for_row(const struct spell_effect_info *ei,
-	char *buf, size_t len)
-{
-	size_t off = 0;
-	if (!buf || len == 0) return 0;
-	buf[0] = '\0';
-
-	if (ei->radius > 0) {
-		off += strnfmt(buf + off, len - off, ", rad %d", ei->radius);
-	}
-	if (ei->beam_length > 0) {
-		off += strnfmt(buf + off, len - off, ", len %d", ei->beam_length);
-	}
-	if (ei->projectile_count > 0) {
-		off += strnfmt(buf + off, len - off, "x%d", ei->projectile_count);
-	}
-	if (ei->heal_pct_floor > 0) {
-		off += strnfmt(buf + off, len - off, "/%d%%", ei->heal_pct_floor);
-	}
-	if (ei->teleport_random) {
-		off += strnfmt(buf + off, len - off, "random");
-	}
-	return off;
-}
-
-static size_t spell_build_short_row(const struct spell_info *info,
-	char *buf, size_t len)
+static size_t append_random_value_string(char *buffer, size_t size,
+										 random_value *rv)
 {
 	size_t offset = 0;
-	struct spell_effect_info *ei;
-	struct spell_effect_info *pre = NULL;
-	char pre_extra[64] = "";
-	random_value pre_rv = { 0, 0, 0, 0 };
 
-	if (!info || !buf || len == 0) return 0;
-	buf[0] = '\0';
+	if (rv->base > 0) {
+		offset += strnfmt(buffer + offset, size - offset, "%d", rv->base);
 
-	for (ei = info->effects; ei; ei = ei->next) {
-		random_value rv = ei->dice_rv;
-		char dice_buf[32];
-		char extra_buf[64];
-		bool same_as_prev = false;
-
-		spell_rv_format_dice(&rv, dice_buf, sizeof(dice_buf));
-		fmt_extra_for_row(ei, extra_buf, sizeof(extra_buf));
-
-		if (pre && pre->kind == ei->kind
-			&& streq(pre_extra, extra_buf)
-			&& pre_rv.base == rv.base
-			&& pre_rv.dice == rv.dice
-			&& pre_rv.sides == rv.sides
-			&& pre_rv.m_bonus == rv.m_bonus
-			&& streq(pre->info_label, ei->info_label)
-			&& streq(pre->projection_name, ei->projection_name)) {
-			same_as_prev = true;
+		if (rv->dice > 0 && rv->sides > 0) {
+			offset += strnfmt(buffer + offset, size - offset, "+");
 		}
+	}
 
-		if ((strlen(dice_buf) > 0 || strlen(extra_buf) > 1)
-			&& !same_as_prev) {
-			if (offset) {
-				offset += strnfmt(buf + offset, len - offset, ";");
-			}
-			offset += strnfmt(buf + offset, len - offset, " %s ",
-							  ei->info_label);
-			offset += strnfmt(buf + offset, len - offset, "%s",
-							  dice_buf);
-			if (strlen(extra_buf) > 1) {
-				offset += strnfmt(buf + offset, len - offset, "%s",
-								  extra_buf);
-			}
-			pre = ei;
-			my_strcpy(pre_extra, extra_buf, sizeof(pre_extra));
-			pre_rv = rv;
-		}
+	if (rv->dice == 1 && rv->sides > 0) {
+		offset += strnfmt(buffer + offset, size - offset, "d%d", rv->sides);
+	} else if (rv->dice > 1 && rv->sides > 0) {
+		offset += strnfmt(buffer + offset, size - offset, "%dd%d", rv->dice,
+						  rv->sides);
 	}
 
 	return offset;
 }
 
+static void spell_effect_append_value_info(const struct effect *effect,
+		char *p, size_t len, struct spell_info_iteration_state *ist)
+{
+	random_value rv = { 0, 0, 0, 0 };
+	const char *type = NULL;
+	char special[40] = "";
+	size_t offset = strlen(p);
+
+	if (effect->index == EF_CLEAR_VALUE) {
+		ist->have_shared = false;
+	} else if (effect->index == EF_SET_VALUE && effect->dice) {
+		ist->have_shared = true;
+		dice_roll(effect->dice, &ist->shared_rv);
+	}
+
+	type = effect_info(effect);
+	if (type == NULL) return;
+
+	if (effect->dice != NULL) {
+		dice_roll(effect->dice, &rv);
+	} else if (ist->have_shared) {
+		rv = ist->shared_rv;
+	}
+
+	/* Handle some special cases where we want to append some additional info */
+	switch (effect->index) {
+		case EF_HEAL_HP:
+			/* Append percentage only, as the fixed value is always displayed */
+			if (rv.m_bonus) {
+				strnfmt(special, sizeof(special), "/%d%%",
+					rv.m_bonus);
+			}
+			break;
+		case EF_TELEPORT:
+			/* m_bonus means it's a weird random thing */
+			if (rv.m_bonus) {
+				my_strcpy(special, "random", sizeof(special));
+			}
+			break;
+		case EF_SPHERE:
+			/* Append radius */
+			if (effect->radius) {
+				int rad = effect->radius;
+				strnfmt(special, sizeof(special), ", rad %d",
+					rad);
+			} else {
+				my_strcpy(special, ", rad 2", sizeof(special));
+			}
+			break;
+		case EF_BALL:
+			/* Append radius */
+			if (effect->radius) {
+				int rad = effect->radius;
+				if (effect->other) {
+					rad += player->lev / effect->other;
+				}
+				strnfmt(special, sizeof(special), ", rad %d",
+					rad);
+			} else {
+				my_strcpy(special, "rad 2", sizeof(special));
+			}
+			break;
+		case EF_STRIKE:
+			/* Append radius */
+			if (effect->radius) {
+				strnfmt(special, sizeof(special), ", rad %d",
+					effect->radius);
+			}
+			break;
+		case EF_SHORT_BEAM: {
+			/* Append length of beam */
+			int beam_len = effect->radius;
+			if (effect->other) {
+				beam_len += player->lev / effect->other;
+				beam_len = MIN(beam_len, z_info->max_range);
+			}
+			strnfmt(special, sizeof(special), ", len %d", beam_len);
+			break;
+		}
+		case EF_SWARM:
+			/* Append number of projectiles. */
+			strnfmt(special, sizeof(special), "x%d", rv.m_bonus);
+			break;
+	}
+
+	/*
+	 * Only display if have dice and it isn't redundant with the
+	 * previous one that was displayed.
+	 */
+	if ((rv.base > 0 || (rv.dice > 0 && rv.sides > 0))
+			&& (!ist->pre
+			|| ist->pre->index != effect->index
+			|| !streq(special, ist->pre_special)
+			|| ist->pre_rv.base != rv.base
+			|| (((ist->pre_rv.dice > 0 && ist->pre_rv.sides > 0)
+			|| (rv.dice > 0 && rv.sides > 0))
+			&& (ist->pre_rv.dice != rv.dice
+			|| ist->pre_rv.sides != rv.sides)))) {
+		if (offset) {
+			offset += strnfmt(p + offset, len - offset, ";");
+		}
+
+		offset += strnfmt(p + offset, len - offset, " %s ", type);
+		offset += append_random_value_string(p + offset, len - offset, &rv);
+
+		if (strlen(special) > 1) {
+			strnfmt(p + offset, len - offset, "%s", special);
+		}
+
+		ist->pre = effect;
+		my_strcpy(ist->pre_special, special, sizeof(ist->pre_special));
+		ist->pre_rv = rv;
+	}
+}
 
 void get_spell_info(int spell_index, char *p, size_t len)
 {
-	const struct class_spell *spell = spell_by_index(player, spell_index);
-	struct spell_info *info = spell_info_build(spell, spell_index);
+	struct effect *effect = spell_by_index(player, spell_index)->effect;
+	struct spell_info_iteration_state ist = {
+		NULL, "", { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, false };
 
-	if (p && len > 0) {
-		p[0] = '\0';
-		if (info) {
-			spell_build_short_row(info, p, len);
-		}
+	p[0] = '\0';
+
+	while (effect) {
+		spell_effect_append_value_info(effect, p, len, &ist);
+		effect = effect->next;
 	}
-
-	spell_info_free(info);
 }

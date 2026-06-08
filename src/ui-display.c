@@ -1634,8 +1634,6 @@ static void display_explosion(game_event_type type, game_event_data *data,
 
 		/* Flush the explosion */
 		Term_fresh();
-		if (player->upkeep->redraw)
-			redraw_stuff(player);
 	}
 }
 
@@ -1667,13 +1665,9 @@ static void display_bolt(game_event_type type, game_event_data *data,
 		print_rel(c, a, y, x);
 		move_cursor_relative(y, x);
 		Term_fresh();
-		if (player->upkeep->redraw)
-			redraw_stuff(player);
 		Term_xtra(TERM_XTRA_DELAY, msec);
 		event_signal_point(EVENT_MAP, x, y);
 		Term_fresh();
-		if (player->upkeep->redraw)
-			redraw_stuff(player);
 
 		/* Display "beam" grids */
 		if (beam) {
@@ -1708,13 +1702,11 @@ static void display_missile(game_event_type type, game_event_data *data,
 		move_cursor_relative(y, x);
 
 		Term_fresh();
-		if (player->upkeep->redraw) redraw_stuff(player);
 
 		Term_xtra(TERM_XTRA_DELAY, msec);
 		event_signal_point(EVENT_MAP, x, y);
 
 		Term_fresh();
-		if (player->upkeep->redraw) redraw_stuff(player);
 	}
 }
 
@@ -2477,6 +2469,33 @@ static void show_splashscreen(game_event_type type, game_event_data *data,
 
 
 /**
+ * Handle HP or mana danger state changes by playing the appropriate
+ * alert sound and triggering a visual alert. This only fires when the
+ * danger level actually changes (safe->warning->critical), avoiding
+ * repeated sounds during resting or running.
+ */
+static void handle_danger_state(game_event_type type, game_event_data *data,
+								void *user)
+{
+	if (!data) return;
+
+	int level = data->danger.level;
+	bool is_hp = (type == EVENT_DANGER_HP);
+
+	if (level == DANGER_CRITICAL) {
+		if (is_hp) {
+			sound(MSG_HITPOINT_WARN);
+			bell();
+		} else {
+			sound(MSG_HITPOINT_WARN);
+		}
+	} else if (level == DANGER_WARNING) {
+		if (is_hp)
+			sound(MSG_HIT);
+	}
+}
+
+/**
  * ------------------------------------------------------------------------
  * Visual updates betweeen player turns.
  * ------------------------------------------------------------------------ */
@@ -2780,6 +2799,10 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 	/* Allow the player to cheat death, if appropriate */
 	event_add_handler(EVENT_CHEAT_DEATH, cheat_death, NULL);
 
+	/* Handle HP and mana danger state changes (alerts, sounds) */
+	event_add_handler(EVENT_DANGER_HP, handle_danger_state, NULL);
+	event_add_handler(EVENT_DANGER_MANA, handle_danger_state, NULL);
+
 	/* Decrease "icky" depth */
 	screen_save_depth--;
 }
@@ -2841,6 +2864,10 @@ static void ui_leave_world(game_event_type type, game_event_data *data,
 
 	/* Allow the player to cheat death, if appropriate */
 	event_remove_handler(EVENT_CHEAT_DEATH, cheat_death, NULL);
+
+	/* Remove HP and mana danger state handlers */
+	event_remove_handler(EVENT_DANGER_HP, handle_danger_state, NULL);
+	event_remove_handler(EVENT_DANGER_MANA, handle_danger_state, NULL);
 
 	/* Prepare to interact with a store */
 	event_add_handler(EVENT_USE_STORE, use_store, NULL);

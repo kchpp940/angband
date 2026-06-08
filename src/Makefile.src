@@ -251,7 +251,6 @@ ANGFILES0 = \
 	score-util.o \
 	sound-core.o \
 	source.o \
-	spell-description.o \
 	store.o \
 	target.o \
 	trap.o \

@@ -19,6 +19,7 @@
 #include "angband.h"
 #include "cmds.h"
 #include "effects.h"
+#include "game-event.h"
 #include "game-world.h"
 #include "generate.h"
 #include "init.h"
@@ -936,6 +937,9 @@ void process_player(void)
 	player_resting_complete_special(player);
 	event_signal(EVENT_CHECK_INTERRUPT);
 
+	/* Batch UI events during repeated commands/resting/running */
+	event_queue_begin();
+
 	/* Repeat until energy is reduced */
 	do {
 		/* Refresh */
@@ -994,6 +998,9 @@ void process_player(void)
 
 	/* Notice stuff (if needed) */
 	notice_stuff(player);
+
+	/* Dispatch all batched UI events now that the turn is done */
+	event_queue_flush();
 }
 
 /**
