@@ -381,16 +381,6 @@ set_target_properties(OurCoreLib PROPERTIES C_STANDARD 99)
 set(ANGBAND_CORE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(ANGBAND_CORE_LINK_LIBRARIES "")
 
-if(SUPPORT_BORG)
-    target_include_directories(OurCoreLib PRIVATE
-        ${ANGBAND_CORE_INCLUDE_DIRS}
-    )
-    target_compile_definitions(OurCoreLib PRIVATE -D ALLOW_BORG)
-    if(SUPPORT_BORG_HIGH_SCORES)
-        target_compile_definitions(OurCoreLib PRIVATE -D SCORE_BORGS)
-    endif()
-endif()
-
 if(SUPPORT_COVERAGE)
     configure_target_for_coverage(OurCoreLib)
 endif()
@@ -614,14 +604,21 @@ if(NOT _cap_included)
     include("${_cap_tmp_cmake}")
 endif()
 
-# Step 3: Generate the unified capability header for the source tree.
+# Step 3: Generate the unified capability header in the build directory
+#         (never in the source tree).
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h.in"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/build-capabilities.h"
     @ONLY
 )
-target_include_directories(OurCoreLib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_include_directories(OurExecutable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(OurCoreLib PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_include_directories(OurExecutable PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
 
 # Step 4: Print the human-readable configuration report (same output as
 #         `./configure` in the Autotools build).

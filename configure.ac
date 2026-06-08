@@ -101,7 +101,7 @@ MY_CHECK_SIGPROCMASK
 
 dnl needed because h-basic.h checks for this define for autoconf support.
 CPPFLAGS="$CPPFLAGS -DHAVE_CONFIG_H"
-CPPFLAGS="$CPPFLAGS -I." 
+CPPFLAGS="$CPPFLAGS -I."
 
 AC_ARG_ENABLE(release,
 	[AS_HELP_STRING([--enable-release], [enable a release build])],
@@ -552,71 +552,56 @@ AS_IF([test "x$with_gamedata_in_lib" = "xyes"],
 dnl Step 2: Evaluate the canonical capability values from the shared script.
 eval `$srcdir/scripts/angband-capabilities autotools $CAP_ARGS`
 
-dnl Step 3: Emit all 21 ANGBAND_CAP_* macros into autoconf.h.
-dnl         The list must exactly match the registry in scripts/angband-capabilities.
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_GCU],
-    [$ac_cv_angband_cap_frontend_gcu],
-    [Define to 1 if the Curses (GCU) frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_SDL],
-    [$ac_cv_angband_cap_frontend_sdl],
-    [Define to 1 if the SDL 1.x frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_SDL2],
-    [$ac_cv_angband_cap_frontend_sdl2],
-    [Define to 1 if the SDL 2.x frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_X11],
-    [$ac_cv_angband_cap_frontend_x11],
-    [Define to 1 if the X11 frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_WINDOWS],
-    [$ac_cv_angband_cap_frontend_windows],
-    [Define to 1 if the Windows frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_IBM],
-    [$ac_cv_angband_cap_frontend_ibm],
-    [Define to 1 if the IBM DOS frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_COCOA],
-    [$ac_cv_angband_cap_frontend_cocoa],
-    [Define to 1 if the Cocoa macOS frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_SDL],
-    [$ac_cv_angband_cap_sound_sdl],
-    [Define to 1 if SDL 1.x mixer sound support is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_SDL2],
-    [$ac_cv_angband_cap_sound_sdl2],
-    [Define to 1 if SDL 2.x mixer sound support is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_WINDOWS],
-    [$ac_cv_angband_cap_sound_windows],
-    [Define to 1 if Windows built-in sound is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND_COCOA],
-    [$ac_cv_angband_cap_sound_cocoa],
-    [Define to 1 if Cocoa built-in sound is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_SOUND],
-    [$ac_cv_angband_cap_sound],
-    [Define to 1 if any sound backend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_SPOIL],
-    [$ac_cv_angband_cap_frontend_spoil],
-    [Define to 1 if the spoiler frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_STATS],
-    [$ac_cv_angband_cap_frontend_stats],
-    [Define to 1 if the statistics frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_FRONTEND_TEST],
-    [$ac_cv_angband_cap_frontend_test],
-    [Define to 1 if the test frontend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_STATS_BACKEND],
-    [$ac_cv_angband_cap_stats_backend],
-    [Define to 1 if the statistics backend is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_BORG],
-    [$ac_cv_angband_cap_borg],
-    [Define to 1 if Borg autoplay support is enabled])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_BORG_HIGH_SCORES],
-    [$ac_cv_angband_cap_borg_high_scores],
-    [Define to 1 if Borg characters are allowed in high scores])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_SETGID],
-    [$ac_cv_angband_cap_setgid],
-    [Define to 1 for a setgid shared installation])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_PRIVATE_PATHS],
-    [$ac_cv_angband_cap_private_paths],
-    [Define to 1 if using private user paths (~/.angband)])
-AC_DEFINE_UNQUOTED([ANGBAND_CAP_GAMEDATA_IN_LIB],
-    [$ac_cv_angband_cap_gamedata_in_lib],
-    [Define to 1 if gamedata is stored in the lib path])
+dnl Step 3: Translate the lowercase shell variables from the script into
+dnl         uppercase ANGBAND_CAP_* autoconf substitution variables, then
+dnl         generate build-capabilities.h from the shared template.
+dnl         This list must exactly match the registry in scripts/angband-capabilities.
+dnl
+dnl         Note: AC_SUBST requires a literal variable name, so we cannot
+dnl         use a shell loop here and instead spell each one out.
+ANGBAND_CAP_FRONTEND_GCU="$ac_cv_angband_cap_frontend_gcu"
+ANGBAND_CAP_FRONTEND_SDL="$ac_cv_angband_cap_frontend_sdl"
+ANGBAND_CAP_FRONTEND_SDL2="$ac_cv_angband_cap_frontend_sdl2"
+ANGBAND_CAP_FRONTEND_X11="$ac_cv_angband_cap_frontend_x11"
+ANGBAND_CAP_FRONTEND_WINDOWS="$ac_cv_angband_cap_frontend_windows"
+ANGBAND_CAP_FRONTEND_IBM="$ac_cv_angband_cap_frontend_ibm"
+ANGBAND_CAP_FRONTEND_COCOA="$ac_cv_angband_cap_frontend_cocoa"
+ANGBAND_CAP_SOUND_SDL="$ac_cv_angband_cap_sound_sdl"
+ANGBAND_CAP_SOUND_SDL2="$ac_cv_angband_cap_sound_sdl2"
+ANGBAND_CAP_SOUND_WINDOWS="$ac_cv_angband_cap_sound_windows"
+ANGBAND_CAP_SOUND_COCOA="$ac_cv_angband_cap_sound_cocoa"
+ANGBAND_CAP_SOUND="$ac_cv_angband_cap_sound"
+ANGBAND_CAP_FRONTEND_SPOIL="$ac_cv_angband_cap_frontend_spoil"
+ANGBAND_CAP_FRONTEND_STATS="$ac_cv_angband_cap_frontend_stats"
+ANGBAND_CAP_FRONTEND_TEST="$ac_cv_angband_cap_frontend_test"
+ANGBAND_CAP_STATS_BACKEND="$ac_cv_angband_cap_stats_backend"
+ANGBAND_CAP_BORG="$ac_cv_angband_cap_borg"
+ANGBAND_CAP_BORG_HIGH_SCORES="$ac_cv_angband_cap_borg_high_scores"
+ANGBAND_CAP_SETGID="$ac_cv_angband_cap_setgid"
+ANGBAND_CAP_PRIVATE_PATHS="$ac_cv_angband_cap_private_paths"
+ANGBAND_CAP_GAMEDATA_IN_LIB="$ac_cv_angband_cap_gamedata_in_lib"
+
+AC_SUBST(ANGBAND_CAP_FRONTEND_GCU)
+AC_SUBST(ANGBAND_CAP_FRONTEND_SDL)
+AC_SUBST(ANGBAND_CAP_FRONTEND_SDL2)
+AC_SUBST(ANGBAND_CAP_FRONTEND_X11)
+AC_SUBST(ANGBAND_CAP_FRONTEND_WINDOWS)
+AC_SUBST(ANGBAND_CAP_FRONTEND_IBM)
+AC_SUBST(ANGBAND_CAP_FRONTEND_COCOA)
+AC_SUBST(ANGBAND_CAP_SOUND_SDL)
+AC_SUBST(ANGBAND_CAP_SOUND_SDL2)
+AC_SUBST(ANGBAND_CAP_SOUND_WINDOWS)
+AC_SUBST(ANGBAND_CAP_SOUND_COCOA)
+AC_SUBST(ANGBAND_CAP_SOUND)
+AC_SUBST(ANGBAND_CAP_FRONTEND_SPOIL)
+AC_SUBST(ANGBAND_CAP_FRONTEND_STATS)
+AC_SUBST(ANGBAND_CAP_FRONTEND_TEST)
+AC_SUBST(ANGBAND_CAP_STATS_BACKEND)
+AC_SUBST(ANGBAND_CAP_BORG)
+AC_SUBST(ANGBAND_CAP_BORG_HIGH_SCORES)
+AC_SUBST(ANGBAND_CAP_SETGID)
+AC_SUBST(ANGBAND_CAP_PRIVATE_PATHS)
+AC_SUBST(ANGBAND_CAP_GAMEDATA_IN_LIB)
 
 dnl Step 4: Print the shared human-readable report (same output as CMake).
 echo
@@ -631,11 +616,13 @@ if test -n "$CAP_VALIDATE_OUT"; then
 $CAP_VALIDATE_OUT])
 fi
 
-dnl Also make sure build-capabilities.h.in is tracked in case we want
-dnl to generate it later (currently the CMake build does that; for
-dnl Autotools we emit all the ANGBAND_CAP_* macros into autoconf.h).
-
-AC_CONFIG_FILES([mk/buildsys.mk mk/extra.mk])
+dnl Step 3b: Generate the unified build-capabilities.h in the build directory.
+dnl            The same src/build-capabilities.h.in template is used by both
+dnl            CMake and Autotools, so they produce identical output.
+dnl            We place it in src/ under the build directory so that the
+dnl            existing -I. in CPPFLAGS (when make enters the src/ subdir)
+dnl            picks it up alongside autoconf.h.
+AC_CONFIG_FILES([src/build-capabilities.h:src/build-capabilities.h.in mk/buildsys.mk mk/extra.mk])
 AC_OUTPUT
 
 AS_IF([test "x$with_private_dirs" = "xyes"],
