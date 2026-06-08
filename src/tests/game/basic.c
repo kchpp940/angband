@@ -253,6 +253,8 @@ static int test_drop_eat(void *state) {
 }
 
 static int test_postload_standalone(void *state) {
+	uint32_t all_pu, all_pr;
+
 	reset_before_load();
 
 	eq(savefile_load_and_restore("Test1", false, LOAD_RESTORE_GAME), true);
@@ -266,6 +268,21 @@ static int test_postload_standalone(void *state) {
 	notnull(cave);
 	eq(player->chp, player->mhp);
 	eq(player->timed[TMD_FOOD], PY_FOOD_FULL - 1);
+
+	all_pu = (PU_INVEN | PU_BONUS | PU_HP | PU_MANA | PU_SPELLS |
+		  PU_TORCH | PU_UPDATE_VIEW | PU_DISTANCE | PU_MONSTERS |
+		  PU_PANEL);
+	noteq(player->upkeep->update & all_pu, all_pu);
+	eq(player->upkeep->update & PU_BONUS, 0L);
+	eq(player->upkeep->update & PU_TORCH, 0L);
+	eq(player->upkeep->update & PU_HP, 0L);
+	eq(player->upkeep->update & PU_INVEN, 0L);
+
+	noteq(player->state.to_a + player->state.to_h + player->state.to_d, 0);
+
+	all_pr = (PR_BASIC | PR_EXTRA | PR_SUBWINDOW | PR_MAP | PR_INVEN |
+		  PR_EQUIP | PR_MESSAGE | PR_FEELING | PR_LIGHT);
+	noteq(player->upkeep->redraw & all_pr, all_pr);
 
 	ok;
 }
