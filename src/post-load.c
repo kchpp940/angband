@@ -71,38 +71,56 @@ bool savefile_load_and_restore(const char *path, bool cheat_death,
  * reacts to the resulting state / event signals; it must not carry any
  * load-repair logic of its own.
  *
- * Order matters:
- *   1. Inventory/equipment layout (calc_inventory)
- *   2. Pack reconciliation notices (combine, autoignore)
- *   3. Player bonuses, HP, mana, spells
- *   4. Timed-effect side effects (light fuel burn)
- *   5. Light radius calculation
- *   6. Field of view
- *   7. Monster visibility / distance updates
- *   8. Curse / object knowledge alignment
- *   9. UI dirty flags for a full redraw
+ * Each step below is named to make the dependency order obvious; do not
+ * reorder them.
  */
+
+static void post_load_inventory(struct player *p)
+{
+	calc_inventory(p);
+
+	p->upkeep->notice |= (PN_COMBINE | PN_IGNORE);
+	notice_stuff(p);
+}
+
+static void post_load_derived_stats(struct player *p)
+{
+	p->upkeep->update |= (PU_INVEN | PU_BONUS | PU_HP | PU_MANA | PU_SPELLS);
+}
+
+static void post_load_timed_effects(struct player *p)
+{
+	player_update_light(p);
+}
+
+static void post_load_view_and_monsters(struct player *p)
+{
+	p->upkeep->update |= (PU_TORCH | PU_UPDATE_VIEW | PU_DISTANCE | PU_PANEL);
+	update_stuff(p);
+}
+
+static void post_load_object_knowledge(struct player *p)
+{
+	update_player_object_knowledge(p);
+}
+
+static void post_load_ui_redraw(struct player *p)
+{
+	p->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_SUBWINDOW |
+			      PR_MAP | PR_INVEN | PR_EQUIP |
+			      PR_MESSAGE | PR_FEELING | PR_LIGHT);
+	redraw_stuff(p);
+}
+
 void post_load(void)
 {
 	if (player->is_dead)
 		return;
 
-	calc_inventory(player);
-
-	player->upkeep->notice |= (PN_COMBINE | PN_IGNORE);
-	notice_stuff(player);
-
-	player->upkeep->update |= (PU_INVEN | PU_BONUS | PU_HP | PU_MANA | PU_SPELLS);
-
-	player_update_light(player);
-
-	player->upkeep->update |= (PU_TORCH | PU_UPDATE_VIEW | PU_DISTANCE | PU_PANEL);
-	update_stuff(player);
-
-	update_player_object_knowledge(player);
-
-	player->upkeep->redraw |= (PR_BASIC | PR_EXTRA | PR_SUBWINDOW |
-				   PR_MAP | PR_INVEN | PR_EQUIP |
-				   PR_MESSAGE | PR_FEELING | PR_LIGHT);
-	redraw_stuff(player);
+	post_load_inventory(player);
+	post_load_derived_stats(player);
+	post_load_timed_effects(player);
+	post_load_view_and_monsters(player);
+	post_load_object_knowledge(player);
+	post_load_ui_redraw(player);
 }

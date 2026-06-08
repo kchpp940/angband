@@ -52,16 +52,13 @@ bool savefile_load_and_restore(const char *path, bool cheat_death,
 /**
  * Recompute derived runtime state after a successful savefile_load().
  *
- * Order matters:
- *   1. Inventory/equipment layout (calc_inventory)
- *   2. Pack reconciliation notices (combine, autoignore)
- *   3. Player bonuses, HP, mana, spells
- *   4. Timed-effect side effects (light fuel burn)
- *   5. Light radius calculation
- *   6. Field of view
- *   7. Monster visibility / distance updates
- *   8. Curse / object knowledge alignment
- *   9. UI dirty flags for a full redraw
+ * Executes six strictly-ordered steps, internally decomposed into:
+ *   1. post_load_inventory()       - equip/inven layout + pack reconcile (combine/autoignore)
+ *   2. post_load_derived_stats()    - mark PU_* for bonus / HP / mana / spells
+ *   3. post_load_timed_effects() - side effects of timed flags (light fuel)
+ *   4. post_load_view_and_monsters() - light radius, FOV, monster visibility
+ *   5. post_load_object_knowledge() - curse / object knowledge alignment
+ *   6. post_load_ui_redraw()    - mark UI dirty flags + event signals
  *
  * Safe to call when the player is dead (no-op).
  */
