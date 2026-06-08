@@ -102,6 +102,14 @@ MY_CHECK_SIGPROCMASK
 dnl needed because h-basic.h checks for this define for autoconf support.
 CPPFLAGS="$CPPFLAGS -DHAVE_CONFIG_H"
 CPPFLAGS="$CPPFLAGS -I."
+dnl Also add the build directory's src/ subdir so that autoconf.h and
+dnl build-capabilities.h (both generated in the build tree via
+dnl AC_CONFIG_HEADERS and AC_CONFIG_FILES) are found when make descends
+dnl into the source src/ directory.  The buildsys.mk in this project is a
+dnl custom one that does not provide $(top_builddir), so we capture the
+dnl absolute path at configure time.
+_build_dir=`pwd`
+CPPFLAGS="$CPPFLAGS -I${_build_dir}/src"
 
 AC_ARG_ENABLE(release,
 	[AS_HELP_STRING([--enable-release], [enable a release build])],
@@ -619,10 +627,10 @@ fi
 dnl Step 3b: Generate the unified build-capabilities.h in the build directory.
 dnl            The same src/build-capabilities.h.in template is used by both
 dnl            CMake and Autotools, so they produce identical output.
-dnl            We place it in src/ under the build directory so that the
-dnl            existing -I. in CPPFLAGS (when make enters the src/ subdir)
-dnl            picks it up alongside autoconf.h.
-AC_CONFIG_FILES([src/build-capabilities.h:src/build-capabilities.h.in mk/buildsys.mk mk/extra.mk])
+dnl            mk/buildsys.mk and mk/extra.mk are generated back in the source
+dnl            tree (the project's convention, covered by .gitignore) since the
+dnl            top-level Makefile hard-codes MKPATH=mk/.
+AC_CONFIG_FILES([src/build-capabilities.h:src/build-capabilities.h.in ../mk/buildsys.mk:mk/buildsys.mk.in ../mk/extra.mk:mk/extra.mk.in])
 AC_OUTPUT
 
 AS_IF([test "x$with_private_dirs" = "xyes"],
