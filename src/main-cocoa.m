@@ -24,7 +24,7 @@
 #include "init.h"
 #include "obj-util.h"
 #include "savefile.h"
-#if defined(MACH_O_CARBON) && ANGBAND_CAP_SOUND && !ANGBAND_CAP_SOUND_SDL && !ANGBAND_CAP_SOUND_SDL2
+#if defined(MACH_O_CARBON) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2)
 #include "sound.h"
 #endif
 #include "ui-command.h"
@@ -5632,8 +5632,8 @@ static bool cocoa_get_file(const char *suggested_name, char *path, size_t len)
 static void cocoa_reinit(void)
 {
 	/* Initialize sound. */
-#if ANGBAND_CAP_SOUND
-#if ANGBAND_CAP_SOUND_SDL || ANGBAND_CAP_SOUND_SDL2
+#ifdef SOUND
+#if defined(SOUND_SDL) || defined(SOUND_SDL2)
 	init_sound("sdl", 0, NULL);
 #else
 	init_sound("cocoa", 0, NULL);

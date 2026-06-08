@@ -16,7 +16,7 @@
 #include "unit-test.h"
 #include "z-util.h"
 
-#if ANGBAND_CAP_SOUND_SDL || ANGBAND_CAP_SOUND_SDL2
+#if defined(SOUND_SDL) || defined(SOUND_SDL2)
 #include "sound.h"
 #include "snd-sdl.h"
 
@@ -27,7 +27,7 @@ errr init_sound_sdl(struct sound_hooks *hooks, int argc, char **argv)
 
 #endif
 
-#if !defined(WIN32_CONSOLE_MODE) && ANGBAND_CAP_FRONTEND_WINDOWS && ANGBAND_CAP_SOUND && !ANGBAND_CAP_SOUND_SDL && !ANGBAND_CAP_SOUND_SDL2
+#if !defined(WIN32_CONSOLE_MODE) && defined(WINDOWS) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2)
 #include "sound.h"
 #include "snd-win.h"
 
@@ -79,9 +79,19 @@ void set_file_paths(void) {
  * Call this function to simulate init_stuff() and populate the *_info arrays
  */
 void read_edit_files(void) {
+	struct init_result *result;
+
 	set_file_paths();
-	init_game_constants();
-	init_arrays();
+
+	result = init_create_result();
+	init_set_stage_status(result, INIT_STAGE_PATHS, INIT_STATUS_COMPLETE);
+
+	if (!init_test_data_only(result)) {
+		init_print_report(result);
+		quit_fmt("Test data initialization failed: %s", result->error_summary);
+	}
+
+	init_destroy_result(result);
 }
 
 struct chunk *t_build_arena(int height, int width) {

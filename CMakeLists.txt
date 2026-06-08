@@ -381,6 +381,16 @@ set_target_properties(OurCoreLib PROPERTIES C_STANDARD 99)
 set(ANGBAND_CORE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(ANGBAND_CORE_LINK_LIBRARIES "")
 
+if(SUPPORT_BORG)
+    target_include_directories(OurCoreLib PRIVATE
+        ${ANGBAND_CORE_INCLUDE_DIRS}
+    )
+    target_compile_definitions(OurCoreLib PRIVATE -D ALLOW_BORG)
+    if(SUPPORT_BORG_HIGH_SCORES)
+        target_compile_definitions(OurCoreLib PRIVATE -D SCORE_BORGS)
+    endif()
+endif()
+
 if(SUPPORT_COVERAGE)
     configure_target_for_coverage(OurCoreLib)
 endif()
@@ -535,116 +545,6 @@ else()
 endif()
 target_compile_definitions(OurExecutable PRIVATE "${ANGBAND_BUILD_ID_OPTION}")
 target_compile_definitions(OurCoreLib PRIVATE "${ANGBAND_BUILD_ID_OPTION}")
-
-# ======================================================================
-# Unified Build Capability Engine (shared with Autotools)
-# ======================================================================
-# All derivation, validation, and reporting lives in a single shell
-# script: scripts/angband-capabilities.  CMake and Autotools both call
-# into it so neither build system maintains its own copy of the rules.
-#
-# Step 1: Build the argument list for the shared script.
-set(_cap_args "")
-macro(_add_cap_arg _cmake_var _cap_name)
-    if(${_cmake_var})
-        list(APPEND _cap_args "${_cap_name}=1")
-    else()
-        list(APPEND _cap_args "${_cap_name}=0")
-    endif()
-endmacro()
-_add_cap_arg(SUPPORT_GCU_FRONTEND      FRONTEND_GCU)
-_add_cap_arg(SUPPORT_SDL_FRONTEND      FRONTEND_SDL)
-_add_cap_arg(SUPPORT_SDL2_FRONTEND     FRONTEND_SDL2)
-_add_cap_arg(SUPPORT_X11_FRONTEND      FRONTEND_X11)
-_add_cap_arg(SUPPORT_WINDOWS_FRONTEND  FRONTEND_WINDOWS)
-_add_cap_arg(SUPPORT_SDL_SOUND         SOUND_SDL)
-_add_cap_arg(SUPPORT_SDL2_SOUND        SOUND_SDL2)
-_add_cap_arg(SUPPORT_SPOIL_FRONTEND    FRONTEND_SPOIL)
-_add_cap_arg(SUPPORT_STATS_FRONTEND    FRONTEND_STATS)
-_add_cap_arg(SUPPORT_TEST_FRONTEND     FRONTEND_TEST)
-_add_cap_arg(SUPPORT_STATS_BACKEND     STATS_BACKEND)
-_add_cap_arg(SUPPORT_BORG              BORG)
-_add_cap_arg(SUPPORT_BORG_HIGH_SCORES  BORG_HIGH_SCORES)
-
-# SOUND_WINDOWS, SOUND_COCOA, FRONTEND_IBM, FRONTEND_COCOA are derived or
-# defaulted inside the shared script.  SOUND_WINDOWS follows FRONTEND_WINDOWS
-# unless explicitly overridden; the others default to 0 on non-native builds.
-
-# Installation / path options.
-if(SHARED_INSTALL)
-    list(APPEND _cap_args "SETGID=1")
-else()
-    list(APPEND _cap_args "SETGID=0")
-endif()
-if(READONLY_INSTALL)
-    list(APPEND _cap_args "PRIVATE_PATHS=1")
-else()
-    list(APPEND _cap_args "PRIVATE_PATHS=0")
-endif()
-list(APPEND _cap_args "GAMEDATA_IN_LIB=0")
-
-set(_cap_script "${CMAKE_CURRENT_SOURCE_DIR}/scripts/angband-capabilities")
-
-# Step 2: Import the canonical ANGBAND_CAP_* values from the script.
-execute_process(
-    COMMAND "${_cap_script}" cmake ${_cap_args}
-    OUTPUT_VARIABLE _cap_cmake_output
-    RESULT_VARIABLE _cap_cmake_rc
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-if(NOT _cap_cmake_rc EQUAL 0)
-    message(FATAL_ERROR "angband-capabilities cmake mode failed (rc=${_cap_cmake_rc})")
-endif()
-# The script emits `set(ANGBAND_CAP_FOO 0/1 PARENT_SCOPE)` lines.
-include("${_cap_cmake_output}" OPTIONAL RESULT_VARIABLE _cap_included)
-if(NOT _cap_included)
-    # Fallback: evaluate the output directly via a temporary CMake file.
-    set(_cap_tmp_cmake "${CMAKE_CURRENT_BINARY_DIR}/angband-capabilities.cmake")
-    file(WRITE "${_cap_tmp_cmake}" "${_cap_cmake_output}\n")
-    include("${_cap_tmp_cmake}")
-endif()
-
-# Step 3: Generate the unified capability header in the build directory
-#         (never in the source tree).
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/build-capabilities.h"
-    @ONLY
-)
-target_include_directories(OurCoreLib PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_BINARY_DIR}
-)
-target_include_directories(OurExecutable PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_BINARY_DIR}
-)
-
-# Step 4: Print the human-readable configuration report (same output as
-#         `./configure` in the Autotools build).
-message("")
-execute_process(
-    COMMAND "${_cap_script}" report ${_cap_args}
-    OUTPUT_VARIABLE _cap_report
-    RESULT_VARIABLE _cap_report_rc
-)
-if(_cap_report_rc EQUAL 0)
-    message("${_cap_report}")
-else()
-    message(WARNING "angband-capabilities report mode failed")
-endif()
-
-# Step 5: Validate the configuration (warnings to stderr, non-zero exit
-#         for hard errors like "no player frontend").
-execute_process(
-    COMMAND "${_cap_script}" validate ${_cap_args}
-    RESULT_VARIABLE _cap_validate_rc
-    ERROR_VARIABLE _cap_validate_err
-)
-if(NOT _cap_validate_rc EQUAL 0)
-    message(WARNING "Configuration validation failed:")
-    message(WARNING "${_cap_validate_err}")
-endif()
 
 # Set up to generate documentation if requested.
 if(BUILD_DOC)

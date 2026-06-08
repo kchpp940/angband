@@ -76,7 +76,7 @@ int player_egid;
  */
 void safe_setuid_drop(void)
 {
-#if ANGBAND_CAP_SETGID
+#ifdef SETGID
 # if defined(HAVE_SETRESGID)
 
 	if (setresgid(-1, getgid(), -1) != 0)
@@ -88,7 +88,7 @@ void safe_setuid_drop(void)
 		quit("setegid(): cannot drop permissions correctly!");
 
 # endif
-#endif /* ANGBAND_CAP_SETGID */
+#endif /* SETGID */
 }
 
 
@@ -97,7 +97,7 @@ void safe_setuid_drop(void)
  */
 void safe_setuid_grab(void)
 {
-#if ANGBAND_CAP_SETGID
+#ifdef SETGID
 # if defined(HAVE_SETRESGID)
 
 	if (setresgid(-1, player_egid, -1) != 0)
@@ -109,7 +109,7 @@ void safe_setuid_grab(void)
 		quit("setegid(): cannot grab permissions correctly!");
 
 # endif
-#endif /* ANGBAND_CAP_SETGID */
+#endif /* SETGID */
 }
 
 

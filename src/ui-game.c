@@ -68,7 +68,7 @@
 struct savefile_getter_impl {
 	ang_dir *d;
 	struct savefile_details details;
-#if ANGBAND_CAP_SETGID
+#ifdef SETGID
 	char uid_c[10];
 #endif
 	bool have_details;
@@ -78,9 +78,9 @@ struct savefile_getter_impl {
 
 bool arg_wizard;			/* Command arg -- Request wizard mode */
 
-#if ANGBAND_CAP_BORG
+#ifdef ALLOW_BORG
 bool screensaver = false;
-#endif /* ANGBAND_CAP_BORG */
+#endif /* ALLOW_BORG */
 
 /**
  * Buffer to hold the current savefile name
@@ -223,7 +223,7 @@ struct cmd_info cmd_hidden[] =
 	{ "Repeat previous command", { 'n', KTRL('V') }, CMD_REPEAT, NULL, NULL, 0, NULL, NULL, NULL, 0 },
 	{ "Do autopickup", { KTRL('G') }, CMD_AUTOPICKUP, NULL, NULL, 0, NULL, NULL, NULL, 0 },
 	{ "Debug mode commands", { KTRL('A') }, CMD_NULL, NULL, NULL, 1, "Debug Command: ", "That is not a valid debug command.", "Debug", -1 },
-#if ANGBAND_CAP_BORG
+#ifdef ALLOW_BORG
 	{ "Borg commands", { KTRL('Z') }, CMD_NULL, do_cmd_try_borg, NULL, 0, NULL, NULL, NULL, 0 },
 #endif
 };
@@ -988,7 +988,7 @@ void savefile_set_name(const char *fname, bool make_safe, bool strip_suffix)
 	size_t pathlen = sizeof path;
 	size_t off = 0;
 
-#if ANGBAND_CAP_SETGID
+#if defined(SETGID)
 	/*
 	 * On SETGID systems, we prefix the filename with the user's UID so we
 	 * know whose is whose.
@@ -1218,7 +1218,7 @@ bool got_savefile(savefile_getter *pg)
 		/*
 		 * Set up the user-specific prefix.  Mimics savefile_set_name().
 		 */
-#if ANGBAND_CAP_SETGID
+#ifdef SETGID
 		strnfmt((*pg)->uid_c, sizeof((*pg)->uid_c), "%d.", player_uid);
 		(*pg)->details.foff = strlen((*pg)->uid_c);
 #else
@@ -1247,7 +1247,7 @@ bool got_savefile(savefile_getter *pg)
 			break;
 		}
 
-#if ANGBAND_CAP_SETGID
+#ifdef SETGID
 		/* Check that the savefile name begins with the user's ID. */
 		if (!prefix(fname, (*pg)->uid_c)) {
 			continue;

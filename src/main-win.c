@@ -94,21 +94,21 @@
 
 #define uint unsigned int
 
-#if ANGBAND_CAP_FRONTEND_WINDOWS && !ANGBAND_CAP_FRONTEND_SDL && !ANGBAND_CAP_FRONTEND_SDL2
+#if defined(WINDOWS) && !defined(USE_SDL) && !defined(USE_SDL2)
 
 #include "sound.h"
 #include "snd-win.h"
 
 #define HAS_CLEANUP
 
-#if ANGBAND_CAP_BORG
+#ifdef ALLOW_BORG
 
 /*
  * Allow use of "screen saver" mode
  */
 #define USE_SAVER
 
-#endif /* ANGBAND_CAP_BORG */
+#endif /* ALLOW_BORG */
 
 /**
  * This may need to be removed for some compilers XXX XXX XXX
@@ -1191,7 +1191,7 @@ static bool init_graphics(void)
 	return (can_use_graphics);
 }
 
-#if ANGBAND_CAP_SOUND && !ANGBAND_CAP_SOUND_SDL && !ANGBAND_CAP_SOUND_SDL2
+#if defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2)
 
 /* Supported file types */
 enum {
@@ -3272,7 +3272,7 @@ static void check_for_save_file(LPSTR cmd_line)
 
 #ifdef USE_SAVER
 
-#if ANGBAND_CAP_BORG
+#ifdef ALLOW_BORG
 
 /*
  * Hook into the inkey() function so that flushing keypresses
@@ -3302,7 +3302,7 @@ static struct keypress screensaver_inkey_hack(int flush_first)
 	}
 }
 
-#endif /* ANGBAND_CAP_BORG */
+#endif /* ALLOW_BORG */
 
 /**
  * Start the screensaver
@@ -3310,10 +3310,10 @@ static struct keypress screensaver_inkey_hack(int flush_first)
 static void start_screensaver(void)
 {
 	bool file_exist;
-#if ANGBAND_CAP_BORG
+#ifdef ALLOW_BORG
 	int i, j;
 	struct keypress key = { EVT_KBRD, 0, 0 };
-#endif /* ANGBAND_CAP_BORG */
+#endif /* ALLOW_BORG */
 
 	/* Set up the display handlers and things. */
 	init_display();
@@ -3341,7 +3341,7 @@ static void start_screensaver(void)
 	/* Low priority */
 	SendMessage(data[0].w, WM_COMMAND, IDM_OPTIONS_LOW_PRIORITY, 0);
 
-#if ANGBAND_CAP_BORG
+#ifdef ALLOW_BORG
 	/*
 	 * MegaHack - Try to start the Borg.
 	 *
@@ -3421,7 +3421,7 @@ static void start_screensaver(void)
 	screensaver_inkey_hack_buffer[j++] = key; /* Enter borgmode */
 	key.code = 'z';
 	screensaver_inkey_hack_buffer[j++] = key; /* Run Borg */
-#endif /* ANGBAND_CAP_BORG */
+#endif /* ALLOW_BORG */
 
 
 	/* Play game */
@@ -5278,8 +5278,8 @@ static void init_stuff(void)
 static void win_reinit(void)
 {
 /* Initialise sound. */
-#if ANGBAND_CAP_SOUND
-#if ANGBAND_CAP_SOUND_SDL || ANGBAND_CAP_SOUND_SDL2
+#ifdef SOUND
+#if defined(SOUND_SDL) || defined(SOUND_SOUND_SDL2)
 	init_sound("sdl", 0, NULL);
 #else
 	init_sound("win", 0, NULL);

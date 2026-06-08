@@ -18,7 +18,7 @@
 
 #include "angband.h"
 
-#if ANGBAND_CAP_FRONTEND_SPOIL
+#ifdef USE_SPOIL
 
 #include "datafile.h"
 #include "game-world.h"
@@ -269,8 +269,18 @@ errr init_spoil(int argc, char *argv[]) {
 
 	if (result != 0) return result;
 
-	/* Generate the spoilers. */
-	init_angband();
+	/* Generate the spoilers using the unified initialization system. */
+	{
+		struct init_result *ir = init_create_result();
+		init_set_stage_status(ir, INIT_STAGE_PATHS, INIT_STATUS_COMPLETE);
+		if (!init_angband_with_result(ir)) {
+			init_print_report(ir);
+			printf("init-spoil: initialization failed - %s\n", ir->error_summary);
+			init_destroy_result(ir);
+			return 1;
+		}
+		init_destroy_result(ir);
+	}
 
 	if (load_randart) {
 		if (randart_name || have_specified_seed) {

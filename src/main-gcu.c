@@ -26,7 +26,7 @@
 #include "ui-prefs.h"
 #include "ui-signals.h"
 
-#if ANGBAND_CAP_FRONTEND_GCU
+#ifdef USE_GCU
 #include "main.h"
 
 /**

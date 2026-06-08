@@ -18,7 +18,7 @@
 
 #include "angband.h"
 
-#if ANGBAND_CAP_FRONTEND_STATS
+#ifdef USE_STATS
 
 #include "buildid.h"
 #include "game-world.h"

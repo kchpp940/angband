@@ -66,7 +66,6 @@ src/angband
 src/angband-master
 src/autoconf.h
 src/autoconf.h.in
-src/build-capabilities.h
 src/config
 src/stats/db.dep
 src/tests/ran-already

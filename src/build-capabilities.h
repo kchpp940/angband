@@ -35,98 +35,99 @@ extern "C" {
 
 /*
  * Every capability below is either 0 (disabled) or 1 (enabled).  This is
- * enforced by the shared scripts/angband-capabilities engine used by both
- * CMake and Autotools.  Using numeric values lets code write:
+ * enforced by both CMake (#cmakedefine01) and Autotools (AC_DEFINE with
+ * explicit 0/1).  Using numeric values lets code write:
  *
  *     #if ANGBAND_CAP_FRONTEND_GCU
  *         ...
  *     #endif
  *
- * which is simpler than checking for definedness.
+ * which is simpler than checking for definedness, and plays nicely with
+ * the fallback defaults in h-basic.h.
  */
 
 /* Curses (GCU) frontend */
-#define ANGBAND_CAP_FRONTEND_GCU       @ANGBAND_CAP_FRONTEND_GCU@
+#define ANGBAND_CAP_FRONTEND_GCU 1
 
 /* SDL 1.x frontend */
-#define ANGBAND_CAP_FRONTEND_SDL       @ANGBAND_CAP_FRONTEND_SDL@
+#define ANGBAND_CAP_FRONTEND_SDL 0
 
 /* SDL 2.x frontend */
-#define ANGBAND_CAP_FRONTEND_SDL2      @ANGBAND_CAP_FRONTEND_SDL2@
+#define ANGBAND_CAP_FRONTEND_SDL2 0
 
 /* X11 frontend */
-#define ANGBAND_CAP_FRONTEND_X11       @ANGBAND_CAP_FRONTEND_X11@
+#define ANGBAND_CAP_FRONTEND_X11 0
 
 /* Windows frontend */
-#define ANGBAND_CAP_FRONTEND_WINDOWS   @ANGBAND_CAP_FRONTEND_WINDOWS@
+#define ANGBAND_CAP_FRONTEND_WINDOWS 0
 
 /* IBM / DOS frontend */
-#define ANGBAND_CAP_FRONTEND_IBM       @ANGBAND_CAP_FRONTEND_IBM@
+#define ANGBAND_CAP_FRONTEND_IBM 0
 
 /* Cocoa (macOS) frontend */
-#define ANGBAND_CAP_FRONTEND_COCOA     @ANGBAND_CAP_FRONTEND_COCOA@
+#define ANGBAND_CAP_FRONTEND_COCOA 0
 
 /* ====================================================================== */
 /* Sound Support                                                           */
 /* ====================================================================== */
 
 /* Generic sound support (set to 1 if ANY sound backend is enabled) */
-#define ANGBAND_CAP_SOUND              @ANGBAND_CAP_SOUND@
+#define ANGBAND_CAP_SOUND 0
 
 /* SDL 1.x mixer sound */
-#define ANGBAND_CAP_SOUND_SDL          @ANGBAND_CAP_SOUND_SDL@
+#define ANGBAND_CAP_SOUND_SDL 0
 
 /* SDL 2.x mixer sound */
-#define ANGBAND_CAP_SOUND_SDL2         @ANGBAND_CAP_SOUND_SDL2@
+#define ANGBAND_CAP_SOUND_SDL2 0
 
 /* Windows built-in sound */
-#define ANGBAND_CAP_SOUND_WINDOWS      @ANGBAND_CAP_SOUND_WINDOWS@
+#define ANGBAND_CAP_SOUND_WINDOWS 0
 
 /* Cocoa sound */
-#define ANGBAND_CAP_SOUND_COCOA        @ANGBAND_CAP_SOUND_COCOA@
+#define ANGBAND_CAP_SOUND_COCOA 0
 
 /* ====================================================================== */
 /* Auxiliary Frontends                                                    */
 /* ====================================================================== */
 
 /* Spoiler generation frontend */
-#define ANGBAND_CAP_FRONTEND_SPOIL     @ANGBAND_CAP_FRONTEND_SPOIL@
+#define ANGBAND_CAP_FRONTEND_SPOIL 1
 
 /* Statistics frontend */
-#define ANGBAND_CAP_FRONTEND_STATS     @ANGBAND_CAP_FRONTEND_STATS@
+#define ANGBAND_CAP_FRONTEND_STATS 0
 
 /* Test frontend */
-#define ANGBAND_CAP_FRONTEND_TEST      @ANGBAND_CAP_FRONTEND_TEST@
+#define ANGBAND_CAP_FRONTEND_TEST 0
 
 /* ====================================================================== */
 /* Stats Backend                                                           */
 /* ====================================================================== */
 
 /* Statistics backend support */
-#define ANGBAND_CAP_STATS_BACKEND      @ANGBAND_CAP_STATS_BACKEND@
+#define ANGBAND_CAP_STATS_BACKEND 0
 
 /* ====================================================================== */
 /* Borg Support                                                          */
 /* ====================================================================== */
 
 /* Borg (autoplay) */
-#define ANGBAND_CAP_BORG               @ANGBAND_CAP_BORG@
+#define ANGBAND_CAP_BORG 1
 
 /* Borg characters allowed in high scores */
-#define ANGBAND_CAP_BORG_HIGH_SCORES   @ANGBAND_CAP_BORG_HIGH_SCORES@
+#define ANGBAND_CAP_BORG_HIGH_SCORES 0
 
 /* ====================================================================== */
 /* Installation / Path Options                                               */
 /* ====================================================================== */
 
 /* Setgid installation (shared multi-user setup) */
-#define ANGBAND_CAP_SETGID             @ANGBAND_CAP_SETGID@
+#define ANGBAND_CAP_SETGID 0
 
 /* Private user paths (per-user save/score files in ~/.angband) */
-#define ANGBAND_CAP_PRIVATE_PATHS      @ANGBAND_CAP_PRIVATE_PATHS@
+#define ANGBAND_CAP_PRIVATE_PATHS 0
 
 /* Gamedata stored in lib path */
-#define ANGBAND_CAP_GAMEDATA_IN_LIB    @ANGBAND_CAP_GAMEDATA_IN_LIB@
+#define ANGBAND_CAP_GAMEDATA_IN_LIB 0
 
 /* ====================================================================== */
 /* Backward-Compatibility Macros                                         */
@@ -138,6 +139,9 @@ extern "C" {
 #if ANGBAND_CAP_FRONTEND_GCU
 # ifndef USE_GCU
 #  define USE_GCU
+# endif
+# ifndef USE_NCURSES
+#  define USE_NCURSES
 # endif
 #endif
 
@@ -162,6 +166,9 @@ extern "C" {
 #if ANGBAND_CAP_FRONTEND_WINDOWS
 # ifndef USE_WIN
 #  define USE_WIN
+# endif
+# ifndef WINDOWS
+#  define WINDOWS
 # endif
 #endif
 

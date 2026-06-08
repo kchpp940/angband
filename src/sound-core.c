@@ -20,15 +20,15 @@
 #include "sound.h"
 #include "main.h"
 #include "ui-prefs.h"
-#if ANGBAND_CAP_SOUND_SDL || ANGBAND_CAP_SOUND_SDL2
+#if defined(SOUND_SDL) || defined(SOUND_SDL2)
 #include "snd-sdl.h"
 #endif
 
-#if ANGBAND_CAP_SOUND_WINDOWS
+#if (!defined(WIN32_CONSOLE_MODE) && defined(WINDOWS) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2))
 #include "snd-win.h"
 #endif
 
-#if ANGBAND_CAP_SOUND_COCOA
+#if defined(MACH_O_CARBON) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2)
 #include "cocoa/snd-cocoa.h"
 #endif
 
@@ -59,13 +59,13 @@ static struct msg_snd_data message_sounds[MSG_MAX];
  */
 static const struct sound_module sound_modules[] =
 {
-#if ANGBAND_CAP_SOUND_SDL || ANGBAND_CAP_SOUND_SDL2
+#if defined(SOUND_SDL) || defined(SOUND_SDL2)
 	{ "sdl", "SDL_mixer sound module", init_sound_sdl },
-#endif
-#if ANGBAND_CAP_SOUND_WINDOWS
+#endif /* SOUND_SDL || SOUND_SDL2 */
+#if (!defined(WIN32_CONSOLE_MODE) && defined(WINDOWS) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2))
 	{ "win", "Windows sound module", init_sound_win },
 #endif
-#if ANGBAND_CAP_SOUND_COCOA
+#if (defined(MACH_O_CARBON) && defined(SOUND) && !defined(SOUND_SDL) && !defined(SOUND_SDL2))
 	{ "cocoa", "Cocoa sound module", init_sound_cocoa },
 #endif
 	{ "", "", NULL },
@@ -79,7 +79,7 @@ static const struct sound_module sound_modules[] =
 static uint16_t next_sound_id;
 static struct sound_data *sounds;
 
-#if ANGBAND_CAP_SOUND
+#ifdef SOUND
 #define SOUND_DATA_ARRAY_INC	10
 #endif
 
@@ -92,7 +92,7 @@ static struct sound_hooks hooks;
  */
 static bool preload_sounds = false;
 
-#if ANGBAND_CAP_SOUND
+#ifdef SOUND
 static struct sound_data *grow_sound_list(void)
 {
 	int new_size;
@@ -168,7 +168,7 @@ static void load_sound(struct sound_data *sound_data)
 	}
 }
 
-#if ANGBAND_CAP_SOUND
+#ifdef SOUND
 /**
  * Parse a string of sound names provided by the preferences parser and:
  *  - Allocate a unique 'sound id' to any new sounds and add them to the
@@ -269,7 +269,7 @@ static void message_sound_define(uint16_t message_id, const char *sounds_str)
 }
 #endif
 
-#if ANGBAND_CAP_SOUND
+#ifdef SOUND
 static enum parser_error parse_prefs_sound(struct parser *p)
 {
 	int msg_index;
@@ -296,7 +296,7 @@ static enum parser_error parse_prefs_sound(struct parser *p)
 
 errr register_sound_pref_parser(struct parser *p)
 {
-#if ANGBAND_CAP_SOUND
+#ifdef SOUND
 	return parser_reg(p, SOUND_PRF_FORMAT, parse_prefs_sound);
 #else
 	return parser_reg(p, SOUND_PRF_FORMAT, parse_prefs_dummy);

@@ -95,7 +95,7 @@ enum
 #define NOSCORE_WIZARD		0x0002
 #define NOSCORE_DEBUG		0x0008
 #define NOSCORE_JUMPING     0x0010
-#if ANGBAND_CAP_BORG
+#ifdef ALLOW_BORG
 #define NOSCORE_BORG		0x0020
 #endif
 

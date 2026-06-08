@@ -106,7 +106,7 @@
 
 
 
-#if ANGBAND_CAP_FRONTEND_X11
+#ifdef USE_X11
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
