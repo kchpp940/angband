@@ -33,6 +33,7 @@
 #include "player-path.h"
 #include "player-properties.h"
 #include "player-util.h"
+#include "post-load.h"
 #include "savefile.h"
 #include "target.h"
 #include "ui-birth.h"
@@ -729,8 +730,13 @@ static bool start_game(bool new_game)
 	safe_setuid_grab();
 	exists = file_exists(loadpath);
 	safe_setuid_drop();
-	if (exists && !savefile_load(loadpath, arg_wizard)) {
-		return false;
+	if (exists) {
+		if (!savefile_load(loadpath, arg_wizard)) {
+			return false;
+		}
+		character_generated = true;
+		player->upkeep->playing = true;
+		post_load();
 	}
 
 	/* No living character loaded */

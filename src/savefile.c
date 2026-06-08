@@ -17,7 +17,6 @@
  */
 #include <errno.h>
 #include "angband.h"
-#include "game-world.h"
 #include "init.h"
 #include "savefile.h"
 #include "save-charoutput.h"
@@ -649,13 +648,6 @@ bool savefile_load(const char *path, bool cheat_death)
 			player->chp = player->mhp;
 			player->noscore |= NOSCORE_WIZARD;
 	}
-
-	/* Character is now "complete" */
-	character_generated = true;
-	player->upkeep->playing = true;
-
-	if (ok)
-		post_load();
 
 	return ok;
 }

@@ -47,6 +47,5 @@ void process_world(struct chunk *c);
 void on_new_level(void);
 void process_player(void);
 void run_game_loop(void);
-void post_load(void);
 
 #endif /* !GAME_WORLD_H */

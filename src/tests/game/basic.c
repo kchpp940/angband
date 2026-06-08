@@ -16,6 +16,7 @@
 #include "player.h"
 #include "player-birth.h"
 #include "player-timed.h"
+#include "post-load.h"
 #include "z-util.h"
 
 static void event_message(game_event_type type, game_event_data *data, void *user) {
@@ -111,6 +112,9 @@ static int test_loadgame(void *state) {
 
 	/* Try loading the just-saved game */
 	eq(savefile_load("Test1", false), true);
+	character_generated = true;
+	player->upkeep->playing = true;
+	post_load();
 
 	eq(player->is_dead, false);
 	notnull(cave);
@@ -125,6 +129,9 @@ static int test_stairs1(void *state) {
 
 	/* Load the saved game */
 	eq(savefile_load("Test1", false), true);
+	character_generated = true;
+	player->upkeep->playing = true;
+	post_load();
 
 	/* Perform normal set up after loading. */
 	require(character_dungeon);
@@ -145,6 +152,9 @@ static int test_stairs2(void *state) {
 
 	/* Load the saved game */
 	eq(savefile_load("Test1", false), true);
+	character_generated = true;
+	player->upkeep->playing = true;
+	post_load();
 
 	/* Perform normal set up after loading. */
 	require(character_dungeon);
@@ -185,6 +195,9 @@ static int test_drop_pickup(void *state) {
 
 	/* Load the saved game */
 	eq(savefile_load("Test1", false), true);
+	character_generated = true;
+	player->upkeep->playing = true;
+	post_load();
 
 	/* Perform normal set up after loading. */
 	require(character_dungeon);

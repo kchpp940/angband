@@ -28,6 +28,7 @@
 #include "obj-randart.h"
 #include "obj-util.h"
 #include "player-birth.h"
+#include "post-load.h"
 #include "savefile.h"
 #include "ui-game.h"
 #include "wizard.h"
@@ -335,6 +336,9 @@ errr init_spoil(int argc, char *argv[]) {
 						"main, '%s', failed to load.\n",
 						savefile);
 					result = 1;
+				} else {
+					character_generated = true;
+					player->upkeep->playing = true;
 				}
 			} else if (savefile[0]) {
 				printf("init-spoil: using artifacts associated "
