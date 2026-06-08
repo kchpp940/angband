@@ -77,6 +77,10 @@ static bool event_is_duplicable(game_event_type type)
 	case EVENT_DANGER_HP:
 	case EVENT_DANGER_MANA:
 	case EVENT_REFRESH:
+	case EVENT_MESSAGE_HIGHLIGHT:
+	case EVENT_STATUSBAR:
+	case EVENT_MAP_REDRAW:
+	case EVENT_SUBWINDOW:
 		return true;
 	default:
 		return false;
@@ -406,6 +410,43 @@ void event_signal_danger(game_event_type type, int level, int cur, int max)
 	data.danger.cur = cur;
 	data.danger.max = max;
 	game_event_dispatch(type, &data);
+}
+
+void event_signal_message_highlight(int msg_type, const char *text)
+{
+	game_event_data data;
+	memset(&data, 0, sizeof(data));
+	data.message_highlight.type = msg_type;
+	data.message_highlight.text = text;
+	game_event_dispatch(EVENT_MESSAGE_HIGHLIGHT, &data);
+}
+
+void event_signal_statusbar(uint32_t flags)
+{
+	game_event_data data;
+	memset(&data, 0, sizeof(data));
+	data.statusbar.flags = flags;
+	game_event_dispatch(EVENT_STATUSBAR, &data);
+}
+
+void event_signal_map_redraw(bool full, int x1, int y1, int x2, int y2)
+{
+	game_event_data data;
+	memset(&data, 0, sizeof(data));
+	data.map_redraw.full = full;
+	data.map_redraw.x1 = x1;
+	data.map_redraw.y1 = y1;
+	data.map_redraw.x2 = x2;
+	data.map_redraw.y2 = y2;
+	game_event_dispatch(EVENT_MAP_REDRAW, &data);
+}
+
+void event_signal_subwindow(int type)
+{
+	game_event_data data;
+	memset(&data, 0, sizeof(data));
+	data.subwindow.type = type;
+	game_event_dispatch(EVENT_SUBWINDOW, &data);
 }
 
 void event_queue_begin(void)

@@ -1506,11 +1506,10 @@ void idle_update(void)
 	if (!OPT(player, animate_flicker) || (use_graphics != GRAPHICS_NONE))
 		return;
 
-	/* Animate and redraw if necessary */
+	/* Animate shimmering monsters - only local Term changes, no global redraw */
 	do_animation();
-	redraw_stuff(player);
 
-	/* Refresh the main screen */
+	/* Flush the animation to screen */
 	Term_fresh();
 }
 
@@ -1602,10 +1601,9 @@ static void display_explosion(game_event_type type, game_event_data *data,
 
 		/* We have all the grids at the current radius, so draw it */
 		if (new_radius) {
-			/* Flush all the grids at this radius */
+			/* Flush all the grids at this radius - animation only,
+			 * no global state redraw to avoid flicker */
 			Term_fresh();
-			if (player->upkeep->redraw)
-				redraw_stuff(player);
 
 			/* Delay to show this radius appearing */
 			if (drawn || drawing) {
@@ -2496,6 +2494,92 @@ static void handle_danger_state(game_event_type type, game_event_data *data,
 }
 
 /**
+ * Handle highlighted messages (e.g. HP warnings). Core layer sends this
+ * event instead of calling msg()/bell()/sound() directly, allowing the UI
+ * layer to decide how to present warnings (including deduplication).
+ */
+static void handle_message_highlight(game_event_type type,
+									 game_event_data *data, void *user)
+{
+	if (!data) return;
+
+	int msg_type = data->message_highlight.type;
+	const char *text = data->message_highlight.text;
+
+	if (text)
+		msgt(msg_type, "%s", text);
+	else
+		sound(msg_type);
+
+	event_signal(EVENT_MESSAGE_FLUSH);
+}
+
+/**
+ * Handle status bar repaint requests. The flags indicate which PR_*
+ * fields are stale. This allows the core to request a targeted repaint
+ * instead of forcing a full redraw_stuff().
+ */
+static void handle_statusbar(game_event_type type, game_event_data *data,
+							 void *user)
+{
+	if (!data) return;
+
+	uint32_t flags = data->statusbar.flags;
+	if (!flags) return;
+
+	player->upkeep->redraw |= flags;
+	redraw_stuff(player);
+}
+
+/**
+ * Handle full or partial map redraw requests.
+ */
+static void handle_map_redraw(game_event_type type, game_event_data *data,
+							  void *user)
+{
+	if (!data) return;
+
+	if (data->map_redraw.full ||
+		(data->map_redraw.x1 == -1)) {
+		event_signal(EVENT_MAP);
+	} else {
+		int x, y;
+		for (y = data->map_redraw.y1; y <= data->map_redraw.y2; y++) {
+			for (x = data->map_redraw.x1; x <= data->map_redraw.x2; x++) {
+				event_signal_point(EVENT_MAP, x, y);
+			}
+		}
+	}
+}
+
+/**
+ * Handle subwindow (monster list, inventory, object list, etc.) repaints.
+ */
+static void handle_subwindow(game_event_type type, game_event_data *data,
+							 void *user)
+{
+	(void)type; (void)data; (void)user;
+
+	event_signal(EVENT_INVENTORY);
+	event_signal(EVENT_EQUIPMENT);
+	event_signal(EVENT_ITEMLIST);
+	event_signal(EVENT_MONSTERLIST);
+}
+
+/**
+ * Handle end-of-frame flush. Triggered by event_queue_flush() when the
+ * queue depth returns to zero. This gives frontends a single hook to
+ * perform a final Term_fresh() after all batched UI events have been
+ * dispatched.
+ */
+static void handle_ui_flush(game_event_type type, game_event_data *data,
+							void *user)
+{
+	(void)type; (void)data; (void)user;
+	Term_fresh();
+}
+
+/**
  * ------------------------------------------------------------------------
  * Visual updates betweeen player turns.
  * ------------------------------------------------------------------------ */
@@ -2740,9 +2824,11 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 	/* Allow big cursor */
 	smlcurs = false;
 
-	/* Redraw stuff */
+	/* Redraw stuff - batch initial world UI events */
+	event_queue_begin();
 	player->upkeep->redraw |= (PR_INVEN | PR_EQUIP | PR_MONSTER | PR_MESSAGE);
 	redraw_stuff(player);
+	event_queue_flush();
 
 	/* Because of the "flexible" sidebar, all these things trigger
 	   the same function. */
@@ -2802,6 +2888,13 @@ static void ui_enter_world(game_event_type type, game_event_data *data,
 	/* Handle HP and mana danger state changes (alerts, sounds) */
 	event_add_handler(EVENT_DANGER_HP, handle_danger_state, NULL);
 	event_add_handler(EVENT_DANGER_MANA, handle_danger_state, NULL);
+
+	/* Unified UI event handlers - core fires events, UI renders them */
+	event_add_handler(EVENT_MESSAGE_HIGHLIGHT, handle_message_highlight, NULL);
+	event_add_handler(EVENT_STATUSBAR, handle_statusbar, NULL);
+	event_add_handler(EVENT_MAP_REDRAW, handle_map_redraw, NULL);
+	event_add_handler(EVENT_SUBWINDOW, handle_subwindow, NULL);
+	event_add_handler(EVENT_UI_FLUSH, handle_ui_flush, NULL);
 
 	/* Decrease "icky" depth */
 	screen_save_depth--;
@@ -2868,6 +2961,13 @@ static void ui_leave_world(game_event_type type, game_event_data *data,
 	/* Remove HP and mana danger state handlers */
 	event_remove_handler(EVENT_DANGER_HP, handle_danger_state, NULL);
 	event_remove_handler(EVENT_DANGER_MANA, handle_danger_state, NULL);
+
+	/* Remove unified UI event handlers */
+	event_remove_handler(EVENT_MESSAGE_HIGHLIGHT, handle_message_highlight, NULL);
+	event_remove_handler(EVENT_STATUSBAR, handle_statusbar, NULL);
+	event_remove_handler(EVENT_MAP_REDRAW, handle_map_redraw, NULL);
+	event_remove_handler(EVENT_SUBWINDOW, handle_subwindow, NULL);
+	event_remove_handler(EVENT_UI_FLUSH, handle_ui_flush, NULL);
 
 	/* Prepare to interact with a store */
 	event_add_handler(EVENT_USE_STORE, use_store, NULL);

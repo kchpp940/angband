@@ -1382,10 +1382,12 @@ void pack_overflow(struct object *obj)
 	/* Describe */
 	msg("You no longer have %s.", o_name);
 
-	/* Notice, update, redraw */
+	/* Notice, update, redraw - batch all UI events so no flicker */
+	event_queue_begin();
 	if (player->upkeep->notice) notice_stuff(player);
 	if (player->upkeep->update) update_stuff(player);
 	if (player->upkeep->redraw) redraw_stuff(player);
+	event_queue_flush();
 }
 
 /**

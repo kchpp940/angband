@@ -104,6 +104,11 @@ typedef enum game_event_type
 	EVENT_DANGER_MANA,  /* Mana danger level changed */
 	EVENT_UI_FLUSH,     /* End of frame: coalesce and render all pending UI updates */
 
+	EVENT_MESSAGE_HIGHLIGHT, /* Important message that needs highlighting (e.g. warnings) */
+	EVENT_STATUSBAR,    /* Status bar fields need repainting (uses PR_* flags) */
+	EVENT_MAP_REDRAW,   /* Full or partial map needs repainting */
+	EVENT_SUBWINDOW,    /* A subwindow needs repainting */
+
 	EVENT_END  /* Can be sent at the end of a series of events */
 } game_event_type;
 
@@ -210,6 +215,34 @@ typedef union
 		/* Maximum value */
 		int max;
 	} danger;
+
+	struct
+	{
+		/* Message type (MSG_* constant) */
+		int type;
+		/* Message text */
+		const char *text;
+	} message_highlight;
+
+	struct
+	{
+		/* PR_* flags indicating which status bar fields need repainting */
+		uint32_t flags;
+	} statusbar;
+
+	struct
+	{
+		/* True for full redraw, false for incremental (only changed tiles) */
+		bool full;
+		/* Bounding box for partial redraw (-1 means full map) */
+		int x1, y1, x2, y2;
+	} map_redraw;
+
+	struct
+	{
+		/* Subwindow type identifier */
+		int type;
+	} subwindow;
 } game_event_data;
 
 typedef enum
@@ -269,6 +302,11 @@ void event_signal_size(game_event_type type, int h, int w);
 void event_signal_tunnel(game_event_type type, int nstep, int npierce, int ndug,
 	int dstart, int dend, bool early);
 void event_signal_danger(game_event_type type, int level, int cur, int max);
+
+void event_signal_message_highlight(int msg_type, const char *text);
+void event_signal_statusbar(uint32_t flags);
+void event_signal_map_redraw(bool full, int x1, int y1, int x2, int y2);
+void event_signal_subwindow(int type);
 
 void event_queue_begin(void);
 void event_queue_flush(void);
