@@ -28,7 +28,7 @@
 #include "obj-randart.h"
 #include "obj-util.h"
 #include "player-birth.h"
-#include "post-load.h"
+#include "savefile.h"
 #include "ui-game.h"
 #include "wizard.h"
 
@@ -325,7 +325,7 @@ errr init_spoil(int argc, char *argv[]) {
 			safe_setuid_drop();
 			if (exists) {
 				bool loaded_save =
-					savefile_load_and_restore(savefile, false, LOAD_RESTORE_NONE);
+					savefile_load(savefile, false);
 
 				deactivate_randart_file();
 				if (!loaded_save) {

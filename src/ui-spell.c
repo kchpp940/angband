@@ -151,6 +151,10 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 	const struct class_spell *spell = spell_by_index(player, spell_index);
 
 	if (d->show_description) {
+		struct spell_info *info = spell_info_build(spell_index);
+		int num_damaging = 0;
+		struct spell_effect_info *ei;
+
 		/* Redirect output to the screen */
 		text_out_hook = text_out_to_screen;
 		text_out_wrap = 0;
@@ -161,38 +165,31 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 		/* Spell description */
 		text_out("\n%s", spell->text);
 
-		/* To summarize average damage, count the damaging effects */
-		int num_damaging = 0;
-		for (struct effect *e = spell->effect; e != NULL; e = effect_next(e)) {
-			if (effect_damages(e)) {
-				num_damaging++;
+		if (info) {
+			for (ei = info->effects; ei; ei = ei->next) {
+				if (ei->is_damage) {
+					num_damaging++;
+				}
 			}
 		}
-		/* Now enumerate the effects' damage and type if not forgotten */
+
 		if (num_damaging > 0
 			&& (player->spell_flags[spell_index] & PY_SPELL_WORKED)
 			&& !(player->spell_flags[spell_index] & PY_SPELL_FORGOTTEN)) {
-			dice_t *shared_dice = NULL;
 			int i = 0;
 
 			text_out("  Inflicts an average of");
-			for (struct effect *e = spell->effect; e != NULL; e = effect_next(e)) {
-				if (e->index == EF_SET_VALUE) {
-					shared_dice = e->dice;
-				} else if (e->index == EF_CLEAR_VALUE) {
-					shared_dice = NULL;
-				}
-				if (effect_damages(e)) {
+			for (ei = info->effects; ei; ei = ei->next) {
+				if (ei->is_damage) {
 					if (num_damaging > 2 && i > 0) {
 						text_out(",");
 					}
 					if (num_damaging > 1 && i == num_damaging - 1) {
 						text_out(" and");
 					}
-					text_out_c(COLOUR_L_GREEN, " %d", effect_avg_damage(e, shared_dice));
-					const char *projection = effect_projection(e);
-					if (strlen(projection) > 0) {
-						text_out(" %s", projection);
+					text_out_c(COLOUR_L_GREEN, " %d", ei->avg_damage);
+					if (strlen(ei->projection_name) > 0) {
+						text_out(" %s", ei->projection_name);
 					}
 					i++;
 				}
@@ -200,6 +197,8 @@ static void spell_menu_browser(int oid, void *data, const region *loc)
 			text_out(" damage.");
 		}
 		text_out("\n\n");
+
+		spell_info_free(info);
 
 		/* XXX */
 		text_out_pad = 0;

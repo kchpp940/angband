@@ -40,6 +40,7 @@
 #include "obj-tval.h"
 #include "obj-util.h"
 #include "object.h"
+#include "player-calcs.h"
 #include "player-history.h"
 #include "player-quest.h"
 #include "player-spell.h"
@@ -1182,6 +1183,8 @@ int rd_gear(void)
 		player->upkeep->total_weight +=
 			obj->number * object_weight_one(obj);
 	}
+
+	calc_inventory(player);
 
 	return 0;
 }

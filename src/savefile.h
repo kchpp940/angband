@@ -39,15 +39,6 @@ bool savefile_save(const char *path);
 
 /**
  * Load the savefile given.  Returns true on succcess, false otherwise.
- *
- * This is a RAW deserialization entry point.  It only reads bytes into the
- * in-memory savefile data structures; it does NOT set
- * character_generated, player->upkeep->playing, and does NOT run any
- * post-load state recomputation.
- *
- * Almost all callers should use savefile_load_and_restore() from post-load.h
- * instead, which handles state restoration for both interactive and
- * non-interactive call sites.
  */
 bool savefile_load(const char *path, bool cheat_death);
 

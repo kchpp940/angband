@@ -23,7 +23,6 @@ HEADERS = \
 	main.h \
 	option.h \
 	parser.h \
-	post-load.h \
 	ui-event.h \
 	ui-menu.h \
 	wizard.h \
@@ -239,7 +238,6 @@ ANGFILES0 = \
 	player-spell.o \
 	player-timed.o \
 	player-util.o \
-	post-load.o \
 	player.o \
 	project.o \
 	project-feat.o \
