@@ -5272,6 +5272,37 @@ static void init_stuff(void)
 
 
 /**
+ * Windows frontend handler for danger state events. Flashes the main
+ * window caption/frame on critical HP/Mana danger using FlashWindowEx.
+ */
+static void win_handle_danger(game_event_type type, game_event_data *ev_data,
+							  void *user)
+{
+	if (!ev_data) return;
+
+	if (ev_data->danger.level == DANGER_CRITICAL && data[0].w) {
+		FLASHWINFO fwi;
+		fwi.cbSize = sizeof(fwi);
+		fwi.hwnd = data[0].w;
+		fwi.dwFlags = FLASHW_CAPTION | FLASHW_TRAY | FLASHW_TIMERNOFG;
+		fwi.uCount = 3;
+		fwi.dwTimeout = 0;
+		FlashWindowEx(&fwi);
+	}
+}
+
+/**
+ * Windows frontend handler for end-of-frame flush. Windows GDI rendering
+ * is done via Term_redraw_section -> BitBlt, no explicit swap needed;
+ * this hook is provided for future VSync throttling if needed.
+ */
+static void win_handle_ui_flush(game_event_type type, game_event_data *ev_data,
+								void *user)
+{
+	(void)type; (void)ev_data; (void)user;
+}
+
+/**
  * Perform (as ui-game.c's reinit_hook) platform-specific actions necessary
  * when restarting without exiting.  Also called directly at startup.
  */
@@ -5292,6 +5323,11 @@ static void win_reinit(void)
 	 */
 	event_add_handler(EVENT_LEAVE_INIT, monitor_new_savefile, NULL);
 	event_add_handler(EVENT_LEAVE_GAME, finish_monitoring_savefile, NULL);
+
+	/* Windows-specific UI event consumers - danger window flash, frame sync */
+	event_add_handler(EVENT_DANGER_HP, win_handle_danger, NULL);
+	event_add_handler(EVENT_DANGER_MANA, win_handle_danger, NULL);
+	event_add_handler(EVENT_UI_FLUSH, win_handle_ui_flush, NULL);
 }
 
 

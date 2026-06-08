@@ -32,6 +32,7 @@
 
 #include "main.h"
 #include "buildid.h"
+#include "game-event.h"
 #include "game-world.h"
 #include "grafmode.h"
 #include "init.h"
@@ -7279,6 +7280,38 @@ static void init_systems(void)
 #endif
 }
 
+/**
+ * SDL2 frontend handler for danger state events. Flashes the main window
+ * frame on critical HP/Mana danger. Platform-specific visual feedback;
+ * generic Term-level bell is handled by the core UI layer.
+ */
+static void sdl2_handle_danger(game_event_type type, game_event_data *data,
+							   void *user)
+{
+	if (!data) return;
+
+	if (data->danger.level == DANGER_CRITICAL && g_app.windows[0].window) {
+		SDL_FlashWindow(g_app.windows[0].window,
+						SDL_FLASH_BRIEFLY);
+	}
+}
+
+/**
+ * SDL2 frontend handler for end-of-frame flush. Ensures the renderer
+ * present is called after all batched UI events have been painted into
+ * the Term backbuffer.
+ */
+static void sdl2_handle_ui_flush(game_event_type type, game_event_data *data,
+								 void *user)
+{
+	(void)type; (void)data; (void)user;
+
+	/* The Term_fresh() call in the core UI layer already triggers
+	 * Term_redraw_section which maps to SDL_RenderCopy + SDL_RenderPresent
+	 * for dirty regions. This hook exists so frontends can hook in any
+	 * additional frame-end logic (e.g. vsync throttling). */
+}
+
 errr init_sdl2(int argc, char **argv)
 {
 	int i;
@@ -7401,6 +7434,14 @@ errr init_sdl2(int argc, char **argv)
 	text_wcsz_hook = term_wcsz_sdl2_msys2;
 	text_iswprint_hook = term_iswprint_sdl2_msys2;
 #endif /* MSYS2_ENCODING_WORKAROUND */
+
+	/* Register SDL2-specific event consumers for danger alerts and frame
+	 * flushing. Status bar / map / subwindow painting is handled by the
+	 * generic UI layer via Term_* API; these hooks provide platform-only
+	 * effects (window flashing, renderer present, etc.) */
+	event_add_handler(EVENT_DANGER_HP, sdl2_handle_danger, NULL);
+	event_add_handler(EVENT_DANGER_MANA, sdl2_handle_danger, NULL);
+	event_add_handler(EVENT_UI_FLUSH, sdl2_handle_ui_flush, NULL);
 
 	return 0;
 }

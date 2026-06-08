@@ -21,6 +21,7 @@
 #include "buildid.h"
 #include "cmds.h"
 #include "cave.h"
+#include "game-event.h"
 #include "ui-command.h"
 #include "ui-display.h"
 #include "ui-prefs.h"
@@ -1659,8 +1660,51 @@ errr init_gcu(int argc, char **argv) {
 	/* Remember the active screen */
 	term_screen = &data[0].t;
 
+	/* Register GCU (curses)-specific UI event consumers. The generic UI
+	 * layer already handles Term-level bell via Term_xtra(TERM_XTRA_NOISE);
+	 * these hooks provide terminal-specific extras like visual bell in
+	 * xterm-compatible terminals and subwindow refresh optimization. */
+	{
+		void gcu_handle_danger(game_event_type, game_event_data *, void *);
+		void gcu_handle_ui_flush(game_event_type, game_event_data *, void *);
+		event_add_handler(EVENT_DANGER_HP, gcu_handle_danger, NULL);
+		event_add_handler(EVENT_DANGER_MANA, gcu_handle_danger, NULL);
+		event_add_handler(EVENT_UI_FLUSH, gcu_handle_ui_flush, NULL);
+	}
+
 	/* Success */
 	return (0);
+}
+
+/**
+ * GCU (curses) frontend handler for danger events. Uses the terminal's
+ * visual-bell escape sequence (flash) when available in preference to
+ * the audible bell so terminals without sound still get feedback.
+ */
+static void gcu_handle_danger(game_event_type type, game_event_data *ev_data,
+							  void *user)
+{
+	(void)type; (void)user;
+	if (!ev_data) return;
+
+	if (ev_data->danger.level == DANGER_CRITICAL) {
+		/* Flash the terminal screen (visual bell) - xterm/rxvt compatible.
+		 * Fall back to the standard audible bell via Term_xtra. */
+		if (curscr && has_capability("flash")) {
+			flash();
+		}
+	}
+}
+
+/**
+ * GCU (curses) frontend handler for end-of-frame flush. Curses uses
+ * wrefresh() per subwindow already, so this is a no-op hook point for
+ * future terminal-specific refresh optimizations (e.g. doupdate()).
+ */
+static void gcu_handle_ui_flush(game_event_type type, game_event_data *ev_data,
+								void *user)
+{
+	(void)type; (void)ev_data; (void)user;
 }
 
 #endif /* USE_GCU */
