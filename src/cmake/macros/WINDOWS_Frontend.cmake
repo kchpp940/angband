@@ -9,10 +9,6 @@ macro(configure_windows_frontend _NAME_TARGET _PNG_TARGET)
 
     target_compile_definitions(${_NAME_TARGET}
         PRIVATE
-            USE_WIN
-            USE_PRIVATE_PATHS
-            SOUND
-            WINDOWS
             _CRT_SECURE_NO_WARNINGS
     )
 endmacro()

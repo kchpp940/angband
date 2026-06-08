@@ -17,7 +17,7 @@
  *   Sample Application Files which are modified.
  */
 
-#if defined(USE_WIN) || defined(WINDOWS) || defined(WIN32)
+#if ANGBAND_CAP_FRONTEND_WINDOWS || defined(WINDOWS) || defined(WIN32)
 
 #include <windows.h>
 

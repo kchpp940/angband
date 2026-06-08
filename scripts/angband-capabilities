@@ -107,11 +107,36 @@ done
 #  3.  Derived / synthetic capabilities.
 #      Computed here so both build systems agree on the derivation rules.
 # ---------------------------------------------------------------------------
-# SOUND is the OR of every concrete sound backend.
-if [ "$cap_in_SOUND_SDL" = "1" ] || \
-   [ "$cap_in_SOUND_SDL2" = "1" ] || \
-   [ "$cap_in_SOUND_WINDOWS" = "1" ] || \
-   [ "$cap_in_SOUND_COCOA" = "1" ]; then
+# SOUND_WINDOWS defaults to FRONTEND_WINDOWS (Windows frontend implies the
+# built-in Windows sound backend), unless the caller explicitly overrides it.
+# We detect "explicit override" by whether the caller passed SOUND_WINDOWS
+# on the command line.
+cap_in_SOUND_WINDOWS_EXPLICIT=0
+for _arg in "$@"; do
+    _k="${_arg%%=*}"
+    if [ "$_k" = "SOUND_WINDOWS" ]; then
+        cap_in_SOUND_WINDOWS_EXPLICIT=1
+    fi
+done
+if [ "$cap_in_SOUND_WINDOWS_EXPLICIT" = "0" ]; then
+    cap_in_SOUND_WINDOWS="$cap_in_FRONTEND_WINDOWS"
+fi
+
+# SOUND defaults to the OR of every concrete sound backend, unless the
+# caller explicitly passed a value.
+cap_in_SOUND_EXPLICIT=0
+for _arg in "$@"; do
+    _k="${_arg%%=*}"
+    if [ "$_k" = "SOUND" ]; then
+        cap_in_SOUND_EXPLICIT=1
+    fi
+done
+if [ "$cap_in_SOUND_EXPLICIT" = "1" ]; then
+    cap_out_SOUND="$cap_in_SOUND"
+elif [ "$cap_in_SOUND_SDL" = "1" ] || \
+     [ "$cap_in_SOUND_SDL2" = "1" ] || \
+     [ "$cap_in_SOUND_WINDOWS" = "1" ] || \
+     [ "$cap_in_SOUND_COCOA" = "1" ]; then
     cap_out_SOUND=1
 else
     cap_out_SOUND=0

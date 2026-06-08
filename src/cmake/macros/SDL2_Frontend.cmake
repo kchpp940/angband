@@ -18,7 +18,6 @@ macro(configure_sdl2_frontend _NAME_TARGET)
             ${SDL2_TTF_SELECTED}
             ${SDL2_IMAGE_SELECTED}
         )
-        target_compile_definitions(${_NAME_TARGET} PRIVATE USE_SDL2)
 
         message(STATUS "Support for SDL2 front end - Ready")
 

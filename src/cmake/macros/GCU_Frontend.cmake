@@ -13,7 +13,6 @@ macro(configure_gcu_frontend _NAME_TARGET)
     target_link_libraries(${_NAME_TARGET} PRIVATE ${CURSES_SELECTED})
 
     target_compile_definitions(${_NAME_TARGET} PRIVATE
-        USE_GCU
         USE_NCURSES
         $<$<BOOL:${WIN32}>:WIN32_CONSOLE_MODE>
         $<$<BOOL:${MINGW}>:MSYS2_ENCODING_WORKAROUND>

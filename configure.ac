@@ -508,7 +508,8 @@ AS_IF([test "$enable_win" = "yes"],
     [CAP_ARGS="$CAP_ARGS FRONTEND_WINDOWS=1"],
     [CAP_ARGS="$CAP_ARGS FRONTEND_WINDOWS=0"])
 dnl IBM DOS and Cocoa are handled only by their own native build systems.
-CAP_ARGS="$CAP_ARGS FRONTEND_IBM=0 FRONTEND_COCOA=0"
+dnl SOUND_WINDOWS is derived from FRONTEND_WINDOWS inside the shared script
+dnl unless the caller explicitly overrides it.
 dnl Sound
 AS_IF([test "$enable_sdl_mixer" = "yes" && test "$found_sdl_mixer" = "yes"],
     [CAP_ARGS="$CAP_ARGS SOUND_SDL=1"],
@@ -516,10 +517,6 @@ AS_IF([test "$enable_sdl_mixer" = "yes" && test "$found_sdl_mixer" = "yes"],
 AS_IF([test "$enable_sdl2_mixer" = "yes" && test "$found_sdl2_mixer" = "yes"],
     [CAP_ARGS="$CAP_ARGS SOUND_SDL2=1"],
     [CAP_ARGS="$CAP_ARGS SOUND_SDL2=0"])
-AS_IF([test "$enable_win" = "yes"],
-    [CAP_ARGS="$CAP_ARGS SOUND_WINDOWS=1"],
-    [CAP_ARGS="$CAP_ARGS SOUND_WINDOWS=0"])
-CAP_ARGS="$CAP_ARGS SOUND_COCOA=0"
 dnl Auxiliary frontends
 AS_IF([test "$enable_spoil" = "yes"],
     [CAP_ARGS="$CAP_ARGS FRONTEND_SPOIL=1"],

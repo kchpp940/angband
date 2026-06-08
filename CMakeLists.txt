@@ -576,14 +576,9 @@ _add_cap_arg(SUPPORT_STATS_BACKEND     STATS_BACKEND)
 _add_cap_arg(SUPPORT_BORG              BORG)
 _add_cap_arg(SUPPORT_BORG_HIGH_SCORES  BORG_HIGH_SCORES)
 
-# SOUND_WINDOWS is implicit with the Windows frontend; SOUND_COCOA and
-# FRONTEND_IBM/COCOA are handled only by their respective native builds.
-if(SUPPORT_WINDOWS_FRONTEND)
-    list(APPEND _cap_args "SOUND_WINDOWS=1")
-else()
-    list(APPEND _cap_args "SOUND_WINDOWS=0")
-endif()
-list(APPEND _cap_args "SOUND_COCOA=0" "FRONTEND_IBM=0" "FRONTEND_COCOA=0")
+# SOUND_WINDOWS, SOUND_COCOA, FRONTEND_IBM, FRONTEND_COCOA are derived or
+# defaulted inside the shared script.  SOUND_WINDOWS follows FRONTEND_WINDOWS
+# unless explicitly overridden; the others default to 0 on non-native builds.
 
 # Installation / path options.
 if(SHARED_INSTALL)

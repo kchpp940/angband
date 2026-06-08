@@ -9,7 +9,6 @@ macro(configure_sdl_frontend _NAME_TARGET)
 
         target_link_libraries(${_NAME_TARGET} PRIVATE PkgConfig::SDL PkgConfig::SDL_TTF PkgConfig::SDL_IMAGE)
 
-        target_compile_definitions(${_NAME_TARGET} PRIVATE USE_SDL)
         message(STATUS "Support for SDL front end - Ready")
 
     else()
