@@ -1088,20 +1088,24 @@ foreach(ANGBAND_TEST_CASE_SOURCE ${ANGBAND_TEST_CASE_SOURCES})
     # Register each test case as an individual CTest entry with suite/test
     # naming and suite-level labels, so ctest -R effects/destruction and
     # ctest -L effects both work, matching scripts/run-unittests filters.
+    # Every test goes through the unified runner so working directory,
+    # constants.txt, emulator handling, etc. are identical across all entries.
     if((NOT CMAKE_CROSSCOMPILING) OR (DEFINED CMAKE_CROSSCOMPILING_EMULATOR))
         if(DEFINED CMAKE_CROSSCOMPILING_EMULATOR)
             add_test(NAME "${ANGBAND_TEST_CASE_ID}"
-                COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR}
-                    "$<TARGET_FILE:${ANGBAND_TEST_CASE_NAME}>"
+                COMMAND "${CMAKE_COMMAND}" -E env
+                    "ANGBAND_TEST_EMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C -q
+                    "${ANGBAND_TEST_CASE_ID}"
                 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         else()
             add_test(NAME "${ANGBAND_TEST_CASE_ID}"
-                COMMAND "$<TARGET_FILE:${ANGBAND_TEST_CASE_NAME}>"
+                COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C -q
+                    "${ANGBAND_TEST_CASE_ID}"
                 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         endif()
         set_tests_properties("${ANGBAND_TEST_CASE_ID}" PROPERTIES
-            LABELS "${ANGBAND_TEST_CASE_DIR}"
-            ENVIRONMENT "TEST_WORKING_DIRECTORY=${CMAKE_CURRENT_SOURCE_DIR}")
+            LABELS "${ANGBAND_TEST_CASE_DIR}")
     endif()
     # Add it to the list that will be run by the target for all unit tests.
     list(APPEND ANGBAND_TEST_CASE_PATHS "$<TARGET_FILE:${ANGBAND_TEST_CASE_NAME}>")

@@ -70,6 +70,17 @@ test-build: $(PROGNAME).a
 $(UNITTEST_SUITES:%=test-%): test-%: $(PROGNAME).a
 	@../scripts/run-unittests -b $*
 
+# Catch-all for individual test targets.  See note in top-level Makefile.
+.DEFAULT:
+	@t="$@"; \
+	case "$$t" in \
+	    test-*) \
+	        f="$${t#test-}"; \
+	        ../scripts/run-unittests -b "$$f" ;; \
+	    *) \
+	        echo "make: *** No rule to make target '$$t'.  Stop." ; exit 2 ;; \
+	esac
+
 test-depgen:
 	env CC="$(CC)" $(MAKE) -C tests depgen
 

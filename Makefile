@@ -30,6 +30,21 @@ test-build:
 $(UNITTEST_SUITES:%=test-%): test-%:
 	@scripts/run-unittests -b $*
 
+# Catch-all for individual test targets like "make test-effects/destruction".
+# GNU Make 3.81 treats "/" as directory separator so "test-%" pattern cannot
+# match targets with slashes.  Use .DEFAULT to pick up any target without a
+# rule; if it starts with "test-" dispatch to the unified runner, otherwise
+# print the standard error and fail.
+.DEFAULT:
+	@t="$@"; \
+	case "$$t" in \
+	    test-*) \
+	        f="$${t#test-}"; \
+	        scripts/run-unittests -b "$$f" ;; \
+	    *) \
+	        echo "make: *** No rule to make target '$$t'.  Stop." ; exit 2 ;; \
+	esac
+
 TAG = angband-`cd scripts && ./version.sh`
 OUT = $(TAG).tar.gz
 
