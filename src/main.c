@@ -530,6 +530,24 @@ int main(int argc, char *argv[])
 
 #endif /* UNIX */
 
+	/*
+	 * Create the unified data-initialization result object before any
+	 * display module is started.  All display modules (x11, gcu, test,
+	 * spoil, stats, ...) share the same dinit_result; spoil and stats
+	 * run their own dinit_run_*() and exit early, while the interactive
+	 * front ends rely on the dinit_run_full() call further down.
+	 */
+	{
+		struct dinit_result *ir = dinit_create_result();
+		dinit_mark_paths_ready(ir);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_USER,     DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_SAVE,     DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_SCORES,   DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_ARCHIVE,  DINIT_STATUS_COMPLETE);
+		dinit_set_status(ir, DINIT_STAGE_DIRS_PANIC,    DINIT_STATUS_COMPLETE);
+		dinit_set_global(ir);
+	}
+
 	/* Try the modules in the order specified by modules[] */
 	for (i = 0; i < (int)N_ELEMENTS(modules); i++) {
 		/* User requested a specific module? */
@@ -565,14 +583,7 @@ int main(int argc, char *argv[])
 	/* Set up the display handlers and things. */
 	init_display();
 	{
-		struct dinit_result *ir = dinit_create_result();
-		dinit_mark_paths_ready(ir);
-		dinit_set_status(ir, DINIT_STAGE_DIRS_USER,     DINIT_STATUS_COMPLETE);
-		dinit_set_status(ir, DINIT_STAGE_DIRS_SAVE,     DINIT_STATUS_COMPLETE);
-		dinit_set_status(ir, DINIT_STAGE_DIRS_SCORES,   DINIT_STATUS_COMPLETE);
-		dinit_set_status(ir, DINIT_STAGE_DIRS_ARCHIVE,  DINIT_STATUS_COMPLETE);
-		dinit_set_status(ir, DINIT_STAGE_DIRS_PANIC,    DINIT_STATUS_COMPLETE);
-		dinit_set_global(ir);
+		struct dinit_result *ir = dinit_global();
 		if (!dinit_run_full(ir)) {
 			dinit_print_report(ir);
 			quit_fmt("Initialization failed: %s", ir->error_summary);

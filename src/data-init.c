@@ -757,7 +757,10 @@ bool dinit_run(struct dinit_result *r, dinit_mode_t mode)
 
 		/* Trigger init_arrays() once, right before the world stage. */
 		if (s == DINIT_STAGE_WORLD) {
-			init_arrays();
+			if (!init_arrays()) {
+				r->success = false;
+				return false;
+			}
 			/* If any parser failed, bail out. */
 			if (r->failed_stage != DINIT_STAGE_NOT_STARTED) {
 				r->success = false;

@@ -4441,7 +4441,7 @@ static struct {
  *
  * Assumption: Paths are set up correctly before calling this function.
  */
-void init_arrays(void)
+bool init_arrays(void)
 {
 	unsigned int i;
 
@@ -4453,9 +4453,10 @@ void init_arrays(void)
 
 		parse_err = dinit_run_parser(pl[i].name, pl[i].parser);
 		if (parse_err) {
-			quit_fmt("Cannot initialize %s.", pl[i].name);
+			return false;
 		}
 	}
+	return true;
 }
 
 /**

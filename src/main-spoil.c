@@ -270,18 +270,22 @@ errr init_spoil(int argc, char *argv[]) {
 
 	if (result != 0) return result;
 
-	/* Generate the spoilers using the unified initialization system. */
+	/*
+	 * Generate the spoilers using the unified initialization system.
+	 * main.c has already created the global dinit_result before calling
+	 * us, so we just grab it and run the spoil-mode initialization.
+	 */
 	{
-		struct dinit_result *ir = dinit_create_result();
-		dinit_mark_paths_ready(ir);
-		dinit_set_global(ir);
+		struct dinit_result *ir = dinit_global();
+		if (!ir) {
+			printf("init-spoil: no dinit_result available\n");
+			return 1;
+		}
 		if (!dinit_run_spoil(ir)) {
 			dinit_print_report(ir);
 			printf("init-spoil: initialization failed - %s\n", ir->error_summary);
-			dinit_destroy_result(ir);
 			return 1;
 		}
-		dinit_destroy_result(ir);
 	}
 
 	if (load_randart) {
