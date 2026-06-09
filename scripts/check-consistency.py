@@ -5,9 +5,13 @@ Release Consistency Checker for Angband
 Checks that source files, headers, test files are registered across all build
 systems (Makefile.src, CMakeLists.txt, Windows VS project, Makefile.nmake,
 Makefile.osx) and that document references are valid.
+
+Default mode is strict: any warning not in the allowlist will cause the check
+to fail. Use --lenient to allow warnings.
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -26,13 +30,16 @@ class Colors:
 
 
 class ConsistencyChecker:
-    def __init__(self, repo_root: str, max_warnings: int = -1):
+    def __init__(self, repo_root: str, max_warnings: int = 0):
         self.repo_root = Path(repo_root).resolve()
         self.src_dir = self.repo_root / "src"
         self.max_warnings = max_warnings
         self.errors: List[str] = []
         self.warnings: List[str] = []
         self.infos: List[str] = []
+        self.suppressed: List[str] = []
+
+        self.allowlist = self._load_allowlist()
 
         self.EXCLUDED_SRC_DIRS = {
             "tests",
@@ -98,11 +105,54 @@ class ConsistencyChecker:
             "main-cocoa.m",
         }
 
+    def _load_allowlist(self) -> Dict:
+        allowlist_path = self.repo_root / "scripts" / "check-consistency.allowlist.json"
+        default: Dict[str, List[str]] = {
+            "vs_missing_headers": [],
+            "orphan_headers": [],
+            "missing_makefile_inc_deps": [],
+            "doc_missing_references": [],
+            "doc_missing_code_paths": [],
+            "vs_filters_missing_sources": [],
+            "vs_filters_missing_headers": [],
+            "vs_project_missing_filters_sources": [],
+            "vs_project_missing_filters_headers": [],
+        }
+        if not allowlist_path.exists():
+            return default
+        try:
+            with open(allowlist_path) as f:
+                data = json.load(f)
+            for k in default:
+                if k not in data:
+                    data[k] = default[k]
+            return data
+        except Exception as e:
+            print(f"{Colors.YELLOW}WARNING: Failed to load allowlist: {e}{Colors.RESET}")
+            return default
+
+    def _is_allowed(self, category: str, item: str) -> bool:
+        allowed = self.allowlist.get(category, [])
+        if item in allowed:
+            return True
+        basename = os.path.basename(item)
+        if basename in allowed:
+            return True
+        for a in allowed:
+            if item.endswith("/" + a):
+                return True
+            if item.endswith(a):
+                return True
+        return False
+
     def log_error(self, msg: str):
         self.errors.append(msg)
         print(f"{Colors.RED}ERROR: {msg}{Colors.RESET}")
 
-    def log_warning(self, msg: str):
+    def warn(self, category: str, item: str, msg: str):
+        if self._is_allowed(category, item):
+            self.suppressed.append(msg)
+            return
         self.warnings.append(msg)
         print(f"{Colors.YELLOW}WARNING: {msg}{Colors.RESET}")
 
@@ -192,12 +242,16 @@ class ConsistencyChecker:
             vars_used = [objs_match.group(1), objs_match.group(2), objs_match.group(3)]
             expected = {"ANGFILES", "ZFILES", "WINMAINFILES"}
             if set(vars_used) != expected:
-                self.log_warning(
+                msg = (
                     f"Makefile.nmake: OBJS uses unexpected variables {vars_used}, "
                     f"expected {sorted(expected)}"
                 )
+                self.warnings.append(msg)
+                print(f"{Colors.YELLOW}WARNING: {msg}{Colors.RESET}")
         else:
-            self.log_warning("Makefile.nmake: could not parse OBJS variable")
+            msg = "Makefile.nmake: could not parse OBJS variable"
+            self.warnings.append(msg)
+            print(f"{Colors.YELLOW}WARNING: {msg}{Colors.RESET}")
 
         mk_sources, _ = self.parse_makefile_src()
         for s in mk_sources:
@@ -233,7 +287,9 @@ class ConsistencyChecker:
             extra_src = extra.replace(".o", ".m").replace(".o", ".c")
             extra_sources.add(extra_src)
             if extra_src not in ("cocoa/snd-cocoa.m",):
-                self.log_warning(f"Makefile.osx: unexpected extra OBJS entry: {extra}")
+                msg = f"Makefile.osx: unexpected extra OBJS entry: {extra}"
+                self.warnings.append(msg)
+                print(f"{Colors.YELLOW}WARNING: {msg}{Colors.RESET}")
 
         osx_objs_match = re.search(r"OSX_OBJS\s*=\s*(\S+)", content)
         if osx_objs_match:
@@ -241,7 +297,9 @@ class ConsistencyChecker:
             extra_src = extra.replace(".o", ".m").replace(".o", ".c")
             extra_sources.add(extra_src)
             if extra_src not in ("main-cocoa.m",):
-                self.log_warning(f"Makefile.osx: unexpected OSX_OBJS entry: {extra}")
+                msg = f"Makefile.osx: unexpected OSX_OBJS entry: {extra}"
+                self.warnings.append(msg)
+                print(f"{Colors.YELLOW}WARNING: {msg}{Colors.RESET}")
 
         return sources, extra_sources
 
@@ -304,10 +362,12 @@ class ConsistencyChecker:
             vars_used = [baseobjs_match.group(1), baseobjs_match.group(2)]
             expected = {"ANGFILES", "ZFILES"}
             if set(vars_used) != expected:
-                self.log_warning(
+                msg = (
                     f"Makefile.inc: BASEOBJS uses unexpected variables {vars_used}, "
                     f"expected {sorted(expected)}"
                 )
+                self.warnings.append(msg)
+                print(f"{Colors.YELLOW}WARNING: {msg}{Colors.RESET}")
 
         dep_pattern = re.compile(r"^\./([A-Za-z0-9_\-/]+)\.o:\s*([A-Za-z0-9_\-/]+\.[cm])\s*(.*?)(?=\n\./|\Z)", re.MULTILINE | re.DOTALL)
         for m in dep_pattern.finditer(content):
@@ -317,7 +377,7 @@ class ConsistencyChecker:
             src_key = obj_base + ".c"
 
             if "/" not in src_file and not src_file.startswith("./"):
-                src_key = src_file.replace(".c", ".c").replace(".m", ".m")
+                src_key = src_file
 
             dep_files: Set[str] = set()
             all_dep_text = src_file + " " + dep_text.replace("\\\n", " ")
@@ -464,7 +524,9 @@ class ConsistencyChecker:
                     if not candidate2.exists():
                         candidate3 = doc_dir / clean_ref
                         if not candidate3.exists():
-                            self.log_warning(
+                            self.warn(
+                                "doc_missing_references",
+                                ref,
                                 f"Doc {doc.relative_to(self.repo_root)}: "
                                 f"reference '{ref}' does not exist"
                             )
@@ -479,7 +541,7 @@ class ConsistencyChecker:
                 continue
             doc_dir = doc.parent
 
-            code_blocks = []
+            code_blocks: List[str] = []
             if doc.suffix == ".md":
                 code_blocks = re.findall(r"```(?:bash|sh|shell)?\n(.*?)```", content, re.DOTALL)
                 code_blocks += re.findall(r"`([^`\n]{3,})`", content)
@@ -522,7 +584,9 @@ class ConsistencyChecker:
                                 if not candidate3.exists():
                                     parts = clean_ref.split("/")
                                     if len(parts) > 1 and parts[0] in ("src", "scripts", "docs", "lib"):
-                                        self.log_warning(
+                                        self.warn(
+                                            "doc_missing_code_paths",
+                                            ref,
                                             f"Doc {doc.relative_to(self.repo_root)}: "
                                             f"code example path '{ref}' may not exist"
                                         )
@@ -530,14 +594,12 @@ class ConsistencyChecker:
                     command_tokens = re.findall(r"(?:^|\s)(make|cmake|python3?|gcc|clang|nmake)\s+(\S+)", line)
                     for cmd, target in command_tokens:
                         target = target.rstrip(";)\"'")
-                        if cmd == "make" and target.startswith("release-check"):
-                            pass
-                        elif cmd == "cmake" and "--build" in line:
-                            pass
-                        elif cmd in ("python3", "python") and target.startswith("scripts/"):
+                        if cmd in ("python3", "python") and target.startswith("scripts/"):
                             script_path = self.repo_root / target
                             if not script_path.exists():
-                                self.log_warning(
+                                self.warn(
+                                    "doc_missing_code_paths",
+                                    target,
                                     f"Doc {doc.relative_to(self.repo_root)}: "
                                     f"referenced script '{target}' does not exist"
                                 )
@@ -596,7 +658,11 @@ class ConsistencyChecker:
             if not src.startswith("cocoa/") and not src.startswith("nds/") and not src.startswith("sdl2/") and not src.startswith("stats/") and src != "snd-sdl.c":
                 if src not in vsf_sources and src not in self.NOT_IN_VS:
                     if not src.startswith("win/") and not src.endswith(".m"):
-                        self.log_warning(f"Angband.vcxproj.filters: source '{src}' is not registered")
+                        self.warn(
+                            "vs_filters_missing_sources",
+                            src,
+                            f"Angband.vcxproj.filters: source '{src}' is not registered"
+                        )
 
             if not src.startswith("cocoa/") and not src.startswith("nds/") and not src.startswith("sdl2/") and not src.startswith("stats/") and src != "snd-sdl.c":
                 base = os.path.splitext(src)[0]
@@ -607,7 +673,11 @@ class ConsistencyChecker:
                 elif src.startswith("borg/") and src != "borg/borg.c":
                     pass
                 else:
-                    self.log_warning(f"Makefile.inc: source '{src}' may have stale or missing dependency entry")
+                    self.warn(
+                        "missing_makefile_inc_deps",
+                        src,
+                        f"Makefile.inc: source '{src}' may have stale or missing dependency entry"
+                    )
 
         for src in sorted(mk_sources):
             if src.endswith(".rc"):
@@ -626,22 +696,38 @@ class ConsistencyChecker:
         vs_only_in_project = vs_sources - vsf_sources
         if vs_only_in_project:
             for s in sorted(vs_only_in_project):
-                self.log_warning(f"Angband.vcxproj has '{s}' but filters file is missing it")
+                self.warn(
+                    "vs_project_missing_filters_sources",
+                    s,
+                    f"Angband.vcxproj has '{s}' but filters file is missing it"
+                )
 
         vs_only_in_filters = vsf_sources - vs_sources
         if vs_only_in_filters:
             for s in sorted(vs_only_in_filters):
-                self.log_warning(f"Angband.vcxproj.filters has '{s}' but project file is missing it")
+                self.warn(
+                    "vs_filters_missing_sources",
+                    s,
+                    f"Angband.vcxproj.filters has '{s}' but project file is missing it"
+                )
 
         vs_h_only_in_project = vs_headers - vsf_headers
         if vs_h_only_in_project:
             for h in sorted(vs_h_only_in_project):
-                self.log_warning(f"Angband.vcxproj has header '{h}' but filters file is missing it")
+                self.warn(
+                    "vs_project_missing_filters_headers",
+                    h,
+                    f"Angband.vcxproj has header '{h}' but filters file is missing it"
+                )
 
         vs_h_only_in_filters = vsf_headers - vs_headers
         if vs_h_only_in_filters:
             for h in sorted(vs_h_only_in_filters):
-                self.log_warning(f"Angband.vcxproj.filters has header '{h}' but project file is missing it")
+                self.warn(
+                    "vs_filters_missing_headers",
+                    h,
+                    f"Angband.vcxproj.filters has header '{h}' but project file is missing it"
+                )
 
         self.mk_headers_ref = mk_headers
         self.vs_headers_ref = vs_headers
@@ -666,7 +752,11 @@ class ConsistencyChecker:
             if h.startswith("sdl2/") or h.startswith("stats/"):
                 continue
             if h not in vs_headers:
-                self.log_warning(f"Angband.vcxproj: header '{h}' is not registered")
+                self.warn(
+                    "vs_missing_headers",
+                    h,
+                    f"Angband.vcxproj: header '{h}' is not registered"
+                )
 
         for h in sorted(mk_headers):
             if not (self.src_dir / h).exists():
@@ -677,17 +767,19 @@ class ConsistencyChecker:
                 self.log_error(f"Angband.vcxproj: registered header '{h}' does not exist on disk")
 
         for src, dep_headers in inc_deps.items():
-            src_dir = os.path.dirname(src) if os.path.dirname(src) else "."
+            src_dir_name = os.path.dirname(src) if os.path.dirname(src) else "."
             for dh in dep_headers:
                 candidates = []
                 candidates.append(self.src_dir / dh)
-                if src_dir != ".":
-                    candidates.append(self.src_dir / src_dir / dh)
+                if src_dir_name != ".":
+                    candidates.append(self.src_dir / src_dir_name / dh)
                 dh_basename = os.path.basename(dh)
                 candidates.append(self.src_dir / dh_basename)
                 exists = any(c.exists() for c in candidates)
                 if not exists:
-                    self.log_warning(
+                    self.warn(
+                        "missing_makefile_inc_deps",
+                        dh,
                         f"Makefile.inc: dependency header '{dh}' for '{src}' may not exist"
                     )
 
@@ -722,7 +814,9 @@ class ConsistencyChecker:
             is_included = (h in all_included_headers) or (h_basename in all_included_headers)
 
             if not has_matching_source and not is_included:
-                self.log_warning(
+                self.warn(
+                    "orphan_headers",
+                    h,
                     f"Potentially orphan header: '{h}' (no matching source and no includes found)"
                 )
 
@@ -781,8 +875,12 @@ class ConsistencyChecker:
         print(f"{Colors.BOLD}Summary:{Colors.RESET}")
         print(f"  {Colors.RED if self.errors else Colors.GREEN}Errors:   {len(self.errors)}{Colors.RESET}")
         print(f"  {Colors.YELLOW if self.warnings else Colors.GREEN}Warnings: {len(self.warnings)}{Colors.RESET}")
+        if self.suppressed:
+            print(f"  Suppressed (allowlist): {len(self.suppressed)}")
         if self.max_warnings >= 0:
             print(f"  Max allowed warnings: {self.max_warnings}")
+        else:
+            print(f"  Max allowed warnings: unlimited")
         print(f"  Infos:    {len(self.infos)}")
         print(f"{Colors.BOLD}{'='*70}{Colors.RESET}")
 
@@ -803,24 +901,33 @@ class ConsistencyChecker:
             else:
                 print()
 
+        if self.suppressed:
+            print(f"{Colors.BLUE}NOTE: {len(self.suppressed)} warning(s) suppressed by allowlist "
+                  f"(scripts/check-consistency.allowlist.json){Colors.RESET}")
+
         return not failed
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Angband release consistency checker"
+        description="Angband release consistency checker (strict by default)"
     )
     parser.add_argument(
         "--max-warnings",
         type=int,
-        default=-1,
+        default=None,
         metavar="N",
-        help="Maximum number of warnings allowed before check fails (-1 = unlimited, default: -1)",
+        help="Maximum number of warnings allowed before check fails (default: 0, strict mode)",
+    )
+    parser.add_argument(
+        "--lenient",
+        action="store_true",
+        help="Lenient mode: allow any number of warnings (equivalent to --max-warnings=-1)",
     )
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Strict mode: treat any warnings as failures (equivalent to --max-warnings=0)",
+        help="Strict mode: treat any warnings as failures (default behavior)",
     )
     parser.add_argument(
         "--repo-root",
@@ -831,8 +938,12 @@ def main():
 
     args = parser.parse_args()
 
-    if args.strict:
-        args.max_warnings = 0
+    if args.lenient:
+        max_warnings = -1
+    elif args.max_warnings is not None:
+        max_warnings = args.max_warnings
+    else:
+        max_warnings = 0
 
     if args.repo_root:
         repo_root = args.repo_root
@@ -840,7 +951,7 @@ def main():
         script_dir = Path(__file__).resolve().parent
         repo_root = script_dir.parent
 
-    checker = ConsistencyChecker(str(repo_root), max_warnings=args.max_warnings)
+    checker = ConsistencyChecker(str(repo_root), max_warnings=max_warnings)
     ok = checker.run_all()
 
     return 0 if ok else 1

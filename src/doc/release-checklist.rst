@@ -6,11 +6,26 @@ Before release:
 * Run the pre-release consistency check to verify source registration across build systems:
   Run "python3 scripts/check-consistency.py" (or "make release-check" or
   "cmake --build . --target release-check")
+  The check runs in STRICT mode by default: any warning not in the allowlist
+  (scripts/check-consistency.allowlist.json) will block the release.
+
   This checks for:
-  - Source files registered in Makefile.src, CMakeLists.txt, and the Windows VS project
-  - Header files registered in build systems
+  - Source files registered in Makefile.src, CMakeLists.txt, Makefile.nmake,
+    Makefile.osx, and the Windows VS project/filters
+  - Header files registered in build systems (with allowlist exceptions for
+    generated headers like build-capabilities.h and version.h)
+  - Source dependency entries in src/Makefile.inc
   - Test cases registered in suite.mk files and CMakeLists.txt
-  - Documentation file references
+  - Documentation file references and code example paths
+  - Potentially orphan headers (no matching source and no includes found)
+
+  To run with warnings allowed (non-blocking), use one of:
+    "python3 scripts/check-consistency.py --lenient"
+    "make release-check-lenient"
+    "cmake --build . --target release-check-lenient"
+
+  To permanently allow a warning, add the relevant entry to the appropriate
+  category in scripts/check-consistency.allowlist.json.
 * Check that the dependencies in src/Makefile.inc are up to date;  on Linux/Unix
   run "cd src; make -f Makefile.std depgen" and then merge the generated
   src/Makefile.new into src/Makefile.inc

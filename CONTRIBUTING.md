@@ -75,8 +75,8 @@ When submitting pull requests on Github, please ensure that you choose only the 
 
 Before submitting your contribution, especially if you are adding or moving source
 files, headers, or test files, run the pre-release consistency check to ensure
-your changes are registered across all build systems (Makefile, CMake, and the
-Windows Visual Studio project):
+your changes are registered across all build systems (Makefile, CMake, Makefile.nmake,
+Makefile.osx, and the Windows Visual Studio project/filters):
 
 ```
 python3 scripts/check-consistency.py
@@ -94,8 +94,31 @@ Or if using CMake:
 cmake --build . --target release-check
 ```
 
-This checks for unregistered source files, orphan headers, missing test suite
-registrations, and broken documentation references.
+**The check runs in STRICT mode by default**: any warning not in the allowlist
+(`scripts/check-consistency.allowlist.json`) will cause the check to fail.
+
+The check verifies:
+- Source files registered in Makefile.src, CMakeLists.txt, Makefile.nmake,
+  Makefile.osx, and the Windows VS project/filters
+- Header files registered in build systems (with allowlist exceptions for
+  generated headers like build-capabilities.h and version.h)
+- Source dependency entries in `src/Makefile.inc`
+- Test cases registered in suite.mk files and CMakeLists.txt
+- Documentation file references and code example paths
+- Potentially orphan headers (no matching source and no includes found)
+
+If you need to run with warnings allowed (non-blocking) during development:
+
+```
+python3 scripts/check-consistency.py --lenient
+# or
+make release-check-lenient
+# or
+cmake --build . --target release-check-lenient
+```
+
+To permanently allow a known-valid warning, add the entry to the appropriate
+category in `scripts/check-consistency.allowlist.json`.
 
 This section describes what Angband code and its documentation should look like.  You may also want to read the old [Angband security guide](/src/doc/security.txt), although the default build configuration no longer uses setgid.
 

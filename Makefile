@@ -7,14 +7,18 @@ DISTCLEAN = config.status config.log docs/.deps \
 	mk/buildsys.mk mk/extra.mk
 REPOCLEAN = aclocal.m4 autom4te.cache configure src/autoconf.h.in version
 
-.PHONY: check tests manual manual-optional dist release-check
+.PHONY: check tests manual manual-optional dist release-check release-check-lenient
 check: tests
 tests:
 	$(MAKE) -C src tests
 
 release-check:
-	@echo "Running release consistency checks..."
+	@echo "Running release consistency checks (strict mode, any warning not in allowlist blocks)..."
 	@python3 scripts/check-consistency.py
+
+release-check-lenient:
+	@echo "Running release consistency checks (lenient mode, warnings allowed)..."
+	@python3 scripts/check-consistency.py --lenient
 
 TAG = angband-`cd scripts && ./version.sh`
 OUT = $(TAG).tar.gz

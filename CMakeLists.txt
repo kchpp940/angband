@@ -1111,9 +1111,17 @@ endif()
 add_dependencies(alltests allunittests)
 
 add_custom_target(release-check
-    COMMAND "${CMAKE_COMMAND}" -E echo "Running release consistency checks..."
+    COMMAND "${CMAKE_COMMAND}" -E echo "Running release consistency checks (strict mode, any warning not in allowlist blocks)..."
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-consistency.py"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Pre-release consistency check"
+    COMMENT "Pre-release consistency check (strict mode)"
+    VERBATIM
+)
+
+add_custom_target(release-check-lenient
+    COMMAND "${CMAKE_COMMAND}" -E echo "Running release consistency checks (lenient mode, warnings allowed)..."
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-consistency.py" --lenient
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Pre-release consistency check (lenient mode)"
     VERBATIM
 )

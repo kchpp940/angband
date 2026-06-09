@@ -154,9 +154,16 @@ Consistency check
 Before submitting changes that add, move, or remove source files, headers,
 or test cases, run the pre-release consistency check.  This verifies that
 source files are properly registered across all build systems (Makefile.src,
-CMakeLists.txt, and the Windows Visual Studio project), that test cases are
-registered in both the suite.mk files and CMake, and that documentation
-references are valid.
+CMakeLists.txt, Makefile.nmake, Makefile.osx, and the Windows Visual Studio
+project/filters), that test cases are registered in both the suite.mk files
+and CMake, that source dependencies in ``src/Makefile.inc`` are up to date,
+and that documentation references are valid.
+
+**The check runs in STRICT mode by default**: any warning not in the allowlist
+(``scripts/check-consistency.allowlist.json``) will cause the check to fail and
+block the release.  Exceptions in the allowlist include generated files like
+``build-capabilities.h`` and ``version.h``, and runtime-generated files like
+``lib/user/borg.txt``.
 
 To run the check directly::
 
@@ -169,6 +176,17 @@ Or, if using make::
 Or, if using CMake::
 
     cmake --build build -t release-check
+
+To run with warnings allowed (non-blocking, useful during development)::
+
+    python3 scripts/check-consistency.py --lenient
+    # or
+    make release-check-lenient
+    # or
+    cmake --build build -t release-check-lenient
+
+To permanently allow a known-valid warning, add the relevant entry to the
+appropriate category in ``scripts/check-consistency.allowlist.json``.
 
 Statistics build
 ~~~~~~~~~~~~~~~~

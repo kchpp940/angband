@@ -1,0 +1,21 @@
+{
+  "_comment": "Allowlist for check-consistency.py. Entries here are known exceptions and will not trigger warnings.",
+  "vs_missing_headers": [
+    "build-capabilities.h",
+    "version.h"
+  ],
+  "orphan_headers": [
+    "build-capabilities.h"
+  ],
+  "missing_makefile_inc_deps": [
+  ],
+  "doc_missing_references": [
+    "lib/user/borg.txt"
+  ],
+  "doc_missing_code_paths": [
+  ],
+  "vs_filters_missing_sources": [
+  ],
+  "vs_filters_missing_headers": [
+  ]
+}

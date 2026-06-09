@@ -459,6 +459,7 @@ xcopy $(MSBuildProjectDirectory)\lib\* $(OutDir)lib\ /DESY /exclude:$(MSBuildPro
     <ClInclude Include="src\h-basic.h" />
     <ClInclude Include="src\hint.h" />
     <ClInclude Include="src\init.h" />
+    <ClInclude Include="src\main.h" />
     <ClInclude Include="src\list-dun-profiles.h" />
     <ClInclude Include="src\list-effects.h" />
     <ClInclude Include="src\list-elements.h" />

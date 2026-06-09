@@ -935,6 +935,9 @@
     <ClInclude Include="src\init.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\main.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\list-dun-profiles.h">
       <Filter>Header Files</Filter>
     </ClInclude>
