@@ -150,6 +150,7 @@ static int test_resource_load_failure_rollback(void *state)
 	errr rc;
 	const struct frontend_lifecycle_result *res;
 	void (*saved)(const char *);
+	char buf[512];
 	(void)state;
 
 	clear_log();
@@ -157,6 +158,20 @@ static int test_resource_load_failure_rollback(void *state)
 	saved = quit_aux;
 	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
+
+	if (verbose) {
+		printf("    resource_load_failure: rc=%d success=%d\n",
+		       (int)rc, res->success);
+		printf("    failed_stage=%s (%d)\n",
+		       frontend_stage_name(res->failed_stage),
+		       (int)res->failed_stage);
+		printf("    error_message=\"%s\"\n", res->error_message);
+		frontend_format_result(buf, sizeof(buf), "mock", res);
+		printf("    formatted: %s\n", buf);
+		printf("    query API: stage=%s msg=\"%s\"\n",
+		       frontend_stage_name(frontend_last_failed_stage()),
+		       frontend_last_error_message());
+	}
 
 	noteq(rc, 0);
 	require(!res->success);
@@ -177,6 +192,7 @@ static int test_term_register_failure_rollback(void *state)
 	errr rc;
 	const struct frontend_lifecycle_result *res;
 	void (*saved)(const char *);
+	char buf[512];
 	(void)state;
 
 	clear_log();
@@ -184,6 +200,20 @@ static int test_term_register_failure_rollback(void *state)
 	saved = quit_aux;
 	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
+
+	if (verbose) {
+		printf("    term_register_failure: rc=%d success=%d\n",
+		       (int)rc, res->success);
+		printf("    failed_stage=%s (%d)\n",
+		       frontend_stage_name(res->failed_stage),
+		       (int)res->failed_stage);
+		printf("    error_message=\"%s\"\n", res->error_message);
+		frontend_format_result(buf, sizeof(buf), "mock", res);
+		printf("    formatted: %s\n", buf);
+		printf("    query API: stage=%s msg=\"%s\"\n",
+		       frontend_stage_name(frontend_last_failed_stage()),
+		       frontend_last_error_message());
+	}
 
 	noteq(rc, 0);
 	require(!res->success);
@@ -205,6 +235,7 @@ static int test_capability_failure_rollback(void *state)
 	errr rc;
 	const struct frontend_lifecycle_result *res;
 	void (*saved)(const char *);
+	char buf[512];
 	(void)state;
 
 	clear_log();
@@ -212,6 +243,20 @@ static int test_capability_failure_rollback(void *state)
 	saved = quit_aux;
 	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
+
+	if (verbose) {
+		printf("    capability_failure: rc=%d success=%d\n",
+		       (int)rc, res->success);
+		printf("    failed_stage=%s (%d)\n",
+		       frontend_stage_name(res->failed_stage),
+		       (int)res->failed_stage);
+		printf("    error_message=\"%s\"\n", res->error_message);
+		frontend_format_result(buf, sizeof(buf), "mock", res);
+		printf("    formatted: %s\n", buf);
+		printf("    query API: stage=%s msg=\"%s\"\n",
+		       frontend_stage_name(frontend_last_failed_stage()),
+		       frontend_last_error_message());
+	}
 
 	noteq(rc, 0);
 	require(!res->success);
@@ -230,6 +275,7 @@ static int test_parse_args_failure_no_rollback(void *state)
 	errr rc;
 	const struct frontend_lifecycle_result *res;
 	void (*saved)(const char *);
+	char buf[512];
 	(void)state;
 
 	clear_log();
@@ -237,6 +283,20 @@ static int test_parse_args_failure_no_rollback(void *state)
 	saved = quit_aux;
 	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
+
+	if (verbose) {
+		printf("    parse_args_failure: rc=%d success=%d\n",
+		       (int)rc, res->success);
+		printf("    failed_stage=%s (%d)\n",
+		       frontend_stage_name(res->failed_stage),
+		       (int)res->failed_stage);
+		printf("    error_message=\"%s\"\n", res->error_message);
+		frontend_format_result(buf, sizeof(buf), "mock", res);
+		printf("    formatted: %s\n", buf);
+		printf("    query API: stage=%s msg=\"%s\"\n",
+		       frontend_stage_name(frontend_last_failed_stage()),
+		       frontend_last_error_message());
+	}
 
 	noteq(rc, 0);
 	require(!res->success);
@@ -265,11 +325,26 @@ static int test_null_adapter(void *state)
 {
 	errr rc;
 	const struct frontend_lifecycle_result *res;
+	char buf[512];
 	(void)state;
 
 	clear_log();
 	rc = frontend_run_lifecycle(NULL, 0, NULL, NULL);
 	res = frontend_get_last_result();
+
+	if (verbose) {
+		printf("    null_adapter: rc=%d success=%d\n",
+		       (int)rc, res->success);
+		printf("    failed_stage=%s (%d)\n",
+		       frontend_stage_name(res->failed_stage),
+		       (int)res->failed_stage);
+		printf("    error_message=\"%s\"\n", res->error_message);
+		frontend_format_result(buf, sizeof(buf), "(null)", res);
+		printf("    formatted: %s\n", buf);
+		printf("    query API: stage=%s msg=\"%s\"\n",
+		       frontend_stage_name(frontend_last_failed_stage()),
+		       frontend_last_error_message());
+	}
 
 	noteq(rc, 0);
 	require(!res->success);

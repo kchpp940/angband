@@ -1,0 +1,186 @@
+#!/bin/bash
+#
+# run-unittests - Run Angband unit tests
+#
+# Usage:
+#   run-unittests                  Run all unit tests
+#   run-unittests <suite-name>     Run a specific test suite
+#   run-unittests <suite>/<test>   Run a specific test program
+#
+# Examples:
+#   run-unittests frontend-lifecycle
+#   run-unittests frontend-lifecycle/lifecycle
+#   run-unittests effects
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Possible locations for built test binaries
+CMAKE_BUILD_DIR="$PROJECT_ROOT/build"
+MAKE_SRC_DIR="$PROJECT_ROOT/src/tests"
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options] [suite[/test]]
+
+Run Angband unit tests.
+
+Options:
+  -h, --help      Show this help message
+  -v, --verbose   Show verbose test output
+  -q, --quiet     Only show summary output
+
+Arguments:
+  (no argument)   Run all unit tests
+  <suite>         Run all tests in a suite (e.g. "frontend-lifecycle")
+  <suite>/<test>  Run a specific test (e.g. "frontend-lifecycle/lifecycle")
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") frontend-lifecycle
+  $(basename "$0") frontend-lifecycle/lifecycle
+EOF
+}
+
+VERBOSE_FLAG=""
+QUIET_FLAG=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -v|--verbose)
+            VERBOSE_FLAG="-v"
+            shift
+            ;;
+        -q|--quiet)
+            QUIET_FLAG="-q"
+            shift
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+TEST_FILTER="$1"
+
+find_test_binary() {
+    local suite="$1"
+    local testname="$2"
+
+    if [ -z "$testname" ]; then
+        testname="$suite"
+    fi
+
+    if [ -x "$CMAKE_BUILD_DIR/unittests/$suite/$testname/$testname" ]; then
+        echo "$CMAKE_BUILD_DIR/unittests/$suite/$testname/$testname"
+        return 0
+    fi
+
+    if [ -x "$MAKE_SRC_DIR/$suite/$testname.exe" ]; then
+        echo "$MAKE_SRC_DIR/$suite/$testname.exe"
+        return 0
+    fi
+
+    return 1
+}
+
+find_all_tests() {
+    local binaries=()
+
+    if [ -d "$CMAKE_BUILD_DIR/unittests" ]; then
+        while IFS= read -r -d '' bin; do
+            binaries+=("$bin")
+        done < <(find "$CMAKE_BUILD_DIR/unittests" -mindepth 3 -maxdepth 3 -type f -perm -u+x -print0 2>/dev/null || true)
+    fi
+
+    if [ -d "$MAKE_SRC_DIR" ]; then
+        while IFS= read -r -d '' bin; do
+            binaries+=("$bin")
+        done < <(find "$MAKE_SRC_DIR" -mindepth 2 -maxdepth 2 -type f -name '*.exe' -perm -u+x -print0 2>/dev/null || true)
+    fi
+
+    printf '%s\n' "${binaries[@]}" | sort -u
+}
+
+run_single_test() {
+    local binary="$1"
+    echo "Running $(basename "$(dirname "$binary")")/$(basename "$binary")..."
+    "$binary" $VERBOSE_FLAG $QUIET_FLAG
+}
+
+if [ -n "$TEST_FILTER" ]; then
+    suite="${TEST_FILTER%%/*}"
+    testname="${TEST_FILTER#*/}"
+
+    if [ "$suite" = "$testname" ]; then
+        testname=""
+    fi
+
+    if [ -z "$testname" ]; then
+        found=0
+        if [ -d "$CMAKE_BUILD_DIR/unittests/$suite" ]; then
+            while IFS= read -r -d '' bin; do
+                run_single_test "$bin"
+                found=1
+            done < <(find "$CMAKE_BUILD_DIR/unittests/$suite" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | while IFS= read -r -d '' d; do find "$d" -maxdepth 1 -type f -perm -u+x -print0; done)
+        fi
+        if [ -d "$MAKE_SRC_DIR/$suite" ]; then
+            while IFS= read -r -d '' bin; do
+                run_single_test "$bin"
+                found=1
+            done < <(find "$MAKE_SRC_DIR/$suite" -maxdepth 1 -type f -name '*.exe' -perm -u+x -print0 2>/dev/null || true)
+        fi
+        if [ "$found" -eq 0 ]; then
+            echo "Error: No tests found for suite '$suite'" >&2
+            exit 1
+        fi
+    else
+        binary="$(find_test_binary "$suite" "$testname")"
+        if [ -z "$binary" ]; then
+            echo "Error: Test binary not found for '$suite/$testname'" >&2
+            echo "Tried:" >&2
+            echo "  $CMAKE_BUILD_DIR/unittests/$suite/$testname/$testname" >&2
+            echo "  $MAKE_SRC_DIR/$suite/$testname.exe" >&2
+            exit 1
+        fi
+        run_single_test "$binary"
+    fi
+else
+    if [ -x "$MAKE_SRC_DIR/run-tests" ]; then
+        cd "$MAKE_SRC_DIR" && perl ./run-tests $VERBOSE_FLAG $QUIET_FLAG
+    else
+        all_tests="$(find_all_tests)"
+        if [ -z "$all_tests" ]; then
+            echo "Error: No unit tests found. Build the project first." >&2
+            exit 1
+        fi
+        total_pass=0
+        total_fail=0
+        while IFS= read -r binary; do
+            [ -z "$binary" ] && continue
+            output="$("$binary" 2>&1)"
+            status=$?
+            echo "$output"
+            if [ $status -ne 0 ]; then
+                total_fail=$((total_fail + 1))
+            fi
+            if [[ "$output" =~ ([0-9]+)/([0-9]+)\ passed ]]; then
+                total_pass=$((total_pass + BASH_REMATCH[1]))
+                total_all=$((total_all + BASH_REMATCH[2]))
+            fi
+        done <<< "$all_tests"
+        echo "Summary: $total_pass tests passed"
+    fi
+fi

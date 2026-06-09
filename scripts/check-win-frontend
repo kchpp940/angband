@@ -1,0 +1,177 @@
+#!/bin/bash
+#
+# check-win-frontend - Verify Windows frontend compiles correctly
+#
+# Tries (in order):
+#   1. MinGW-w64 cross-compiler (i686-w64-mingw32-gcc / x86_64-w64-mingw32-gcc)
+#   2. MSVC cl.exe (if present in PATH, e.g. from VS Developer Prompt)
+#   3. Fallback: clang -fsyntax-only with controlled Win32 stub headers
+#
+# Usage:
+#   check-win-frontend            Check all Windows frontend sources
+#   check-win-frontend --verbose  Show compiler commands and output
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+SRC_DIR="$PROJECT_ROOT/src"
+STUB_INCLUDE="$PROJECT_ROOT/src/tests/win-stub"
+BUILD_DIR="$PROJECT_ROOT/build"
+GENERATED_DIR="$BUILD_DIR/generated"
+
+VERBOSE=0
+if [ "$1" = "--verbose" ] || [ "$1" = "-v" ]; then
+    VERBOSE=1
+fi
+
+PASS=0
+FAIL=0
+
+log() {
+    echo "$@"
+}
+
+log_cmd() {
+    if [ "$VERBOSE" -eq 1 ]; then
+        echo "  $ $*"
+    fi
+}
+
+check_file_cc() {
+    local cc="$1"
+    local cflags="$2"
+    local f="$3"
+    local logfile
+    logfile="$(mktemp)"
+
+    log_cmd "$cc $cflags -c \"$f\" -o /dev/null"
+    if $cc $cflags -c "$f" -o /dev/null >"$logfile" 2>&1; then
+        rm -f "$logfile"
+        return 0
+    else
+        echo "  FAILED: $f"
+        cat "$logfile"
+        rm -f "$logfile"
+        return 1
+    fi
+}
+
+check_file_syntax() {
+    local cc="$1"
+    local cflags="$2"
+    local f="$3"
+    local logfile
+    logfile="$(mktemp)"
+
+    log_cmd "$cc $cflags -fsyntax-only \"$f\""
+    if $cc $cflags -fsyntax-only "$f" >"$logfile" 2>&1; then
+        rm -f "$logfile"
+        return 0
+    else
+        echo "  FAILED: $f"
+        cat "$logfile"
+        rm -f "$logfile"
+        return 1
+    fi
+}
+
+run_check() {
+    local method="$1"
+    local cc="$2"
+    local cflags_base="$3"
+    local syntax_only="$4"
+
+    shift 4
+    local files=("$@")
+
+    echo ""
+    echo "=== Checking with $method ==="
+    echo "  Compiler: $cc"
+
+    local f
+    for f in "${files[@]}"; do
+        local rel="${f#$PROJECT_ROOT/}"
+        echo -n "  $rel ... "
+        if [ "$syntax_only" = "1" ]; then
+            if check_file_syntax "$cc" "$cflags_base" "$f"; then
+                echo "OK"
+                PASS=$((PASS + 1))
+            else
+                FAIL=$((FAIL + 1))
+            fi
+        else
+            if check_file_cc "$cc" "$cflags_base" "$f"; then
+                echo "OK"
+                PASS=$((PASS + 1))
+            else
+                FAIL=$((FAIL + 1))
+            fi
+        fi
+    done
+}
+
+WIN_FILES=(
+    "$SRC_DIR/frontend-lifecycle.c"
+    "$SRC_DIR/main-win.c"
+)
+
+COMMON_INCLUDES="-I$SRC_DIR -I$SRC_DIR/win -I$SRC_DIR/tests -I$GENERATED_DIR"
+
+#
+# Try 1: MinGW-w64 cross-compiler
+#
+MINGW_CC=""
+if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+    MINGW_CC="x86_64-w64-mingw32-gcc"
+elif command -v i686-w64-mingw32-gcc >/dev/null 2>&1; then
+    MINGW_CC="i686-w64-mingw32-gcc"
+fi
+
+if [ -n "$MINGW_CC" ]; then
+    MINGW_CFLAGS="-DWINDOWS -D_WIN32_WINNT=0x0501 $COMMON_INCLUDES -Wall -Wextra"
+    run_check "MinGW-w64 (real headers, real compile)" "$MINGW_CC" "$MINGW_CFLAGS" "0" "${WIN_FILES[@]}"
+
+    echo ""
+    echo "=== Results: $PASS passed, $FAIL failed ==="
+    [ "$FAIL" -eq 0 ]
+    exit $?
+fi
+
+#
+# Try 2: MSVC cl.exe
+#
+if command -v cl.exe >/dev/null 2>&1; then
+    MSVC_CFLAGS="/DWINDOWS /D_WIN32_WINNT=0x0501 /I$SRC_DIR /I$SRC_DIR\\win /I$SRC_DIR\\tests /I$GENERATED_DIR /nologo /W3"
+    run_check "MSVC cl.exe (real headers, real compile)" "cl.exe" "$MSVC_CFLAGS" "0" "${WIN_FILES[@]}"
+
+    echo ""
+    echo "=== Results: $PASS passed, $FAIL failed ==="
+    [ "$FAIL" -eq 0 ]
+    exit $?
+fi
+
+#
+# Try 3: Fallback - clang with controlled Win32 stub headers
+#
+echo "Note: MinGW/MSVC not found in PATH. Using fallback: clang -fsyntax-only with controlled Win32 stub headers."
+echo "  Stub headers: $STUB_INCLUDE"
+
+if [ ! -d "$STUB_INCLUDE" ]; then
+    echo "ERROR: Stub header directory not found: $STUB_INCLUDE" >&2
+    exit 2
+fi
+
+if ! command -v clang >/dev/null 2>&1; then
+    echo "ERROR: clang not found in PATH (needed for fallback syntax check)." >&2
+    exit 2
+fi
+
+STUB_CFLAGS="-DWINDOWS -I$STUB_INCLUDE $COMMON_INCLUDES -Wall"
+run_check "clang -fsyntax-only + Win32 stubs (fallback)" "clang" "$STUB_CFLAGS" "1" "${WIN_FILES[@]}"
+
+echo ""
+echo "=== Results: $PASS passed, $FAIL failed ==="
+[ "$FAIL" -eq 0 ]

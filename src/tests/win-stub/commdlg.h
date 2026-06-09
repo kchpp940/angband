@@ -1,0 +1,68 @@
+#ifndef _COMMDLG_STUB_H_
+#define _COMMDLG_STUB_H_
+
+#include "windows.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define PD_ALLPAGES 0x00000000
+#define PD_SELECTION 0x00000001
+#define PD_PAGENUMS 0x00000002
+#define PD_NOSELECTION 0x00000004
+#define PD_NOPAGENUMS 0x00000008
+#define PD_COLLATE 0x00000010
+#define PD_PRINTTOFILE 0x00000020
+#define PD_PRINTSETUP 0x00000040
+#define PD_NOWARNING 0x00000080
+#define PD_RETURNDC 0x00000100
+#define PD_RETURNIC 0x00000200
+#define PD_RETURNDEFAULT 0x00000400
+#define PD_SHOWHELP 0x00000800
+#define PD_ENABLEPRINTHOOK 0x00001000
+#define PD_ENABLESETUPHOOK 0x00002000
+#define PD_ENABLEPRINTTEMPLATE 0x00004000
+#define PD_ENABLESETUPTEMPLATE 0x00008000
+#define PD_ENABLEPRINTTEMPLATEHANDLE 0x00010000
+#define PD_ENABLESETUPTEMPLATEHANDLE 0x00020000
+#define PD_USEDEVMODECOPIES 0x00040000
+#define PD_USEDEVMODECOPIESANDCOLLATE 0x00040000
+#define PD_DISABLEPRINTTOFILE 0x00080000
+#define PD_HIDEPRINTTOFILE 0x00100000
+#define PD_NONETWORKBUTTON 0x00200000
+#define PD_CURRENTPAGE 0x00400000
+#define PD_CUSTOMIZE 0x00800000
+#define PD_RESULT_CANCEL 0x0
+#define PD_RESULT_PRINT 0x1
+#define PD_RESULT_APPLY 0x2
+
+typedef struct tagPDA {
+    DWORD lStructSize;
+    HWND hwndOwner;
+    HGLOBAL hDevMode;
+    HGLOBAL hDevNames;
+    HDC hDC;
+    DWORD Flags;
+    WORD nFromPage;
+    WORD nToPage;
+    WORD nMinPage;
+    WORD nMaxPage;
+    WORD nCopies;
+    HINSTANCE hInstance;
+    LPARAM lCustData;
+    void *lpfnPrintHook;
+    void *lpfnSetupHook;
+    LPCSTR lpPrintTemplateName;
+    LPCSTR lpSetupTemplateName;
+    HGLOBAL hPrintTemplate;
+    HGLOBAL hSetupTemplate;
+} PRINTDLGA, *LPPRINTDLGA;
+
+typedef PRINTDLGA PRINTDLG;
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
