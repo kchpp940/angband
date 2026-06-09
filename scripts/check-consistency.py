@@ -30,6 +30,18 @@ class Colors:
 
 
 class ConsistencyChecker:
+    VALID_CATEGORIES = {
+        "vs_missing_headers",
+        "orphan_headers",
+        "missing_makefile_inc_deps",
+        "doc_missing_references",
+        "doc_missing_code_paths",
+        "vs_filters_missing_sources",
+        "vs_filters_missing_headers",
+        "vs_project_missing_filters_sources",
+        "vs_project_missing_filters_headers",
+    }
+
     def __init__(self, repo_root: str, max_warnings: int = 0):
         self.repo_root = Path(repo_root).resolve()
         self.src_dir = self.repo_root / "src"
@@ -39,7 +51,11 @@ class ConsistencyChecker:
         self.infos: List[str] = []
         self.suppressed: List[str] = []
 
-        self.allowlist = self._load_allowlist()
+        self.allowlist_entries: Dict[Tuple[str, str], Dict] = {}
+        self.allowlist_raw: Dict = {}
+        self.used_allowlist: Set[Tuple[str, str]] = set()
+
+        self._load_allowlist()
 
         self.EXCLUDED_SRC_DIRS = {
             "tests",
@@ -105,45 +121,98 @@ class ConsistencyChecker:
             "main-cocoa.m",
         }
 
-    def _load_allowlist(self) -> Dict:
+    def _load_allowlist(self):
         allowlist_path = self.repo_root / "scripts" / "check-consistency.allowlist.json"
-        default: Dict[str, List[str]] = {
-            "vs_missing_headers": [],
-            "orphan_headers": [],
-            "missing_makefile_inc_deps": [],
-            "doc_missing_references": [],
-            "doc_missing_code_paths": [],
-            "vs_filters_missing_sources": [],
-            "vs_filters_missing_headers": [],
-            "vs_project_missing_filters_sources": [],
-            "vs_project_missing_filters_headers": [],
-        }
+        self.allowlist_entries = {}
+        self.allowlist_raw = {}
+
         if not allowlist_path.exists():
-            return default
+            return
+
         try:
             with open(allowlist_path) as f:
-                data = json.load(f)
-            for k in default:
-                if k not in data:
-                    data[k] = default[k]
-            return data
+                self.allowlist_raw = json.load(f)
         except Exception as e:
-            print(f"{Colors.YELLOW}WARNING: Failed to load allowlist: {e}{Colors.RESET}")
-            return default
+            self.log_error(f"Allowlist: failed to parse JSON: {e}")
+            return
+
+        entries = self.allowlist_raw.get("entries", [])
+        if not isinstance(entries, list):
+            self.log_error("Allowlist: 'entries' must be a list")
+            return
+
+        for idx, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                self.log_error(f"Allowlist entry #{idx}: must be an object")
+                continue
+
+            category = entry.get("category")
+            item = entry.get("item")
+            reason = entry.get("reason")
+            owner = entry.get("owner")
+
+            missing = []
+            if not category:
+                missing.append("category")
+            if not item:
+                missing.append("item")
+            if not reason:
+                missing.append("reason")
+            if not owner:
+                missing.append("owner")
+
+            if missing:
+                self.log_error(
+                    f"Allowlist entry #{idx} (item='{item}'): missing required fields: {', '.join(missing)}"
+                )
+                continue
+
+            if category not in self.VALID_CATEGORIES:
+                self.log_error(
+                    f"Allowlist entry #{idx}: invalid category '{category}'. "
+                    f"Valid categories: {sorted(self.VALID_CATEGORIES)}"
+                )
+                continue
+
+            key = (category, item)
+            if key in self.allowlist_entries:
+                self.log_error(
+                    f"Allowlist: duplicate entry for category='{category}', item='{item}'"
+                )
+                continue
+
+            if not re.search(r"\.[a-zA-Z0-9]{1,5}$", item):
+                self.log_error(
+                    f"Allowlist entry #{idx}: item '{item}' is overly broad (no file extension). "
+                    f"Specify the exact file path with extension (e.g. 'build-capabilities.h', "
+                    f"'subdir/file.h', 'lib/user/borg.txt')."
+                )
+                continue
+
+            self.allowlist_entries[key] = entry
 
     def _is_allowed(self, category: str, item: str) -> bool:
-        allowed = self.allowlist.get(category, [])
-        if item in allowed:
+        if (category, item) in self.allowlist_entries:
+            self.used_allowlist.add((category, item))
             return True
         basename = os.path.basename(item)
-        if basename in allowed:
+        if (category, basename) in self.allowlist_entries:
+            self.used_allowlist.add((category, basename))
             return True
-        for a in allowed:
-            if item.endswith("/" + a):
-                return True
-            if item.endswith(a):
-                return True
         return False
+
+    def _check_allowlist_health(self):
+        all_keys = set(self.allowlist_entries.keys())
+        unused = all_keys - self.used_allowlist
+
+        if unused:
+            for category, item in sorted(unused):
+                entry = self.allowlist_entries.get((category, item), {})
+                owner = entry.get("owner", "unknown")
+                self.log_error(
+                    f"Allowlist: unused entry category='{category}', item='{item}' "
+                    f"(owner: {owner}). Remove stale entries to keep the allowlist clean."
+                )
 
     def log_error(self, msg: str):
         self.errors.append(msg)
@@ -871,12 +940,20 @@ class ConsistencyChecker:
         print()
         self.check_docs()
 
+        print()
+        self.log_info("Checking allowlist health (unused/stale entries) ...")
+        self._check_allowlist_health()
+
         print(f"\n{Colors.BOLD}{'='*70}{Colors.RESET}")
         print(f"{Colors.BOLD}Summary:{Colors.RESET}")
         print(f"  {Colors.RED if self.errors else Colors.GREEN}Errors:   {len(self.errors)}{Colors.RESET}")
         print(f"  {Colors.YELLOW if self.warnings else Colors.GREEN}Warnings: {len(self.warnings)}{Colors.RESET}")
         if self.suppressed:
             print(f"  Suppressed (allowlist): {len(self.suppressed)}")
+        if self.allowlist_entries:
+            used_count = len(self.used_allowlist)
+            total_count = len(self.allowlist_entries)
+            print(f"  Allowlist: {used_count}/{total_count} entries used")
         if self.max_warnings >= 0:
             print(f"  Max allowed warnings: {self.max_warnings}")
         else:
