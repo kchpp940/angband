@@ -3,6 +3,13 @@
 CFLAGS+=-I../ -I. -g
 LDFLAGS+=-lm
 
+SUITE_NAMES = artifact cave command effects game message monster \
+	object parse player trivial z-dice z-expression z-file \
+	z-quark z-queue z-textblock z-util z-virt
+
+.PHONY : all build run clean clean-coverage list-suites \
+	$(SUITE_NAMES:%=build-%) $(SUITE_NAMES:%=run-%)
+
 all : run
 
 # Sorted alphabetically
@@ -43,7 +50,25 @@ include Makefile.inc
 build : $(TESTPROGS)
 
 run : build
-	@test x"$CROSS_COMPILE" = xyes || ./run-tests
+	@test x"$CROSS_COMPILE" = xyes || ( \
+		if [ -n "$(SUITE)" ]; then \
+			./run-tests -s "$(SUITE)"; \
+		else \
+			./run-tests; \
+		fi)
+
+list-suites :
+	@echo "Available test suites:"
+	@for s in $(SUITE_NAMES); do echo "  $$s"; done
+
+define suite_template
+$(1)_PROGS = $$(filter $(1)/%,$$(TESTPROGS))
+build-$(1): $$($(1)_PROGS)
+run-$(1): build-$(1)
+	@test x"$$(CROSS_COMPILE)" = xyes || ./run-tests -s $(1)
+endef
+
+$(foreach s,$(SUITE_NAMES),$(eval $(call suite_template,$(s))))
 
 .SUFFIXES : .exe
 
@@ -63,5 +88,4 @@ clean :
 clean-coverage :
 	-$(RM) $(GCOBJS)
 
-.PHONY : all clean clean-coverage
 .PRECIOUS : %.o

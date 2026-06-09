@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+#
+# run-unittests - Unified test runner for Angband unit tests
+#
+# This script provides a single entry point for building and running unit tests
+# from anywhere in the project tree. It automatically:
+#   - Detects the project root directory
+#   - Detects the build system (CMake, Autotools, manual Makefile.std)
+#   - Ensures the correct working directory so lib/gamedata/constants.txt is found
+#   - Builds tests if requested
+#   - Supports filtering by test suite name
+#
+# Usage:
+#   run-unittests [options] [suite...]
+#
+# Examples:
+#   run-unittests -b                    Build and run all tests
+#   run-unittests player effects        Run only player and effects suites
+#   run-unittests -b -v game            Build and run game suite verbosely
+#   run-unittests -B object             Only build the object suite
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SRC_DIR="$PROJECT_ROOT/src"
+TESTS_DIR="$SRC_DIR/tests"
+
+VERBOSE=0
+QUIET=0
+FORCEPATH=0
+USE_COLOR=1
+BUILD=0
+BUILD_ONLY=0
+LIST_SUITES=0
+SUITES_ARGS=""
+
+usage() {
+    cat <<'HELP'
+Usage: run-unittests [options] [suite...]
+
+Unified test runner for Angband unit tests. Automatically detects project
+root, sets correct working directory, builds tests if needed.
+
+Options:
+  -h, --help          Show this help message
+  -b, --build         Build tests before running
+  -B, --build-only    Only build tests, do not run
+  -v, --verbose       Show detailed test output
+  -q, --quiet         Only show summary output
+  -f, --forcepath     Force use of installed data paths
+  -c, --color         Use ANSI colors (default)
+  -C, --no-color      Disable ANSI colors
+  -l, --list          List available test suites
+
+Suites (run all if none specified):
+  artifact cave command effects game message monster
+  object parse player trivial z-dice z-expression z-file
+  z-quark z-queue z-textblock z-util z-virt
+HELP
+}
+
+ALL_SUITES="artifact cave command effects game message monster object parse player trivial z-dice z-expression z-file z-quark z-queue z-textblock z-util z-virt"
+
+list_suites() {
+    echo "Available test suites:"
+    for s in $ALL_SUITES; do
+        echo "  $s"
+    done
+}
+
+detect_build_system() {
+    if [ -f "$PROJECT_ROOT/build/CMakeCache.txt" ]; then
+        if [ -f "$PROJECT_ROOT/build/build.ninja" ]; then
+            echo "cmake-ninja"
+        else
+            echo "cmake-make"
+        fi
+    elif [ -f "$PROJECT_ROOT/Makefile" ] && [ -f "$PROJECT_ROOT/mk/buildsys.mk" ]; then
+        echo "autotools"
+    elif [ -f "$SRC_DIR/Makefile.std" ]; then
+        echo "manual"
+    else
+        echo "unknown"
+    fi
+}
+
+cmake_suite_targets() {
+    local suites="$1"
+    local cmake_src="$PROJECT_ROOT/CMakeLists.txt"
+    local targets=""
+
+    if [ -z "$suites" ]; then
+        echo "allunittests"
+        return
+    fi
+
+    for suite in $suites; do
+        local suite_sources
+        suite_sources=$(grep -E "^[[:space:]]*${suite}/" "$cmake_src" 2>/dev/null | sed 's/[[:space:]]*//g; s/\.c$//g' || true)
+        for src in $suite_sources; do
+            local tgt
+            tgt="unittest-$(echo "$src" | tr '/' '-')"
+            targets="$targets $tgt"
+        done
+    done
+    echo "$targets"
+}
+
+build_tests() {
+    local build_system="$1"
+    local suites="$2"
+
+    echo "Building tests (build system: $build_system)..."
+
+    case "$build_system" in
+        cmake-ninja)
+            cd "$PROJECT_ROOT/build"
+            local targets
+            targets=$(cmake_suite_targets "$suites")
+            ninja $targets
+            ;;
+        cmake-make)
+            cd "$PROJECT_ROOT/build"
+            local targets
+            targets=$(cmake_suite_targets "$suites")
+            make $targets
+            ;;
+        autotools)
+            cd "$PROJECT_ROOT"
+            if [ -n "$suites" ]; then
+                cd "$SRC_DIR"
+                make angband.a
+                cd "$TESTS_DIR"
+                local suite_targets=""
+                for s in $suites; do
+                    suite_targets="$suite_targets build-$s"
+                done
+                make $suite_targets
+            else
+                make tests
+            fi
+            ;;
+        manual)
+            cd "$SRC_DIR"
+            export TMPDIR="${TMPDIR:-/tmp}"
+            make -f Makefile.std angband.a
+            cd "$TESTS_DIR"
+            if [ -n "$suites" ]; then
+                local suite_targets=""
+                for s in $suites; do
+                    suite_targets="$suite_targets build-$s"
+                done
+                make \
+                    CC="${CC:-cc}" \
+                    CFLAGS="-I. -I.. -I../.. -g -DTEST_OVERRIDE_PATHS" \
+                    CPPFLAGS="${CPPFLAGS:-}" \
+                    LDFLAGS="${LDFLAGS:-} -lm" \
+                    $suite_targets
+            else
+                make \
+                    CC="${CC:-cc}" \
+                    CFLAGS="-I. -I.. -I../.. -g -DTEST_OVERRIDE_PATHS" \
+                    CPPFLAGS="${CPPFLAGS:-}" \
+                    LDFLAGS="${LDFLAGS:-} -lm" \
+                    build
+            fi
+            ;;
+        *)
+            echo "Error: Could not detect build system." >&2
+            echo "Configure CMake in build/ or run autotools first." >&2
+            exit 1
+            ;;
+    esac
+}
+
+find_cmake_test_executables() {
+    local suites="$1"
+    local test_root="$PROJECT_ROOT/build/unittests"
+
+    if [ ! -d "$test_root" ]; then
+        return
+    fi
+
+    if [ -z "$suites" ]; then
+        find "$test_root" -mindepth 3 -maxdepth 3 -type f -perm -u+x -print 2>/dev/null
+    else
+        for suite in $suites; do
+            if [ -d "$test_root/$suite" ]; then
+                find "$test_root/$suite" -mindepth 2 -maxdepth 2 -type f -perm -u+x -print 2>/dev/null
+            fi
+        done
+    fi
+}
+
+find_make_test_executables() {
+    local suites="$1"
+
+    if [ -z "$suites" ]; then
+        find "$TESTS_DIR" -mindepth 2 -maxdepth 2 -type f -name '*.exe' -perm -u+x -print 2>/dev/null
+    else
+        for suite in $suites; do
+            if [ -d "$TESTS_DIR/$suite" ]; then
+                find "$TESTS_DIR/$suite" -maxdepth 1 -type f -name '*.exe' -perm -u+x -print 2>/dev/null
+            fi
+        done
+    fi
+}
+
+collect_test_executables() {
+    local build_system="$1"
+    local suites="$2"
+
+    case "$build_system" in
+        cmake-ninja|cmake-make)
+            find_cmake_test_executables "$suites"
+            ;;
+        *)
+            find_make_test_executables "$suites"
+            ;;
+    esac
+}
+
+get_suite_test_name() {
+    local path="$1"
+    local build_system="$2"
+
+    case "$build_system" in
+        cmake-ninja|cmake-make)
+            local name parent grandparent
+            name=$(basename "$path")
+            parent=$(basename "$(dirname "$path")")
+            grandparent=$(basename "$(dirname "$(dirname "$path")")")
+            echo "${grandparent}/${parent}"
+            ;;
+        *)
+            local dir name
+            dir=$(basename "$(dirname "$path")")
+            name=$(basename "$path" .exe)
+            echo "${dir}/${name}"
+            ;;
+    esac
+}
+
+color_red()   { if [ "$USE_COLOR" -eq 1 ]; then printf '\033[01;31m'; fi; }
+color_green() { if [ "$USE_COLOR" -eq 1 ]; then printf '\033[01;32m'; fi; }
+color_yellow(){ if [ "$USE_COLOR" -eq 1 ]; then printf '\033[01;33m'; fi; }
+color_reset() { if [ "$USE_COLOR" -eq 1 ]; then printf '\033[0m'; fi; }
+
+run_tests_direct() {
+    local build_system="$1"
+    local suites="$2"
+    local execs
+    execs=$(collect_test_executables "$build_system" "$suites")
+
+    if [ -z "$execs" ]; then
+        echo "Error: No test executables found. Try building with -b first." >&2
+        exit 1
+    fi
+
+    local test_args=()
+    if [ "$VERBOSE" -eq 1 ]; then
+        test_args+=("-v")
+    fi
+    if [ "$FORCEPATH" -eq 1 ]; then
+        test_args+=("-f")
+    fi
+
+    local pass=0 total=0 exitcode=0
+    local count
+    count=$(echo "$execs" | grep -c . || true)
+
+    if [ "$QUIET" -eq 0 ]; then
+        echo "Running $count test suites (working dir: $PROJECT_ROOT):"
+    fi
+
+    cd "$PROJECT_ROOT"
+
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+
+        local suite_test
+        suite_test=$(get_suite_test_name "$path" "$build_system")
+
+        local output
+        output=$("$path" "${test_args[@]}" 2>&1) || true
+        local status=$?
+
+        if [ "$status" -ne 0 ]; then
+            if [ "$QUIET" -eq 0 ]; then
+                printf "    %-30s $(color_red)Suite died$(color_reset)\n" "$suite_test"
+            fi
+            exitcode=$status
+            total=$((total + 1))
+            continue
+        fi
+
+        local last_line
+        last_line=$(echo "$output" | tail -n 1)
+
+        if echo "$last_line" | grep -qE '[^:]+ finished: [0-9]+/[0-9]+ passed'; then
+            local p t
+            p=$(echo "$last_line" | sed -E 's/.* finished: ([0-9]+)\/[0-9]+.*/\1/')
+            t=$(echo "$last_line" | sed -E 's/.* finished: [0-9]+\/([0-9]+).*/\1/')
+            pass=$((pass + p))
+            total=$((total + t))
+
+            if [ "$QUIET" -eq 0 ]; then
+                if [ "$VERBOSE" -eq 1 ]; then
+                    echo "$output" | sed '$d' | while IFS= read -r line; do
+                        echo "      $line"
+                    done
+                    printf "    %s finished: " "$suite_test"
+                else
+                    printf "    %-30s " "$suite_test"
+                fi
+                if [ "$p" -eq "$t" ]; then
+                    printf "$(color_green)%s/%s passed$(color_reset)\n" "$p" "$t"
+                elif [ "$p" -ge $((t * 90 / 100)) ]; then
+                    printf "$(color_yellow)%s/%s passed$(color_reset)\n" "$p" "$t"
+                else
+                    printf "$(color_red)%s/%s passed$(color_reset)\n" "$p" "$t"
+                fi
+            fi
+        else
+            if [ "$QUIET" -eq 0 ]; then
+                printf "    %-30s $(color_red)Malformed output$(color_reset)\n" "$suite_test"
+            fi
+            exitcode=1
+        fi
+    done <<< "$execs"
+
+    local perc
+    if [ "$total" -gt 0 ]; then
+        perc=$(awk "BEGIN {printf \"%.1f\", ($pass * 100) / $total}")
+    else
+        perc="100.0"
+    fi
+
+    local c
+    if [ "$total" -gt 0 ]; then
+        if [ "$pass" -eq "$total" ]; then c=$(color_green)
+        elif [ "$pass" -ge $((total * 90 / 100)) ]; then c=$(color_yellow)
+        else c=$(color_red); fi
+    else
+        c=$(color_green)
+    fi
+
+    echo "Total: ${c}${pass}/${total}$(color_reset) passed (${c}${perc}%$(color_reset))"
+
+    if [ "$exitcode" -ne 0 ] || [ "$pass" -ne "$total" ]; then
+        exit 1
+    fi
+    exit 0
+}
+
+run_tests() {
+    local build_system="$1"
+    local suites="$2"
+
+    export TEST_WORKING_DIRECTORY="$PROJECT_ROOT"
+
+    case "$build_system" in
+        cmake-ninja|cmake-make)
+            if [ -f "$PROJECT_ROOT/src/cmake/scripts/run_tests.cmake" ] && [ -z "$suites" ]; then
+                cd "$PROJECT_ROOT"
+                local cmake_args=()
+                if [ "$QUIET" -eq 1 ]; then cmake_args+=(-DQUIET=ON); fi
+                if [ "$VERBOSE" -eq 1 ]; then cmake_args+=(-DVERBOSE=ON); fi
+                if [ "$FORCEPATH" -eq 1 ]; then cmake_args+=(-DFORCE_PATH=ON); fi
+                if [ "$USE_COLOR" -eq 0 ]; then cmake_args+=(-DUSECOLOR=OFF); fi
+
+                local execs
+                execs=$(collect_test_executables "$build_system" "")
+                if [ -z "$execs" ]; then
+                    echo "Error: No test executables found. Try building with -b first." >&2
+                    exit 1
+                fi
+
+                local exec_array=()
+                while IFS= read -r line; do
+                    [ -n "$line" ] && exec_array+=("$line")
+                done <<< "$execs"
+
+                cmake "${cmake_args[@]}" -P "$PROJECT_ROOT/src/cmake/scripts/run_tests.cmake" -- "${exec_array[@]}"
+            else
+                run_tests_direct "$build_system" "$suites"
+            fi
+            ;;
+        *)
+            if [ -x "$TESTS_DIR/run-tests" ] && [ -z "$suites" ]; then
+                cd "$TESTS_DIR"
+                local extra_args=()
+                if [ "$VERBOSE" -eq 1 ]; then extra_args+=("-v"); fi
+                if [ "$QUIET" -eq 1 ]; then extra_args+=("-q"); fi
+                if [ "$FORCEPATH" -eq 1 ]; then extra_args+=("-f"); fi
+                if [ "$USE_COLOR" -eq 0 ]; then extra_args+=("-C"); fi
+                perl "$TESTS_DIR/run-tests" "${extra_args[@]}"
+            else
+                run_tests_direct "$build_system" "$suites"
+            fi
+            ;;
+    esac
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        -b|--build) BUILD=1; shift ;;
+        -B|--build-only) BUILD=1; BUILD_ONLY=1; shift ;;
+        -v|--verbose) VERBOSE=1; QUIET=0; shift ;;
+        -q|--quiet) QUIET=1; VERBOSE=0; shift ;;
+        -f|--forcepath) FORCEPATH=1; shift ;;
+        -c|--color) USE_COLOR=1; shift ;;
+        -C|--no-color) USE_COLOR=0; shift ;;
+        -l|--list) LIST_SUITES=1; shift ;;
+        -*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *)
+            if [ -z "$SUITES_ARGS" ]; then SUITES_ARGS="$1"
+            else SUITES_ARGS="$SUITES_ARGS $1"; fi
+            shift ;;
+    esac
+done
+
+if [ "$LIST_SUITES" -eq 1 ]; then
+    list_suites
+    exit 0
+fi
+
+BUILD_SYSTEM=$(detect_build_system)
+
+if [ "$BUILD" -eq 1 ]; then
+    build_tests "$BUILD_SYSTEM" "$SUITES_ARGS"
+fi
+
+if [ "$BUILD_ONLY" -eq 1 ]; then
+    exit 0
+fi
+
+run_tests "$BUILD_SYSTEM" "$SUITES_ARGS"

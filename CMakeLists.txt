@@ -155,38 +155,6 @@ if(READONLY_INSTALL)
     endif()
 endif()
 
-# Generate build-capabilities.h from the template.
-set(ANGBAND_CAP_FRONTEND_GCU ${SUPPORT_GCU_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_SDL ${SUPPORT_SDL_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_SDL2 ${SUPPORT_SDL2_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_X11 ${SUPPORT_X11_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_WINDOWS ${SUPPORT_WINDOWS_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_IBM OFF)
-set(ANGBAND_CAP_FRONTEND_COCOA OFF)
-if(SUPPORT_SDL_SOUND OR SUPPORT_SDL2_SOUND)
-    set(ANGBAND_CAP_SOUND ON)
-else()
-    set(ANGBAND_CAP_SOUND OFF)
-endif()
-set(ANGBAND_CAP_SOUND_SDL ${SUPPORT_SDL_SOUND})
-set(ANGBAND_CAP_SOUND_SDL2 ${SUPPORT_SDL2_SOUND})
-set(ANGBAND_CAP_SOUND_WINDOWS OFF)
-set(ANGBAND_CAP_SOUND_COCOA OFF)
-set(ANGBAND_CAP_FRONTEND_SPOIL ${SUPPORT_SPOIL_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_STATS ${SUPPORT_STATS_FRONTEND})
-set(ANGBAND_CAP_FRONTEND_TEST ${SUPPORT_TEST_FRONTEND})
-set(ANGBAND_CAP_STATS_BACKEND ${SUPPORT_STATS_BACKEND})
-set(ANGBAND_CAP_BORG ${SUPPORT_BORG})
-set(ANGBAND_CAP_BORG_HIGH_SCORES ${SUPPORT_BORG_HIGH_SCORES})
-set(ANGBAND_CAP_SETGID ${SHARED_INSTALL})
-set(ANGBAND_CAP_PRIVATE_PATHS ${READONLY_INSTALL})
-set(ANGBAND_CAP_GAMEDATA_IN_LIB OFF)
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/build-capabilities.h.in"
-    "${CMAKE_BINARY_DIR}/generated/build-capabilities.h"
-    @ONLY
-)
-
 # Put all executables and lib resources (and DLLs on Windows) into build/game
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/game")
 
@@ -211,7 +179,6 @@ add_library(OurCoreLib OBJECT
         src/cmd-spoil.c
         src/cmd-wizard.c
         src/datafile.c
-        src/data-init.c
         src/debug.c
         src/effect-handler-attack.c
         src/effect-handler-general.c
@@ -411,12 +378,18 @@ add_library(OurCoreLib OBJECT
 )
 
 set_target_properties(OurCoreLib PROPERTIES C_STANDARD 99)
-set(ANGBAND_CORE_INCLUDE_DIRS "${CMAKE_BINARY_DIR}/generated" "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set(ANGBAND_CORE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(ANGBAND_CORE_LINK_LIBRARIES "")
 
-target_include_directories(OurCoreLib PRIVATE
-    ${ANGBAND_CORE_INCLUDE_DIRS}
-)
+if(SUPPORT_BORG)
+    target_include_directories(OurCoreLib PRIVATE
+        ${ANGBAND_CORE_INCLUDE_DIRS}
+    )
+    target_compile_definitions(OurCoreLib PRIVATE -D ALLOW_BORG)
+    if(SUPPORT_BORG_HIGH_SCORES)
+        target_compile_definitions(OurCoreLib PRIVATE -D SCORE_BORGS)
+    endif()
+endif()
 
 if(SUPPORT_COVERAGE)
     configure_target_for_coverage(OurCoreLib)
@@ -427,9 +400,6 @@ if(SUPPORT_SDL_SOUND OR SUPPORT_SDL2_SOUND)
             src/snd-sdl.c
     )
     set_target_properties(OurSoundSupportLib PROPERTIES C_STANDARD 99)
-    target_include_directories(OurSoundSupportLib PRIVATE
-        ${ANGBAND_CORE_INCLUDE_DIRS}
-    )
     set(SOUND_SUPPORT_LIB OurSoundSupportLib)
     if(SUPPORT_COVERAGE)
         configure_target_for_coverage(OurSoundSupportLib)

@@ -270,24 +270,9 @@ extern struct file_parser world_parser;
 errr grab_effect_data(struct parser *p, struct effect *effect);
 extern void init_file_paths(const char *config, const char *lib, const char *data);
 extern void init_game_constants(void);
-extern bool init_arrays(void);
+extern void init_arrays(void);
 extern void create_needed_dirs(void);
 extern bool init_angband(void);
 extern void cleanup_angband(void);
-
-/* Subsystem initialization modules, defined in each subsystem's .c file */
-extern struct init_module z_quark_module;
-extern struct init_module generate_module;
-extern struct init_module rune_module;
-extern struct init_module obj_make_module;
-extern struct init_module ignore_module;
-extern struct init_module mon_make_module;
-extern struct init_module player_module;
-extern struct init_module store_module;
-extern struct init_module messages_module;
-extern struct init_module options_module;
-extern struct init_module ui_player_module;
-extern struct init_module ui_equip_cmp_module;
-extern struct init_module ui_visuals_module;
 
 #endif /* INCLUDED_INIT_H */

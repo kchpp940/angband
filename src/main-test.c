@@ -301,16 +301,6 @@ const char help_test[] = "Test mode, subopts -p(rompt)";
 errr init_test(int argc, char *argv[]) {
 	int i;
 
-	/*
-	 * Data-file initialization (dinit) is handled by main.c before any
-	 * display module is started.  main.c creates a single dinit_result,
-	 * marks paths and user/save/scores dirs ready, stores it as the
-	 * global object via dinit_set_global(), and then calls init_test().
-	 * After we return, main.c runs dinit_run_full() to load all data.
-	 * Therefore this module does not create its own dinit_result – it
-	 * shares the one from main.c with every other front end.
-	 */
-
 	/* Skip over argv[0] */
 	for (i = 1; i < argc; i++) {
 		if (streq(argv[i], "-p")) {

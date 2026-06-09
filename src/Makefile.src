@@ -19,7 +19,6 @@ HEADERS = \
 	game-event.h \
 	guid.h \
 	h-basic.h \
-	data-init.h \
 	init.h \
 	main.h \
 	option.h \
@@ -172,7 +171,6 @@ ANGFILES0 = \
 	cmd-pickup.o \
 	cmd-spoil.o \
 	cmd-wizard.o \
-	data-init.o \
 	datafile.o \
 	debug.o \
 	effect-handler-attack.o \

@@ -55,13 +55,20 @@ print-project-name:
 print-executable-name:
 	@echo our-executable-name=${PROG}
 
+UNITTEST_SUITES = artifact cave command effects game message monster \
+	object parse player trivial z-dice z-expression z-file \
+	z-quark z-queue z-textblock z-util z-virt
+
 check: tests
 tests: $(PROGNAME).a
-	env CC="$(CC)" CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" \
-		LDFLAGS="$(LDFLAGS)" LDADD="$(LDADD)" LIBS="$(TEST_LIBS)" \
-		CROSS_COMPILE="$(CROSS_COMPILE)" \
-		TEST_WORKING_DIRECTORY="$(TEST_WORKING_DIRECTORY)" \
-		$(MAKE) -C tests all
+	@../scripts/run-unittests -b
+
+tests-build: test-build
+test-build: $(PROGNAME).a
+	@../scripts/run-unittests -B
+
+$(UNITTEST_SUITES:%=test-%): test-%: $(PROGNAME).a
+	@../scripts/run-unittests -b $*
 
 test-depgen:
 	env CC="$(CC)" $(MAKE) -C tests depgen
@@ -156,4 +163,6 @@ post-install:
 	fi
 
 FORCE :
-.PHONY : print-project-name print-executable-name check tests coverage clean-coverage tests/ran-already
+.PHONY : print-project-name print-executable-name check tests test-build tests-build \
+	test-depgen test-clean coverage clean-coverage tests/ran-already \
+	$(UNITTEST_SUITES:%=test-%)

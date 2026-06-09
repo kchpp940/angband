@@ -7,10 +7,28 @@ DISTCLEAN = config.status config.log docs/.deps \
 	mk/buildsys.mk mk/extra.mk
 REPOCLEAN = aclocal.m4 autom4te.cache configure src/autoconf.h.in version
 
-.PHONY: check tests manual manual-optional dist
+UNITTEST_SUITES = \
+	artifact cave command effects game message monster \
+	object parse player trivial z-dice z-expression z-file \
+	z-quark z-queue z-textblock z-util z-virt
+
+.PHONY: check tests test tests-build test-build unittest unittests \
+	manual manual-optional dist $(UNITTEST_SUITES:%=test-%)
 check: tests
-tests:
-	$(MAKE) -C src tests
+tests: unittests
+
+unittests:
+	@scripts/run-unittests -b
+
+unittest:
+	@scripts/run-unittests -b
+
+tests-build: test-build
+test-build:
+	@scripts/run-unittests -B
+
+$(UNITTEST_SUITES:%=test-%): test-%:
+	@scripts/run-unittests -b $*
 
 TAG = angband-`cd scripts && ./version.sh`
 OUT = $(TAG).tar.gz

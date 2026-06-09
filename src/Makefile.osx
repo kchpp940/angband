@@ -227,12 +227,20 @@ dist: install
 
 	rm -rf disttemp*
 
+UNITTEST_SUITES = artifact cave command effects game message monster \
+	object parse player trivial z-dice z-expression z-file \
+	z-quark z-queue z-textblock z-util z-virt
+
 check: tests
 tests: $(PROGNAME).a
-	env CC="$(CC)" CFLAGS="$(CFLAGS) -I.. -DTEST_OVERRIDE_PATHS -Wno-write-strings" \
-		LDFLAGS="$(LDFLAGS)" LIBS="$(LIBS)" \
-		TEST_WORKING_DIRECTORY="../.." \
-		$(MAKE) -C tests all
+	@../scripts/run-unittests -b
+
+tests-build: test-build
+test-build: $(PROGNAME).a
+	@../scripts/run-unittests -B
+
+$(UNITTEST_SUITES:%=test-%): test-%: $(PROGNAME).a
+	@../scripts/run-unittests -b $*
 
 test-depgen:
 	$(MAKE) -C tests depgen
@@ -240,4 +248,5 @@ test-depgen:
 test-clean:
 	$(MAKE) -C tests clean
 
-.PHONY : check tests test-clean
+.PHONY : check tests test-build tests-build test-depgen test-clean \
+	$(UNITTEST_SUITES:%=test-%)

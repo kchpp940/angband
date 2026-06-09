@@ -13,6 +13,7 @@ my $quiet     = 0;
 my $verbose   = $ENV{VERBOSE};
 my $forcepath = $ENV{FORCE_PATH};
 my $usecolor  = 1;
+my $suites    = "";
 
 sub usage {
     my $prog = basename($0);
@@ -27,6 +28,8 @@ Options:
     -v,--verbose       show all test output
     -f,--forcepath     force test cases to use the game's data file paths
     -F,--no-forcepath  test cases use alternate data file paths (default)
+    -s,--suites LIST   comma- or space-separated list of suite names to run
+                       (e.g. "player,effects,game" or "player effects game")
 
 Runs all the unit tests and reports the results.
 USAGE
@@ -55,22 +58,51 @@ sub main {
         'quiet|q'        => sub { $quiet = 1; $verbose = 0 },
         'forcepath|f'    => sub { $forcepath = 1 },
         'no-forcepath|F' => sub { $forcepath = 0 },
+        'suites|s=s'     => \$suites,
     ) || usage(1);
 
     # Want the absolute path so that changing directories before running the
     # test does not invalidate the results from find.
     my $dir     = rel2abs(dirname($0));
     my @paths   = `find $dir -mindepth 2 -maxdepth 2 -type f -perm -u+x`;
+
+    my %suite_filter = ();
+    if (length($suites)) {
+        foreach my $s (split(/[\s,]+/, $suites)) {
+            $suite_filter{$s} = 1 if length($s);
+        }
+    }
+
+    if (scalar(keys %suite_filter) > 0) {
+        my @filtered = ();
+        foreach my $p (@paths) {
+            chomp $p;
+            my $parent = basename(dirname($p));
+            if (exists $suite_filter{$parent}) {
+                push @filtered, $p;
+            }
+        }
+        @paths = @filtered;
+    }
+
     my $pass    = 0;
     my $total   = 0;
-    my $maxpath = (max map { length($_) } @paths) - 3;
+    my $maxpath = @paths ? (max map { length($_) } @paths) - 3 : 0;
     my $len     = $maxpath - length($dir) + 3 + 7;
     my $workdir = $ENV{TEST_WORKING_DIRECTORY};
     my $exitcode = 0;
-    
+
     if (length($workdir)) {
         chdir $workdir;
     }
+
+    if (@paths == 0) {
+        my @all = keys %suite_filter;
+        print "No test suites matched: @all\n" if @all;
+        print "Total: 0/0 passed (100.0%)\n";
+        exit 0;
+    }
+
     print "Running ", scalar(@paths), " suites:\n" unless $quiet;
     foreach my $path (sort @paths) {
         chomp $path;

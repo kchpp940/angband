@@ -20,7 +20,6 @@
 
 #ifdef USE_SPOIL
 
-#include "data-init.h"
 #include "datafile.h"
 #include "game-world.h"
 #include "init.h"
@@ -270,23 +269,8 @@ errr init_spoil(int argc, char *argv[]) {
 
 	if (result != 0) return result;
 
-	/*
-	 * Generate the spoilers using the unified initialization system.
-	 * main.c has already created the global dinit_result before calling
-	 * us, so we just grab it and run the spoil-mode initialization.
-	 */
-	{
-		struct dinit_result *ir = dinit_global();
-		if (!ir) {
-			printf("init-spoil: no dinit_result available\n");
-			return 1;
-		}
-		if (!dinit_run_spoil(ir)) {
-			dinit_print_report(ir);
-			printf("init-spoil: initialization failed - %s\n", ir->error_summary);
-			return 1;
-		}
-	}
+	/* Generate the spoilers. */
+	init_angband();
 
 	if (load_randart) {
 		if (randart_name || have_specified_seed) {
