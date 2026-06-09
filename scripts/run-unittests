@@ -36,6 +36,7 @@ BUILD=0
 BUILD_ONLY=0
 LIST_SUITES=0
 FILTER_ARGS=""
+EMULATOR_CMD=()
 
 usage() {
     cat <<'HELP'
@@ -56,6 +57,8 @@ Options:
   -c, --color         Use ANSI colors (default)
   -C, --no-color      Disable ANSI colors
   -l, --list          List available test suites
+  -e, --emulator CMD  Run test binaries through emulator CMD (semicolon-separated args, e.g. "qemu-arm;-L;/path")
+                      Can also be set via ANGBAND_TEST_EMULATOR environment variable.
 
 Filters (run all if none specified):
   Suite name          e.g.  player effects game object
@@ -71,6 +74,17 @@ list_suites() {
     echo "Available test suites:"
     for s in $ALL_SUITES; do
         echo "  $s"
+    done
+}
+
+parse_emulator() {
+    local emu_str="$1"
+    if [ -z "$emu_str" ]; then
+        return
+    fi
+    local IFS=';'
+    for part in $emu_str; do
+        EMULATOR_CMD+=("$part")
     done
 }
 
@@ -98,15 +112,17 @@ build_tests() {
     case "$build_system" in
         cmake-ninja)
             cd "$PROJECT_ROOT/build"
-            ninja allunittests
+            ninja build-unittests
             ;;
         cmake-make)
             cd "$PROJECT_ROOT/build"
-            make allunittests
+            make build-unittests
             ;;
         autotools)
-            cd "$PROJECT_ROOT"
-            make tests
+            cd "$SRC_DIR"
+            make angband.a
+            cd "$TESTS_DIR"
+            make CPPFLAGS="${CPPFLAGS:-} -DTEST_OVERRIDE_PATHS" build
             ;;
         manual)
             cd "$SRC_DIR"
@@ -260,7 +276,11 @@ run_tests() {
         suite_test=$(get_suite_test_name "$path" "$build_system")
 
         local output
-        output=$("$path" "${test_args[@]}" 2>&1) || true
+        if [ ${#EMULATOR_CMD[@]} -gt 0 ]; then
+            output=$("${EMULATOR_CMD[@]}" "$path" "${test_args[@]}" 2>&1) || true
+        else
+            output=$("$path" "${test_args[@]}" 2>&1) || true
+        fi
         local status=$?
 
         if [ "$status" -ne 0 ]; then
@@ -342,6 +362,13 @@ while [ $# -gt 0 ]; do
         -c|--color) USE_COLOR=1; shift ;;
         -C|--no-color) USE_COLOR=0; shift ;;
         -l|--list) LIST_SUITES=1; shift ;;
+        -e|--emulator)
+            if [ $# -lt 2 ]; then echo "Error: --emulator requires an argument" >&2; exit 1; fi
+            parse_emulator "$2"
+            shift 2 ;;
+        --emulator=*)
+            parse_emulator "${1#--emulator=}"
+            shift ;;
         -*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
         *)
             if [ -z "$FILTER_ARGS" ]; then FILTER_ARGS="$1"
@@ -349,6 +376,10 @@ while [ $# -gt 0 ]; do
             shift ;;
     esac
 done
+
+if [ -n "${ANGBAND_TEST_EMULATOR:-}" ] && [ ${#EMULATOR_CMD[@]} -eq 0 ]; then
+    parse_emulator "$ANGBAND_TEST_EMULATOR"
+fi
 
 if [ "$LIST_SUITES" -eq 1 ]; then
     list_suites
