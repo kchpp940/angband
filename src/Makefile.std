@@ -132,51 +132,9 @@ docs: doc/index.html
 ../$(EXE): $(EXE)
 	cp $(EXE) ..
 
-# Build the static library for tests
-angband.a: $(BASEOBJS)
-	@printf "%10s %-20s\n" AR $@
-	@ar -rc $@ $(BASEOBJS)
-	@ranlib $@
-
-UNITTEST_SUITES = artifact cave command effects game message monster \
-	object parse player trivial z-dice z-expression z-file \
-	z-quark z-queue z-textblock z-util z-virt
-
-.PHONY: check tests test unittests unittest tests-build test-build \
-	test-clean $(UNITTEST_SUITES:%=test-%)
-
-check: tests
-tests: unittests
-
-unittests: angband.a
-	@../scripts/run-unittests -b
-
-unittest: unittests
-
-tests-build: test-build
-test-build: angband.a
-	@../scripts/run-unittests -B
-
-$(UNITTEST_SUITES:%=test-%): test-%: angband.a
-	@../scripts/run-unittests -b $*
-
-# Catch-all for individual test targets.  See note in top-level Makefile.
-.DEFAULT:
-	@t="$@"; \
-	case "$$t" in \
-	    test-*) \
-	        f="$${t#test-}"; \
-	        ../scripts/run-unittests -b "$$f" ;; \
-	    *) \
-	        echo "make: *** No rule to make target '$$t'.  Stop." ; exit 2 ;; \
-	esac
-
-test-clean:
-	@cd tests && $(MAKE) RM="$(RM)" clean
-
 # Clean up old junk
-clean: test-clean
-	-rm -f $(OBJS) $(EXE) angband.a
+clean:
+	-rm -f $(OBJS) $(EXE)
 
 # make a distribution
 TILESET_DIRS = lib/tiles/adam-bolt lib/tiles/gervais lib/tiles/nomad \

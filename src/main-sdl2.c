@@ -559,6 +559,24 @@ const char help_sdl2[] = "SDL2 frontend, subopts -v";
 static struct my_app g_app;
 static Uint32 SHORTCUT_EDITOR_CODE;
 
+static int g_sdl2_argc;
+static char **g_sdl2_argv;
+static bool g_sdl2_systems_inited;
+static bool g_sdl2_graphics_modes_inited;
+static bool g_sdl2_globals_inited;
+static bool g_sdl2_windows_started;
+static bool g_sdl2_terms_loaded;
+static bool g_sdl2_events_subscribed;
+static void (*g_sdl2_saved_quit_aux)(const char *);
+static bool (*g_sdl2_saved_deny_disconnect)(void);
+
+#ifdef MSYS2_ENCODING_WORKAROUND
+static void (*g_sdl2_saved_text_mbcs_hook)(const char *, wchar_t *, size_t);
+static void (*g_sdl2_saved_text_wctomb_hook)(char *, wchar_t);
+static size_t (*g_sdl2_saved_text_wcsz_hook)(const wchar_t *);
+static int (*g_sdl2_saved_text_iswprint_hook)(wchar_t);
+#endif
+
 /*
  * Provide the hooks needed by primitive UI toolkit for SDL2.
  */
@@ -7187,6 +7205,245 @@ static void create_defaults(struct my_app *a)
 	window->subwindows[MAIN_SUBWINDOW] = subwindow;
 }
 
+static void quit_systems(void);
+static void quit_hook(const char *s);
+static bool sdl2_deny_disconnect(void);
+static void init_systems(void);
+
+static errr sdl2_parse_args(int argc, char **argv)
+{
+	int i;
+
+	g_sdl2_argc = argc;
+	g_sdl2_argv = argv;
+
+	g_app.print_sdl_details = false;
+	for (i = 1; i < argc; ++i) {
+		if (streq(argv[i], "-v")) {
+			g_app.print_sdl_details = true;
+			continue;
+		}
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Ignoring option: %s",
+			argv[i]);
+	}
+	return 0;
+}
+
+static errr sdl2_check_capability(int argc, char **argv)
+{
+	SDL_version vr, vc;
+
+	g_sdl2_saved_quit_aux = quit_aux;
+	quit_aux = quit_hook;
+
+	g_sdl2_saved_deny_disconnect = disconnect_denier_hook;
+	disconnect_denier_hook = sdl2_deny_disconnect;
+
+	if (g_app.print_sdl_details) {
+		SDL_GetVersion(&vr);
+		SDL_VERSION(&vc);
+		SDL_Log("SDL library version: %u.%u.%u (runtime) "
+			"%u.%u.%u (compiled; %s)", vr.major, vr.minor, vr.patch,
+			vc.major, vc.minor, vc.patch, SDL_REVISION);
+	}
+
+	init_systems();
+	g_sdl2_systems_inited = true;
+
+	if (g_app.print_sdl_details) {
+		const char *driver_name;
+		const SDL_version *pv;
+		SDL_version lv;
+		int num_displays;
+		int i;
+
+		SDL_Log("Runtime SDL library revision: %s", SDL_GetRevision());
+		pv = IMG_Linked_Version();
+		SDL_IMAGE_VERSION(&lv);
+		SDL_Log("SDL_image library version: %u.%u.%u (runtime) "
+			"%u.%u.%u (compiled)", pv->major, pv->minor, pv->patch,
+			lv.major, lv.minor, lv.patch);
+		pv = TTF_Linked_Version();
+		SDL_TTF_VERSION(&lv);
+		SDL_Log("SDL_ttf library version: %u.%u.%u (runtime) "
+			"%u.%u.%u (compiled)", pv->major, pv->minor, pv->patch,
+			lv.major, lv.minor, lv.patch);
+		driver_name = SDL_GetCurrentVideoDriver();
+		SDL_Log("Platform and video driver: \"%s\" \"%s\"",
+			SDL_GetPlatform(), (driver_name) ? driver_name :
+			"Not initialized");
+		num_displays = SDL_GetNumVideoDisplays();
+		if (num_displays < 0) {
+			SDL_Log("No available displays: %s",
+				SDL_GetError());
+		}
+		for (i = 0; i < num_displays; ++i) {
+			const char *name = SDL_GetDisplayName(i);
+
+			if (name) {
+				SDL_DisplayMode mode;
+
+				SDL_Log("Display %d: %s:", i, name);
+				if (SDL_GetCurrentDisplayMode(i, &mode)) {
+					SDL_Log("    Mode unavailable: %s",
+						SDL_GetError());
+				} else {
+					SDL_Log("    Size: %d x %d",
+						mode.w, mode.h);
+					SDL_Log("    Refresh rate and "
+						"pixel format: %d %lu",
+						mode.refresh_rate,
+						(unsigned long)mode.format);
+				}
+			} else {
+				SDL_Log("Display %d: no name: %s", i,
+					SDL_GetError());
+			}
+		}
+	}
+
+	if (!init_graphics_modes()) {
+		return -1;
+	}
+	g_sdl2_graphics_modes_inited = true;
+
+	return 0;
+}
+
+static void sdl2_cleanup_capability(void)
+{
+	if (g_sdl2_graphics_modes_inited) {
+		close_graphics_modes();
+		g_sdl2_graphics_modes_inited = false;
+	}
+	if (g_sdl2_systems_inited) {
+		quit_systems();
+		g_sdl2_systems_inited = false;
+	}
+	disconnect_denier_hook = g_sdl2_saved_deny_disconnect;
+	quit_aux = g_sdl2_saved_quit_aux;
+}
+
+static errr sdl2_load_resources(int argc, char **argv)
+{
+	init_globals(&g_app);
+	g_sdl2_globals_inited = true;
+
+	if (!read_config_file(&g_app)) {
+		create_defaults(&g_app);
+	}
+	return 0;
+}
+
+static void sdl2_cleanup_resources(void)
+{
+	if (g_sdl2_globals_inited) {
+		free_globals(&g_app);
+		g_sdl2_globals_inited = false;
+	}
+}
+
+static errr sdl2_register_terms(int argc, char **argv)
+{
+	start_windows(&g_app);
+	g_sdl2_windows_started = true;
+
+	load_terms(&g_app);
+	g_sdl2_terms_loaded = true;
+
+	return 0;
+}
+
+static void sdl2_cleanup_terms(void)
+{
+	if (g_sdl2_terms_loaded) {
+		for (size_t i = 0; i < N_ELEMENTS(g_app.subwindows); i++) {
+			if (g_app.subwindows[i].linked) {
+				unload_term(&g_app.subwindows[i]);
+			}
+		}
+		g_sdl2_terms_loaded = false;
+	}
+	if (g_sdl2_windows_started) {
+		for (size_t i = 0; i < N_ELEMENTS(g_app.windows); i++) {
+			if (g_app.windows[i].loaded) {
+				free_window(&g_app.windows[i]);
+			}
+		}
+		g_sdl2_windows_started = false;
+	}
+}
+
+static errr sdl2_subscribe_events(int argc, char **argv)
+{
+#ifdef MSYS2_ENCODING_WORKAROUND
+	g_sdl2_saved_text_mbcs_hook = text_mbcs_hook;
+	g_sdl2_saved_text_wctomb_hook = text_wctomb_hook;
+	g_sdl2_saved_text_wcsz_hook = text_wcsz_hook;
+	g_sdl2_saved_text_iswprint_hook = text_iswprint_hook;
+
+	text_mbcs_hook = term_mbcs_sdl2_msys2;
+	text_wctomb_hook = term_wctomb_sdl2_msys2;
+	text_wcsz_hook = term_wcsz_sdl2_msys2;
+	text_iswprint_hook = term_iswprint_sdl2_msys2;
+#endif
+	g_sdl2_events_subscribed = true;
+	return 0;
+}
+
+static void sdl2_cleanup_events(void)
+{
+	if (g_sdl2_events_subscribed) {
+#ifdef MSYS2_ENCODING_WORKAROUND
+		text_mbcs_hook = g_sdl2_saved_text_mbcs_hook;
+		text_wctomb_hook = g_sdl2_saved_text_wctomb_hook;
+		text_wcsz_hook = g_sdl2_saved_text_wcsz_hook;
+		text_iswprint_hook = g_sdl2_saved_text_iswprint_hook;
+#endif
+		g_sdl2_events_subscribed = false;
+	}
+}
+
+static errr sdl2_finalize_ready(int argc, char **argv)
+{
+	return 0;
+}
+
+static void sdl2_cleanup_ready(void)
+{
+}
+
+static void sdl2_shutdown(void)
+{
+	sdl2_cleanup_events();
+	sdl2_cleanup_terms();
+	sdl2_cleanup_resources();
+	sdl2_cleanup_capability();
+}
+
+static const struct frontend_adapter sdl2_adapter = {
+	.name = "sdl2",
+	.help = help_sdl2,
+	.hup_disconnects = false,
+	.tstp_default = false,
+
+	.init_parse_args = sdl2_parse_args,
+	.init_check_capability = sdl2_check_capability,
+	.init_load_resources = sdl2_load_resources,
+	.init_register_terms = sdl2_register_terms,
+	.init_subscribe_events = sdl2_subscribe_events,
+	.init_finalize_ready = sdl2_finalize_ready,
+
+	.cleanup_parse_args = NULL,
+	.cleanup_capability = sdl2_cleanup_capability,
+	.cleanup_resources = sdl2_cleanup_resources,
+	.cleanup_terms = sdl2_cleanup_terms,
+	.cleanup_events = sdl2_cleanup_events,
+	.cleanup_ready = sdl2_cleanup_ready,
+
+	.shutdown = sdl2_shutdown,
+};
+
 static void quit_systems(void)
 {
 	SDL_StopTextInput();
@@ -7281,128 +7538,7 @@ static void init_systems(void)
 
 errr init_sdl2(int argc, char **argv)
 {
-	int i;
-
-	g_app.print_sdl_details = false;
-	for (i = 1; i < argc; ++i) {
-		if (streq(argv[i], "-v")) {
-			g_app.print_sdl_details = true;
-			continue;
-		}
-		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Ignoring option: %s",
-			argv[i]);
-	}
-
-	quit_aux = quit_hook;
-
-	/*
-	 * Allow for player intervention is saving the game fails while the UI
-	 * is disconnecting from the game.
-	 */
-	disconnect_denier_hook = sdl2_deny_disconnect;
-
-	/* Dump details about SDL that do not require SDL_Init(). */
-	if (g_app.print_sdl_details) {
-		SDL_version vr, vc;
-
-		SDL_GetVersion(&vr);
-		SDL_VERSION(&vc);
-		SDL_Log("SDL library version: %u.%u.%u (runtime) "
-			"%u.%u.%u (compiled; %s)", vr.major, vr.minor, vr.patch,
-			vc.major, vc.minor, vc.patch, SDL_REVISION);
-	}
-
-	init_systems();
-
-	/*
-	 * Dump details about SDL that may require that SDL_Init() has been
-	 * called.
-	 */
-	if (g_app.print_sdl_details) {
-		const char *driver_name;
-		const SDL_version *pv;
-		SDL_version lv;
-		int num_displays;
-
-		SDL_Log("Runtime SDL library revision: %s", SDL_GetRevision());
-		pv = IMG_Linked_Version();
-		SDL_IMAGE_VERSION(&lv);
-		SDL_Log("SDL_image library version: %u.%u.%u (runtime) "
-			"%u.%u.%u (compiled)", pv->major, pv->minor, pv->patch,
-			lv.major, lv.minor, lv.patch);
-		pv = TTF_Linked_Version();
-		SDL_TTF_VERSION(&lv);
-		SDL_Log("SDL_ttf library version: %u.%u.%u (runtime) "
-			"%u.%u.%u (compiled)", pv->major, pv->minor, pv->patch,
-			lv.major, lv.minor, lv.patch);
-		driver_name = SDL_GetCurrentVideoDriver();
-		SDL_Log("Platform and video driver: \"%s\" \"%s\"",
-			SDL_GetPlatform(), (driver_name) ? driver_name :
-			"Not initialized");
-		num_displays = SDL_GetNumVideoDisplays();
-		if (num_displays < 0) {
-			SDL_Log("No available displays: %s",
-				SDL_GetError());
-		}
-		for (i = 0; i < num_displays; ++i) {
-			const char *name = SDL_GetDisplayName(i);
-
-			if (name) {
-				SDL_DisplayMode mode;
-
-				SDL_Log("Display %d: %s:", i, name);
-				if (SDL_GetCurrentDisplayMode(i, &mode)) {
-					SDL_Log("    Mode unavailable: %s",
-						SDL_GetError());
-				} else {
-					SDL_Log("    Size: %d x %d",
-						mode.w, mode.h);
-					SDL_Log("    Refresh rate and "
-						"pixel format: %d %lu",
-						mode.refresh_rate,
-						(unsigned long)mode.format);
-				}
-			} else {
-				SDL_Log("Display %d: no name: %s", i,
-					SDL_GetError());
-			}
-		}
-	}
-
-	if (!init_graphics_modes()) {
-		quit("Graphics list load failed");
-	}
-
-	init_globals(&g_app);
-	if (!read_config_file(&g_app)) {
-		create_defaults(&g_app);
-	}
-
-	start_windows(&g_app);
-	load_terms(&g_app);
-
-#ifdef MSYS2_ENCODING_WORKAROUND
-	/*
-	 * Under MSYS2, mbcstowcs() converts UTF-8 by outputting a wchar_t
-	 * (a 16-bit quantity) for every byte in the UTF-8 sequence.  For most
-	 * bytes in the UTF-8 sequence, the corresponding wchar_t has the same
-	 * value as the byte but some are altered.  For instance the UTF-8
-	 * sequence 0x24, 0xC2, 0xA2, 0xE2, 0x82, 0xAC, 0xF0, 0x90, 0x8D, 0x88,
-	 * 0xF0, 0x90, 0x91, and 0x99 which represents U+0024, U+00A2, U+20AC,
-	 * U+10348, and U+10459 becomes 0x0024, 0x00C2, 0x00A2, 0x00E2, 0x201A,
-	 * 0x00AC, 0x00F0, 0x0090, 0x008D, 0x02C6, 0x00F0, 0x0090, 0x2018,
-	 * and 0x2122.  Override that to use a UTF-16 encoding for the
-	 * wchar_t's where any codepoint that would require a surrogate pair
-	 * is lossily converted to U+FFFD since ui-term.c only allows storage
-	 * for one wchar_t per grid location.
-	 */
-	text_mbcs_hook = term_mbcs_sdl2_msys2;
-	text_wctomb_hook = term_wctomb_sdl2_msys2;
-	text_wcsz_hook = term_wcsz_sdl2_msys2;
-	text_iswprint_hook = term_iswprint_sdl2_msys2;
-#endif /* MSYS2_ENCODING_WORKAROUND */
-
-	return 0;
+	return frontend_run_lifecycle(&sdl2_adapter, argc, argv);
 }
 
 static void init_globals(struct my_app *a)

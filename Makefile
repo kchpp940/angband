@@ -7,43 +7,10 @@ DISTCLEAN = config.status config.log docs/.deps \
 	mk/buildsys.mk mk/extra.mk
 REPOCLEAN = aclocal.m4 autom4te.cache configure src/autoconf.h.in version
 
-UNITTEST_SUITES = \
-	artifact cave command effects game message monster \
-	object parse player trivial z-dice z-expression z-file \
-	z-quark z-queue z-textblock z-util z-virt
-
-.PHONY: check tests test tests-build test-build unittest unittests \
-	manual manual-optional dist $(UNITTEST_SUITES:%=test-%)
+.PHONY: check tests manual manual-optional dist
 check: tests
-tests: unittests
-
-unittests:
-	@scripts/run-unittests -b
-
-unittest:
-	@scripts/run-unittests -b
-
-tests-build: test-build
-test-build:
-	@scripts/run-unittests -B
-
-$(UNITTEST_SUITES:%=test-%): test-%:
-	@scripts/run-unittests -b $*
-
-# Catch-all for individual test targets like "make test-effects/destruction".
-# GNU Make 3.81 treats "/" as directory separator so "test-%" pattern cannot
-# match targets with slashes.  Use .DEFAULT to pick up any target without a
-# rule; if it starts with "test-" dispatch to the unified runner, otherwise
-# print the standard error and fail.
-.DEFAULT:
-	@t="$@"; \
-	case "$$t" in \
-	    test-*) \
-	        f="$${t#test-}"; \
-	        scripts/run-unittests -b "$$f" ;; \
-	    *) \
-	        echo "make: *** No rule to make target '$$t'.  Stop." ; exit 2 ;; \
-	esac
+tests:
+	$(MAKE) -C src tests
 
 TAG = angband-`cd scripts && ./version.sh`
 OUT = $(TAG).tar.gz

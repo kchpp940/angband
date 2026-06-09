@@ -429,6 +429,7 @@ add_executable(OurExecutable
         $<$<BOOL:${SUPPORT_STATS_FRONTEND}>:src/stats/db.c>
         $<$<BOOL:${SUPPORT_TEST_FRONTEND}>:src/main-test.c>
         $<$<NOT:$<BOOL:${SUPPORT_WINDOWS_FRONTEND}>>:src/main.c>
+        src/frontend-lifecycle.c
 )
 
 set_target_properties(OurExecutable PROPERTIES
@@ -969,9 +970,6 @@ if((NOT CMAKE_CROSSCOMPILING) AND SUPPORT_TEST_FRONTEND)
 else()
     add_custom_target(alltests)
 endif()
-
-enable_testing()
-
 if(SUPPORT_COVERAGE)
     add_coverage_targets(resetcoverage reportcoverage coverage
         COMBINED_SUBTARGETS alltests)
@@ -1024,7 +1022,6 @@ foreach(ANGBAND_TEST_CASE_SOURCE ${ANGBAND_TEST_CASE_SOURCES})
     if(ANGBAND_TEST_CASE_FILE STREQUAL "")
         message(FATAL_ERROR "Misconfigured test case source file, ${ANGBAND_TEST_CASE_SOURCE}: no file name")
     endif()
-    set(ANGBAND_TEST_CASE_ID "${ANGBAND_TEST_CASE_PATH}")
     string(REGEX REPLACE "/" "-" ANGBAND_TEST_CASE_NAME
         unittest- ${ANGBAND_TEST_CASE_PATH})
     set(ANGBAND_TEST_CASE_PATH "unittests/${ANGBAND_TEST_CASE_PATH}")
@@ -1080,32 +1077,10 @@ foreach(ANGBAND_TEST_CASE_SOURCE ${ANGBAND_TEST_CASE_SOURCES})
     # Add a shortcut for running (and compiling if necessary) this test case.
     add_custom_target(run-${ANGBAND_TEST_CASE_NAME}
         COMMAND ${ANGBAND_TEST_CASE_NAME}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        WORKING_DIRECTORY "${TEST_WORKING_DIRECTORY}")
     add_dependencies(run-${ANGBAND_TEST_CASE_NAME} ${ANGBAND_TEST_CASE_NAME})
     if(SC_INSTALL)
         add_dependencies(run-${ANGBAND_TEST_CASE_NAME} TransferLib)
-    endif()
-    # Register each test case as an individual CTest entry with suite/test
-    # naming and suite-level labels, so ctest -R effects/destruction and
-    # ctest -L effects both work, matching scripts/run-unittests filters.
-    # Every test goes through the unified runner so working directory,
-    # constants.txt, emulator handling, etc. are identical across all entries.
-    if((NOT CMAKE_CROSSCOMPILING) OR (DEFINED CMAKE_CROSSCOMPILING_EMULATOR))
-        if(DEFINED CMAKE_CROSSCOMPILING_EMULATOR)
-            add_test(NAME "${ANGBAND_TEST_CASE_ID}"
-                COMMAND "${CMAKE_COMMAND}" -E env
-                    "ANGBAND_TEST_EMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"
-                    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C -q
-                    "${ANGBAND_TEST_CASE_ID}"
-                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-        else()
-            add_test(NAME "${ANGBAND_TEST_CASE_ID}"
-                COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C -q
-                    "${ANGBAND_TEST_CASE_ID}"
-                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-        endif()
-        set_tests_properties("${ANGBAND_TEST_CASE_ID}" PROPERTIES
-            LABELS "${ANGBAND_TEST_CASE_DIR}")
     endif()
     # Add it to the list that will be run by the target for all unit tests.
     list(APPEND ANGBAND_TEST_CASE_PATHS "$<TARGET_FILE:${ANGBAND_TEST_CASE_NAME}>")
@@ -1114,28 +1089,24 @@ endforeach()
 
 # Set up a target to run all the test cases.
 if((NOT CMAKE_CROSSCOMPILING) OR (DEFINED CMAKE_CROSSCOMPILING_EMULATOR))
-    # Build-only target: compiles all test binaries without running them.
-    # Used by scripts/run-unittests -b so build and run can be separate steps.
-    add_custom_target(build-unittests)
-    add_dependencies(build-unittests ${ANGBAND_TEST_CASE_TARGETS})
-    if(SC_INSTALL)
-        add_dependencies(build-unittests TransferLib)
-    endif()
-
     if(DEFINED CMAKE_CROSSCOMPILING_EMULATOR)
         add_custom_target(allunittests
-            COMMAND "${CMAKE_COMMAND}" -E env
-                "ANGBAND_TEST_EMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C
-            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+            COMMAND "${CMAKE_COMMAND}"
+                -DTOOL="${CMAKE_CROSSCOMPILING_EMULATOR}" -P
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/cmake/scripts/run_tests.cmake"
+                -- ${ANGBAND_TEST_CASE_PATHS}
+            WORKING_DIRECTORY "${TEST_WORKING_DIRECTORY}")
     else()
         add_custom_target(allunittests
-            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C
-            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+            COMMAND "${CMAKE_COMMAND}" -P
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/cmake/scripts/run_tests.cmake"
+                -- ${ANGBAND_TEST_CASE_PATHS}
+            WORKING_DIRECTORY "${TEST_WORKING_DIRECTORY}")
     endif()
-    add_dependencies(allunittests build-unittests)
+    if(SC_INSTALL)
+        add_dependencies(allunittests TransferLib ${ANGBAND_TEST_CASE_TARGETS})
+    endif()
 else()
     add_custom_target(allunittests)
-    add_custom_target(build-unittests)
 endif()
 add_dependencies(alltests allunittests)

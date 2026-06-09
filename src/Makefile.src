@@ -16,6 +16,7 @@ HEADERS = \
 	cmd-core.h \
 	config.h \
 	effects.h \
+	frontend-lifecycle.h \
 	game-event.h \
 	guid.h \
 	h-basic.h \
@@ -114,7 +115,7 @@ ZFILES = \
 
 # MAINFILES is defined by autotools (or manually) to be combinations of these
 
-BASEMAINFILES = main.o
+BASEMAINFILES = main.o frontend-lifecycle.o
 
 GCUMAINFILES = main-gcu.o
 

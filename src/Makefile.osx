@@ -227,31 +227,12 @@ dist: install
 
 	rm -rf disttemp*
 
-UNITTEST_SUITES = artifact cave command effects game message monster \
-	object parse player trivial z-dice z-expression z-file \
-	z-quark z-queue z-textblock z-util z-virt
-
 check: tests
 tests: $(PROGNAME).a
-	@../scripts/run-unittests -b
-
-tests-build: test-build
-test-build: $(PROGNAME).a
-	@../scripts/run-unittests -B
-
-$(UNITTEST_SUITES:%=test-%): test-%: $(PROGNAME).a
-	@../scripts/run-unittests -b $*
-
-# Catch-all for individual test targets.  See note in top-level Makefile.
-.DEFAULT:
-	@t="$@"; \
-	case "$$t" in \
-	    test-*) \
-	        f="$${t#test-}"; \
-	        ../scripts/run-unittests -b "$$f" ;; \
-	    *) \
-	        echo "make: *** No rule to make target '$$t'.  Stop." ; exit 2 ;; \
-	esac
+	env CC="$(CC)" CFLAGS="$(CFLAGS) -I.. -DTEST_OVERRIDE_PATHS -Wno-write-strings" \
+		LDFLAGS="$(LDFLAGS)" LIBS="$(LIBS)" \
+		TEST_WORKING_DIRECTORY="../.." \
+		$(MAKE) -C tests all
 
 test-depgen:
 	$(MAKE) -C tests depgen
@@ -259,5 +240,4 @@ test-depgen:
 test-clean:
 	$(MAKE) -C tests clean
 
-.PHONY : check tests test-build tests-build test-depgen test-clean \
-	$(UNITTEST_SUITES:%=test-%)
+.PHONY : check tests test-clean

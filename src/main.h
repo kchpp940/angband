@@ -22,6 +22,7 @@
 
 #include "angband.h"
 #include "ui-term.h"
+#include "frontend-lifecycle.h"
 
 extern errr init_lfb(int argc, char **argv);
 extern errr init_x11(int argc, char **argv);
