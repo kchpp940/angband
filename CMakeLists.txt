@@ -969,6 +969,9 @@ if((NOT CMAKE_CROSSCOMPILING) AND SUPPORT_TEST_FRONTEND)
 else()
     add_custom_target(alltests)
 endif()
+
+enable_testing()
+
 if(SUPPORT_COVERAGE)
     add_coverage_targets(resetcoverage reportcoverage coverage
         COMBINED_SUBTARGETS alltests)
@@ -1076,7 +1079,7 @@ foreach(ANGBAND_TEST_CASE_SOURCE ${ANGBAND_TEST_CASE_SOURCES})
     # Add a shortcut for running (and compiling if necessary) this test case.
     add_custom_target(run-${ANGBAND_TEST_CASE_NAME}
         COMMAND ${ANGBAND_TEST_CASE_NAME}
-        WORKING_DIRECTORY "${TEST_WORKING_DIRECTORY}")
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     add_dependencies(run-${ANGBAND_TEST_CASE_NAME} ${ANGBAND_TEST_CASE_NAME})
     if(SC_INSTALL)
         add_dependencies(run-${ANGBAND_TEST_CASE_NAME} TransferLib)
@@ -1094,13 +1097,14 @@ if((NOT CMAKE_CROSSCOMPILING) OR (DEFINED CMAKE_CROSSCOMPILING_EMULATOR))
                 -DTOOL="${CMAKE_CROSSCOMPILING_EMULATOR}" -P
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/cmake/scripts/run_tests.cmake"
                 -- ${ANGBAND_TEST_CASE_PATHS}
-            WORKING_DIRECTORY "${TEST_WORKING_DIRECTORY}")
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     else()
         add_custom_target(allunittests
-            COMMAND "${CMAKE_COMMAND}" -P
-                "${CMAKE_CURRENT_SOURCE_DIR}/src/cmake/scripts/run_tests.cmake"
-                -- ${ANGBAND_TEST_CASE_PATHS}
-            WORKING_DIRECTORY "${TEST_WORKING_DIRECTORY}")
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME unittests
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-unittests" -C -q
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
     if(SC_INSTALL)
         add_dependencies(allunittests TransferLib ${ANGBAND_TEST_CASE_TARGETS})
