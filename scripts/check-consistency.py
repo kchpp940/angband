@@ -3,17 +3,18 @@
 Release Consistency Checker for Angband
 
 Checks that source files, headers, test files are registered across all build
-systems (Makefile.src, CMakeLists.txt, Windows VS project) and that document
-references are valid.
+systems (Makefile.src, CMakeLists.txt, Windows VS project, Makefile.nmake,
+Makefile.osx) and that document references are valid.
 """
 
+import argparse
 import os
 import re
 import sys
-import glob
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
+
 
 class Colors:
     RED = "\033[91m"
@@ -25,9 +26,10 @@ class Colors:
 
 
 class ConsistencyChecker:
-    def __init__(self, repo_root: str):
+    def __init__(self, repo_root: str, max_warnings: int = -1):
         self.repo_root = Path(repo_root).resolve()
         self.src_dir = self.repo_root / "src"
+        self.max_warnings = max_warnings
         self.errors: List[str] = []
         self.warnings: List[str] = []
         self.infos: List[str] = []
@@ -91,7 +93,10 @@ class ConsistencyChecker:
             "nds/nds-slot2-virt.c",
         }
 
-        self.CORE_HEADERS_ONLY_IN_MAKEFILE = True
+        self.OSX_EXTRA_SOURCES = {
+            "cocoa/snd-cocoa.m",
+            "main-cocoa.m",
+        }
 
     def log_error(self, msg: str):
         self.errors.append(msg)
@@ -174,6 +179,163 @@ class ConsistencyChecker:
 
         return sources, headers
 
+    def parse_makefile_nmake(self) -> Set[str]:
+        nmake_path = self.src_dir / "Makefile.nmake"
+        sources: Set[str] = set()
+        content = nmake_path.read_text()
+
+        if "include Makefile.src" not in content:
+            self.log_error("Makefile.nmake: does not include Makefile.src")
+
+        objs_match = re.search(r"OBJS\s*=\s*\$\(([^)]+)\)\s*\$\(([^)]+)\)\s*\$\(([^)]+)\)", content)
+        if objs_match:
+            vars_used = [objs_match.group(1), objs_match.group(2), objs_match.group(3)]
+            expected = {"ANGFILES", "ZFILES", "WINMAINFILES"}
+            if set(vars_used) != expected:
+                self.log_warning(
+                    f"Makefile.nmake: OBJS uses unexpected variables {vars_used}, "
+                    f"expected {sorted(expected)}"
+                )
+        else:
+            self.log_warning("Makefile.nmake: could not parse OBJS variable")
+
+        mk_sources, _ = self.parse_makefile_src()
+        for s in mk_sources:
+            if s.startswith("win/") or s in self.NOT_IN_VS:
+                if s not in ("main-gcu.c", "main-sdl.c", "main-sdl2.c", "main-x11.c",
+                             "main-spoil.c", "main-stats.c", "main-test.c", "main.c",
+                             "main-cocoa.m", "main-nds.c", "main-nds-arm7.c", "main-ibm.c",
+                             "main-xxx.c", "snd-sdl.c"):
+                    sources.add(s)
+            elif not s.startswith("cocoa/") and not s.startswith("nds/"):
+                sources.add(s)
+
+        return sources
+
+    def parse_makefile_osx(self) -> Tuple[Set[str], Set[str]]:
+        osx_path = self.src_dir / "Makefile.osx"
+        content = osx_path.read_text()
+        sources: Set[str] = set()
+        extra_sources: Set[str] = set()
+
+        if "include Makefile.inc" not in content:
+            self.log_error("Makefile.osx: does not include Makefile.inc")
+
+        mk_sources, _ = self.parse_makefile_src()
+        for s in mk_sources:
+            if not s.startswith("win/") and not s.startswith("nds/"):
+                if s not in ("main-ibm.c", "main-test.c", "main-spoil.c", "main-stats.c"):
+                    sources.add(s)
+
+        objs_match = re.search(r"OBJS\s*=\s*\$\(BASEOBJS\)\s+(\S+)", content)
+        if objs_match:
+            extra = objs_match.group(1)
+            extra_src = extra.replace(".o", ".m").replace(".o", ".c")
+            extra_sources.add(extra_src)
+            if extra_src not in ("cocoa/snd-cocoa.m",):
+                self.log_warning(f"Makefile.osx: unexpected extra OBJS entry: {extra}")
+
+        osx_objs_match = re.search(r"OSX_OBJS\s*=\s*(\S+)", content)
+        if osx_objs_match:
+            extra = osx_objs_match.group(1)
+            extra_src = extra.replace(".o", ".m").replace(".o", ".c")
+            extra_sources.add(extra_src)
+            if extra_src not in ("main-cocoa.m",):
+                self.log_warning(f"Makefile.osx: unexpected OSX_OBJS entry: {extra}")
+
+        return sources, extra_sources
+
+    def parse_vcxproj(self) -> Tuple[Set[str], Set[str]]:
+        vcx_path = self.src_dir / "win" / "vs2019" / "Angband.vcxproj"
+        sources: Set[str] = set()
+        headers: Set[str] = set()
+
+        ns = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
+        tree = ET.parse(str(vcx_path))
+        root = tree.getroot()
+
+        for cl in root.iter(f"{{{ns['msb']}}}ClCompile"):
+            inc = cl.get("Include")
+            if inc and inc.startswith("src\\"):
+                rel = inc[4:].replace("\\", "/")
+                sources.add(rel)
+
+        for cl in root.iter(f"{{{ns['msb']}}}ClInclude"):
+            inc = cl.get("Include")
+            if inc and inc.startswith("src\\") and "win\\include\\" not in inc:
+                rel = inc[4:].replace("\\", "/")
+                headers.add(rel)
+
+        return sources, headers
+
+    def parse_vcxproj_filters(self) -> Tuple[Set[str], Set[str]]:
+        filters_path = self.src_dir / "win" / "vs2019" / "Angband.vcxproj.filters"
+        sources: Set[str] = set()
+        headers: Set[str] = set()
+
+        ns = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
+        tree = ET.parse(str(filters_path))
+        root = tree.getroot()
+
+        for cl in root.iter(f"{{{ns['msb']}}}ClCompile"):
+            inc = cl.get("Include")
+            if inc and inc.startswith("src\\"):
+                rel = inc[4:].replace("\\", "/")
+                sources.add(rel)
+
+        for cl in root.iter(f"{{{ns['msb']}}}ClInclude"):
+            inc = cl.get("Include")
+            if inc and inc.startswith("src\\") and "win\\include\\" not in inc:
+                rel = inc[4:].replace("\\", "/")
+                headers.add(rel)
+
+        return sources, headers
+
+    def parse_makefile_inc_deps(self) -> Dict[str, Set[str]]:
+        inc_path = self.src_dir / "Makefile.inc"
+        content = inc_path.read_text()
+        deps: Dict[str, Set[str]] = {}
+
+        if "include Makefile.src" not in content:
+            self.log_error("Makefile.inc: does not include Makefile.src")
+
+        baseobjs_match = re.search(r"BASEOBJS\s*:=\s*\$\(([^)]+)\)\s*\$\(([^)]+)\)", content)
+        if baseobjs_match:
+            vars_used = [baseobjs_match.group(1), baseobjs_match.group(2)]
+            expected = {"ANGFILES", "ZFILES"}
+            if set(vars_used) != expected:
+                self.log_warning(
+                    f"Makefile.inc: BASEOBJS uses unexpected variables {vars_used}, "
+                    f"expected {sorted(expected)}"
+                )
+
+        dep_pattern = re.compile(r"^\./([A-Za-z0-9_\-/]+)\.o:\s*([A-Za-z0-9_\-/]+\.[cm])\s*(.*?)(?=\n\./|\Z)", re.MULTILINE | re.DOTALL)
+        for m in dep_pattern.finditer(content):
+            obj_base = m.group(1)
+            src_file = m.group(2)
+            dep_text = m.group(3)
+            src_key = obj_base + ".c"
+
+            if "/" not in src_file and not src_file.startswith("./"):
+                src_key = src_file.replace(".c", ".c").replace(".m", ".m")
+
+            dep_files: Set[str] = set()
+            all_dep_text = src_file + " " + dep_text.replace("\\\n", " ")
+            for dep in re.findall(r"([A-Za-z0-9_\-/.]+\.h)", all_dep_text):
+                dep_clean = dep.strip()
+                if dep_clean.startswith("/"):
+                    dep_clean = dep_clean[1:]
+                while "../" in dep_clean:
+                    dep_clean = re.sub(r"^[A-Za-z0-9_\-]+/\.\./", "", dep_clean)
+                    if dep_clean.startswith("../"):
+                        dep_clean = dep_clean[3:]
+                if dep_clean:
+                    dep_files.add(dep_clean)
+
+            deps[src_key] = dep_files
+
+        return deps
+
     def parse_cmakelists(self) -> Tuple[Set[str], Set[str]]:
         cmake_path = self.repo_root / "CMakeLists.txt"
         content = cmake_path.read_text()
@@ -215,29 +377,6 @@ class ConsistencyChecker:
                     tests.add(t)
 
         return sources, tests
-
-    def parse_vcxproj(self) -> Tuple[Set[str], Set[str]]:
-        vcx_path = self.src_dir / "win" / "vs2019" / "Angband.vcxproj"
-        sources: Set[str] = set()
-        headers: Set[str] = set()
-
-        ns = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
-        tree = ET.parse(str(vcx_path))
-        root = tree.getroot()
-
-        for cl in root.iter(f"{{{ns['msb']}}}ClCompile"):
-            inc = cl.get("Include")
-            if inc and inc.startswith("src\\"):
-                rel = inc[4:].replace("\\", "/")
-                sources.add(rel)
-
-        for cl in root.iter(f"{{{ns['msb']}}}ClInclude"):
-            inc = cl.get("Include")
-            if inc and inc.startswith("src\\") and "win\\include\\" not in inc:
-                rel = inc[4:].replace("\\", "/")
-                headers.add(rel)
-
-        return sources, headers
 
     def scan_header_files(self) -> Set[str]:
         headers: Set[str] = set()
@@ -330,6 +469,79 @@ class ConsistencyChecker:
                                 f"reference '{ref}' does not exist"
                             )
 
+    def check_documentation_code_examples(self, docs: List[Path]):
+        for doc in docs:
+            if doc.suffix not in (".md", ".rst", ".txt"):
+                continue
+            try:
+                content = doc.read_text(errors="ignore")
+            except Exception:
+                continue
+            doc_dir = doc.parent
+
+            code_blocks = []
+            if doc.suffix == ".md":
+                code_blocks = re.findall(r"```(?:bash|sh|shell)?\n(.*?)```", content, re.DOTALL)
+                code_blocks += re.findall(r"`([^`\n]{3,})`", content)
+            elif doc.suffix == ".rst":
+                code_blocks = re.findall(r"\.\. code-block::\s*(?:bash|sh|shell)?\s*\n((?:\s+[^\n]+\n?)+)", content, re.IGNORECASE)
+                code_blocks += re.findall(r"::\s*\n((?:\s+[^\n]+\n?)+)", content)
+
+            for block in code_blocks:
+                for line in block.split("\n"):
+                    line = line.strip()
+                    if not line or line.startswith("#") or line.startswith("//"):
+                        continue
+
+                    path_matches = re.findall(r"(?:^|\s)([A-Za-z0-9_.\-/]{3,}/[A-Za-z0-9_.\-/]+)", line)
+                    for ref in path_matches:
+                        ref = ref.rstrip(";)\"'")
+                        if ref.startswith("http://") or ref.startswith("https://") or ref.startswith("git://"):
+                            continue
+                        if ref.startswith("/") or ref.startswith(".."):
+                            continue
+                        if "/" not in ref:
+                            continue
+                        if ref.endswith((".exe", ".app", ".o", ".obj", ".a", ".so", ".dylib", ".dll")):
+                            continue
+                        if "/bin/" in ref or "/build/" in ref or "/_doxygen" in ref:
+                            continue
+                        if ref.startswith("build/") or ref.startswith("bin/"):
+                            continue
+                        if ref.endswith("/bin") or ref.endswith("/bin."):
+                            continue
+                        if "tests/bin" in ref:
+                            continue
+
+                        clean_ref = ref.lstrip("/./")
+                        candidate = self.repo_root / clean_ref
+                        if not candidate.exists():
+                            candidate2 = doc_dir / ref
+                            if not candidate2.exists():
+                                candidate3 = doc_dir / clean_ref
+                                if not candidate3.exists():
+                                    parts = clean_ref.split("/")
+                                    if len(parts) > 1 and parts[0] in ("src", "scripts", "docs", "lib"):
+                                        self.log_warning(
+                                            f"Doc {doc.relative_to(self.repo_root)}: "
+                                            f"code example path '{ref}' may not exist"
+                                        )
+
+                    command_tokens = re.findall(r"(?:^|\s)(make|cmake|python3?|gcc|clang|nmake)\s+(\S+)", line)
+                    for cmd, target in command_tokens:
+                        target = target.rstrip(";)\"'")
+                        if cmd == "make" and target.startswith("release-check"):
+                            pass
+                        elif cmd == "cmake" and "--build" in line:
+                            pass
+                        elif cmd in ("python3", "python") and target.startswith("scripts/"):
+                            script_path = self.repo_root / target
+                            if not script_path.exists():
+                                self.log_warning(
+                                    f"Doc {doc.relative_to(self.repo_root)}: "
+                                    f"referenced script '{target}' does not exist"
+                                )
+
     def check_sources(self):
         self.log_info("Scanning actual source files in src/ ...")
         actual_sources = self.scan_source_files()
@@ -346,6 +558,22 @@ class ConsistencyChecker:
         self.log_info("Parsing VS project file ...")
         vs_sources, vs_headers = self.parse_vcxproj()
         self.log_info(f"VS project: {len(vs_sources)} sources, {len(vs_headers)} headers")
+
+        self.log_info("Parsing VS filters file ...")
+        vsf_sources, vsf_headers = self.parse_vcxproj_filters()
+        self.log_info(f"VS filters: {len(vsf_sources)} sources, {len(vsf_headers)} headers")
+
+        self.log_info("Parsing Makefile.nmake ...")
+        nmake_sources = self.parse_makefile_nmake()
+        self.log_info(f"Makefile.nmake: {len(nmake_sources)} inferred sources")
+
+        self.log_info("Parsing Makefile.osx ...")
+        osx_sources, osx_extra = self.parse_makefile_osx()
+        self.log_info(f"Makefile.osx: {len(osx_sources)} base sources, {len(osx_extra)} platform-specific")
+
+        self.log_info("Parsing Makefile.inc dependencies ...")
+        inc_deps = self.parse_makefile_inc_deps()
+        self.log_info(f"Makefile.inc: {len(inc_deps)} source dependency entries")
 
         for src in sorted(actual_sources):
             if src in self.NDS_SOURCES:
@@ -365,6 +593,22 @@ class ConsistencyChecker:
             elif src not in vs_sources:
                 self.log_error(f"Angband.vcxproj: source '{src}' is not registered")
 
+            if not src.startswith("cocoa/") and not src.startswith("nds/") and not src.startswith("sdl2/") and not src.startswith("stats/") and src != "snd-sdl.c":
+                if src not in vsf_sources and src not in self.NOT_IN_VS:
+                    if not src.startswith("win/") and not src.endswith(".m"):
+                        self.log_warning(f"Angband.vcxproj.filters: source '{src}' is not registered")
+
+            if not src.startswith("cocoa/") and not src.startswith("nds/") and not src.startswith("sdl2/") and not src.startswith("stats/") and src != "snd-sdl.c":
+                base = os.path.splitext(src)[0]
+                if base + ".c" in inc_deps or base + ".m" in inc_deps or src in inc_deps:
+                    pass
+                elif src.startswith("win/") or src.endswith(".m") or src in ("buildid.c", "main.c") or src.startswith("main-"):
+                    pass
+                elif src.startswith("borg/") and src != "borg/borg.c":
+                    pass
+                else:
+                    self.log_warning(f"Makefile.inc: source '{src}' may have stale or missing dependency entry")
+
         for src in sorted(mk_sources):
             if src.endswith(".rc"):
                 continue
@@ -379,6 +623,29 @@ class ConsistencyChecker:
             if not (self.src_dir / src).exists():
                 self.log_error(f"Angband.vcxproj: registered source '{src}' does not exist on disk")
 
+        vs_only_in_project = vs_sources - vsf_sources
+        if vs_only_in_project:
+            for s in sorted(vs_only_in_project):
+                self.log_warning(f"Angband.vcxproj has '{s}' but filters file is missing it")
+
+        vs_only_in_filters = vsf_sources - vs_sources
+        if vs_only_in_filters:
+            for s in sorted(vs_only_in_filters):
+                self.log_warning(f"Angband.vcxproj.filters has '{s}' but project file is missing it")
+
+        vs_h_only_in_project = vs_headers - vsf_headers
+        if vs_h_only_in_project:
+            for h in sorted(vs_h_only_in_project):
+                self.log_warning(f"Angband.vcxproj has header '{h}' but filters file is missing it")
+
+        vs_h_only_in_filters = vsf_headers - vs_headers
+        if vs_h_only_in_filters:
+            for h in sorted(vs_h_only_in_filters):
+                self.log_warning(f"Angband.vcxproj.filters has header '{h}' but project file is missing it")
+
+        self.mk_headers_ref = mk_headers
+        self.vs_headers_ref = vs_headers
+
     def check_headers(self):
         self.log_info("Scanning actual header files in src/ ...")
         actual_headers = self.scan_header_files()
@@ -386,6 +653,10 @@ class ConsistencyChecker:
 
         mk_sources, mk_headers = self.parse_makefile_src()
         vs_sources, vs_headers = self.parse_vcxproj()
+        inc_deps = self.parse_makefile_inc_deps()
+
+        self.log_info(f"Makefile.src HEADERS: {len(mk_headers)} registered core headers")
+        self.log_info(f"VS project headers: {len(vs_headers)} registered")
 
         for h in sorted(actual_headers):
             if h.startswith("win/include/"):
@@ -405,30 +676,55 @@ class ConsistencyChecker:
             if not (self.src_dir / h).exists():
                 self.log_error(f"Angband.vcxproj: registered header '{h}' does not exist on disk")
 
-        self._check_orphan_headers(actual_headers, mk_sources)
+        for src, dep_headers in inc_deps.items():
+            src_dir = os.path.dirname(src) if os.path.dirname(src) else "."
+            for dh in dep_headers:
+                candidates = []
+                candidates.append(self.src_dir / dh)
+                if src_dir != ".":
+                    candidates.append(self.src_dir / src_dir / dh)
+                dh_basename = os.path.basename(dh)
+                candidates.append(self.src_dir / dh_basename)
+                exists = any(c.exists() for c in candidates)
+                if not exists:
+                    self.log_warning(
+                        f"Makefile.inc: dependency header '{dh}' for '{src}' may not exist"
+                    )
 
-    def _check_orphan_headers(self, headers: Set[str], sources: Set[str]):
+        self._check_orphan_headers(actual_headers, mk_sources, inc_deps)
+
+    def _check_orphan_headers(self, headers: Set[str], sources: Set[str], deps: Dict[str, Set[str]]):
+        all_included_headers: Set[str] = set()
+
+        for dep_headers in deps.values():
+            for dh in dep_headers:
+                all_included_headers.add(dh)
+
+        for root, _, files in os.walk(self.src_dir):
+            for f in files:
+                if f.endswith((".c", ".h", ".m")):
+                    try:
+                        content = (Path(root) / f).read_text(errors="ignore")
+                        for inc_match in re.finditer(r'#include\s+[<"]([^>"]+)[>"]', content):
+                            inc = inc_match.group(1)
+                            all_included_headers.add(inc)
+                            basename = os.path.basename(inc)
+                            all_included_headers.add(basename)
+                    except Exception:
+                        pass
+
         for h in sorted(headers):
             base = h.replace(".h", "")
+            h_basename = os.path.basename(h)
             if h.startswith("list-") or h.startswith("win/") or h.startswith("cocoa/") or h.startswith("nds/") or h.startswith("sdl2/") or h.startswith("stats/"):
                 continue
-            if base + ".c" not in sources and base + ".m" not in sources:
-                basename = os.path.basename(h)
-                has_include = False
-                for root, _, files in os.walk(self.src_dir):
-                    for f in files:
-                        if f.endswith((".c", ".h", ".m")):
-                            try:
-                                content = (Path(root) / f).read_text(errors="ignore")
-                                if re.search(rf'#include\s+[<"]{re.escape(basename)}[>"]', content):
-                                    has_include = True
-                                    break
-                            except Exception:
-                                pass
-                    if has_include:
-                        break
-                if not has_include:
-                    self.log_warning(f"Potentially orphan header: '{h}' (no matching source and no direct includes found)")
+            has_matching_source = (base + ".c" in sources) or (base + ".m" in sources)
+            is_included = (h in all_included_headers) or (h_basename in all_included_headers)
+
+            if not has_matching_source and not is_included:
+                self.log_warning(
+                    f"Potentially orphan header: '{h}' (no matching source and no includes found)"
+                )
 
     def check_tests(self):
         self.log_info("Scanning actual test sources in src/tests/ ...")
@@ -461,7 +757,12 @@ class ConsistencyChecker:
         self.log_info("Scanning documentation files ...")
         docs = self.scan_documentation_files()
         self.log_info(f"Found {len(docs)} documentation files")
+
+        self.log_info("Checking file references in documentation ...")
         self.check_documentation_references(docs)
+
+        self.log_info("Checking command/path examples in documentation ...")
+        self.check_documentation_code_examples(docs)
 
     def run_all(self) -> bool:
         print(f"\n{Colors.BOLD}{'='*70}{Colors.RESET}")
@@ -480,26 +781,66 @@ class ConsistencyChecker:
         print(f"{Colors.BOLD}Summary:{Colors.RESET}")
         print(f"  {Colors.RED if self.errors else Colors.GREEN}Errors:   {len(self.errors)}{Colors.RESET}")
         print(f"  {Colors.YELLOW if self.warnings else Colors.GREEN}Warnings: {len(self.warnings)}{Colors.RESET}")
+        if self.max_warnings >= 0:
+            print(f"  Max allowed warnings: {self.max_warnings}")
         print(f"  Infos:    {len(self.infos)}")
         print(f"{Colors.BOLD}{'='*70}{Colors.RESET}")
 
+        failed = False
         if self.errors:
             print(f"\n{Colors.RED}{Colors.BOLD}CHECK FAILED: Found {len(self.errors)} error(s){Colors.RESET}")
-            return False
+            failed = True
+        elif self.max_warnings >= 0 and len(self.warnings) > self.max_warnings:
+            print(
+                f"\n{Colors.RED}{Colors.BOLD}CHECK FAILED: {len(self.warnings)} warning(s) "
+                f"exceeds threshold of {self.max_warnings}{Colors.RESET}"
+            )
+            failed = True
         else:
             print(f"\n{Colors.GREEN}{Colors.BOLD}CHECK PASSED{Colors.RESET}", end="")
             if self.warnings:
                 print(f" (with {len(self.warnings)} warning(s))")
             else:
                 print()
-            return True
+
+        return not failed
 
 
 def main():
-    script_dir = Path(__file__).resolve().parent
-    repo_root = script_dir.parent
+    parser = argparse.ArgumentParser(
+        description="Angband release consistency checker"
+    )
+    parser.add_argument(
+        "--max-warnings",
+        type=int,
+        default=-1,
+        metavar="N",
+        help="Maximum number of warnings allowed before check fails (-1 = unlimited, default: -1)",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Strict mode: treat any warnings as failures (equivalent to --max-warnings=0)",
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=str,
+        default=None,
+        help="Path to the repository root (default: inferred from script location)",
+    )
 
-    checker = ConsistencyChecker(str(repo_root))
+    args = parser.parse_args()
+
+    if args.strict:
+        args.max_warnings = 0
+
+    if args.repo_root:
+        repo_root = args.repo_root
+    else:
+        script_dir = Path(__file__).resolve().parent
+        repo_root = script_dir.parent
+
+    checker = ConsistencyChecker(str(repo_root), max_warnings=args.max_warnings)
     ok = checker.run_all()
 
     return 0 if ok else 1
