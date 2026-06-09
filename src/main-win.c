@@ -445,6 +445,23 @@ static uint8_t win_pal[MAX_COLORS] =
 
 static int gamma_correction;
 
+static int g_win_argc;
+static char **g_win_argv;
+static LPSTR g_win_lpCmdLine;
+static HINSTANCE g_win_hPrevInst;
+static int g_win_nCmdShow;
+static bool g_win_classes_registered;
+static bool g_win_stuff_inited;
+static bool g_win_graphics_modes_inited;
+static bool g_win_windows_inited;
+static bool g_win_events_subscribed;
+static void (*g_win_saved_plog_aux)(const char *);
+static void (*g_win_saved_quit_aux)(const char *);
+#ifdef USE_SAVER
+static bool g_win_screensaver_inited;
+#endif
+static char *g_win_argv0_copy;
+
 static void show_win_error(void)
 {
 	LPVOID lpMsgBuf;
@@ -5051,6 +5068,279 @@ static void hack_plog(const char *str)
 }
 
 
+static errr win_parse_args(int argc, char **argv)
+{
+	LPSTR lpCmdLine = g_win_lpCmdLine;
+	(void)argc;
+	(void)argv;
+
+#ifdef USE_SAVER
+	if (lpCmdLine && ((*lpCmdLine == '-') || (*lpCmdLine == '/'))) {
+		lpCmdLine++;
+		switch (*lpCmdLine) {
+			case 's': case 'S':
+				screensaver = true;
+				screensaverSemaphore = CreateSemaphore(NULL, 0, 1,
+					"AngbandSaverSemaphore");
+				if (!screensaverSemaphore) return -1;
+				if (GetLastError() == ERROR_ALREADY_EXISTS) {
+					CloseHandle(screensaverSemaphore);
+					return -1;
+				}
+				g_win_screensaver_inited = true;
+				break;
+			case 'P': case 'p': case 'C': case 'c':
+			case 'A': case 'a':
+				return -1;
+		}
+	}
+#endif
+	return 0;
+}
+
+static void win_cleanup_parse_args(void)
+{
+#ifdef USE_SAVER
+	if (g_win_screensaver_inited) {
+		if (screensaverSemaphore)
+			CloseHandle(screensaverSemaphore);
+		screensaverSemaphore = NULL;
+		g_win_screensaver_inited = false;
+	}
+#endif
+}
+
+static errr win_check_capability(int argc, char **argv)
+{
+	WNDCLASS wc;
+
+	g_win_saved_plog_aux = plog_aux;
+	g_win_saved_quit_aux = quit_aux;
+
+	plog_aux = hack_plog;
+	quit_aux = hack_quit;
+
+	if (!g_win_hPrevInst) {
+		wc.style         = CS_CLASSDC;
+		wc.lpfnWndProc   = AngbandWndProc;
+		wc.cbClsExtra    = 0;
+		wc.cbWndExtra    = 4;
+		wc.hInstance     = hInstance;
+		wc.hIcon         = hIcon = LoadIcon(hInstance, "ANGBAND");
+		wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+		wc.hbrBackground = GetStockObject(BLACK_BRUSH);
+		wc.lpszMenuName  = "ANGBAND";
+		wc.lpszClassName = AppName;
+
+		if (!RegisterClass(&wc)) return -1;
+
+		wc.lpfnWndProc   = AngbandListProc;
+		wc.lpszMenuName  = NULL;
+		wc.lpszClassName = AngList;
+
+		if (!RegisterClass(&wc)) {
+			UnregisterClass(AppName, hInstance);
+			return -1;
+		}
+
+#ifdef USE_SAVER
+		if (screensaver) {
+			wc.style          = CS_VREDRAW | CS_HREDRAW | CS_SAVEBITS | CS_DBLCLKS;
+			wc.lpfnWndProc    = AngbandSaverProc;
+			wc.hCursor        = NULL;
+			wc.lpszMenuName   = NULL;
+			wc.lpszClassName  = "WindowsScreenSaverClass";
+
+			if (!RegisterClass(&wc)) {
+				UnregisterClass(AngList, hInstance);
+				UnregisterClass(AppName, hInstance);
+				return -1;
+			}
+		}
+#endif
+	}
+
+	setlocale(LC_CTYPE, "");
+	g_win_classes_registered = true;
+	return 0;
+}
+
+static void win_cleanup_capability(void)
+{
+	if (g_win_classes_registered) {
+#ifdef USE_SAVER
+		if (screensaver)
+			UnregisterClass("WindowsScreenSaverClass", hInstance);
+#endif
+		UnregisterClass(AngList, hInstance);
+		UnregisterClass(AppName, hInstance);
+		if (hIcon) {
+			DestroyIcon(hIcon);
+			hIcon = NULL;
+		}
+		g_win_classes_registered = false;
+	}
+	plog_aux = g_win_saved_plog_aux;
+	quit_aux = g_win_saved_quit_aux;
+}
+
+static errr win_load_resources(int argc, char **argv)
+{
+	HDC hdc;
+	int i;
+
+	init_stuff();
+	g_win_stuff_inited = true;
+
+	hdc = GetDC(NULL);
+	colors16 = (GetDeviceCaps(hdc, BITSPIXEL) == 4);
+	paletted = ((GetDeviceCaps(hdc, RASTERCAPS) & RC_PALETTE) ? true : false);
+	ReleaseDC(NULL, hdc);
+
+	for (i = 0; i < MAX_COLORS; i++) {
+		uint8_t rv, gv, bv;
+		rv = angband_color_table[i][1];
+		gv = angband_color_table[i][2];
+		bv = angband_color_table[i][3];
+		win_clr[i] = PALETTERGB(rv, gv, bv);
+		angband_color_table[i][0] = win_pal[i];
+	}
+
+	if (!init_graphics_modes()) {
+		plog_fmt("Graphics list load failed");
+	}
+	g_win_graphics_modes_inited = true;
+
+	return 0;
+}
+
+static void win_cleanup_resources(void)
+{
+	if (g_win_graphics_modes_inited) {
+		close_graphics_modes();
+		g_win_graphics_modes_inited = false;
+	}
+	if (g_win_stuff_inited) {
+		if (ini_file) {
+			string_free(ini_file);
+			ini_file = NULL;
+		}
+		if (argv0) {
+			string_free(argv0);
+			argv0 = NULL;
+		}
+		g_win_stuff_inited = false;
+	}
+}
+
+static errr win_register_terms(int argc, char **argv)
+{
+	init_windows();
+	g_win_windows_inited = true;
+	return 0;
+}
+
+static void win_cleanup_terms(void)
+{
+	int i;
+	if (g_win_windows_inited) {
+		FreeDIB(&infGraph);
+		FreeDIB(&infMask);
+		if (hbrYellow) {
+			DeleteObject(hbrYellow);
+			hbrYellow = NULL;
+		}
+		if (hPal) {
+			DeleteObject(hPal);
+			hPal = NULL;
+		}
+		for (i = MAX_TERM_DATA - 1; i >= 0; --i) {
+			if (data[i].font_file) term_remove_font(data[i].font_file);
+			if (data[i].font_id) DeleteObject(data[i].font_id);
+			if (data[i].font_want) string_free(data[i].font_want);
+			if (data[i].w) {
+				DestroyWindow(data[i].w);
+				data[i].w = 0;
+			}
+			term_nuke(&data[i].t);
+		}
+		g_win_windows_inited = false;
+	}
+}
+
+static errr win_subscribe_events(int argc, char **argv)
+{
+	plog_aux = hook_plog;
+	quit_aux = hook_quit;
+
+	text_mbcs_hook = Term_mbstowcs_win;
+	text_wctomb_hook = Term_wctomb_win;
+	text_wcsz_hook = Term_wcsz_win;
+	text_iswprint_hook = Term_iswprint_win;
+
+	ANGBAND_SYS = "win";
+	cmd_get_hook = textui_get_cmd;
+
+	g_win_events_subscribed = true;
+	return 0;
+}
+
+static void win_cleanup_events(void)
+{
+	if (g_win_events_subscribed) {
+		plog_aux = g_win_saved_plog_aux;
+		quit_aux = g_win_saved_quit_aux;
+		g_win_events_subscribed = false;
+	}
+}
+
+static errr win_finalize_ready(int argc, char **argv)
+{
+	return 0;
+}
+
+static void win_cleanup_ready(void)
+{
+}
+
+static void win_shutdown(void)
+{
+	win_cleanup_events();
+	win_cleanup_terms();
+	win_cleanup_resources();
+	win_cleanup_capability();
+	win_cleanup_parse_args();
+}
+
+static const struct frontend_adapter win_adapter = {
+	.name = "win",
+	.help = "Windows frontend",
+	.hup_disconnects = false,
+	.tstp_default = false,
+
+	.init_parse_args = win_parse_args,
+	.init_check_capability = win_check_capability,
+	.init_load_resources = win_load_resources,
+	.init_register_terms = win_register_terms,
+	.init_subscribe_events = win_subscribe_events,
+	.init_finalize_ready = win_finalize_ready,
+
+	.cleanup_parse_args = win_cleanup_parse_args,
+	.cleanup_capability = win_cleanup_capability,
+	.cleanup_resources = win_cleanup_resources,
+	.cleanup_terms = win_cleanup_terms,
+	.cleanup_events = win_cleanup_events,
+	.cleanup_ready = win_cleanup_ready,
+
+	.shutdown = win_shutdown,
+};
+
+errr init_win(int argc, char **argv)
+{
+	return frontend_run_lifecycle(&win_adapter, argc, argv);
+}
+
+
 /**
  * Display error message and quit (see "z-util.c")
  */
@@ -5298,169 +5588,34 @@ static void win_reinit(void)
 int FAR PASCAL WinMain(HINSTANCE hInst, HINSTANCE hPrevInst,
                        LPSTR lpCmdLine, int nCmdShow)
 {
-	int i;
-
-	WNDCLASS wc;
-	HDC hdc;
 	MSG msg;
 
-	/* Unused parameter */
 	(void)nCmdShow;
 
 	if (AttachConsole(ATTACH_PARENT_PROCESS)) {
-        /* Reopen stdout/stderr so printf works */
         freopen("CONOUT$", "w", stdout);
         freopen("CONOUT$", "w", stderr);
     }
 
-#ifdef USE_SAVER
-	if (lpCmdLine && ((*lpCmdLine == '-') || (*lpCmdLine == '/'))) {
-		lpCmdLine++;
-
-		switch (*lpCmdLine)
-		{
-			case 's':
-			case 'S':
-			{
-				screensaver = true;
-
-				/* Only run one screensaver at the time */
-				screensaverSemaphore = CreateSemaphore(NULL, 0, 1,
-													   "AngbandSaverSemaphore");
-
-				if (!screensaverSemaphore) exit(0);
-
-				if (GetLastError() == ERROR_ALREADY_EXISTS) {
-					CloseHandle(screensaverSemaphore);
-					exit(0);
-				}
-
-				break;
-			}
-
-			case 'P':
-			case 'p':
-			case 'C':
-			case 'c':
-			case 'A':
-			case 'a':
-			{
-				/*
-				 * ToDo: implement preview, configuration, and changing
-				 * the password (as well as checking it).
-				 */
-				exit(0);
-			}
-		}
-	}
-
-#endif /* USE_SAVER */
-
-	/* Initialize */
-	if (hPrevInst == NULL) {
-		wc.style         = CS_CLASSDC;
-		wc.lpfnWndProc   = AngbandWndProc;
-		wc.cbClsExtra    = 0;
-		wc.cbWndExtra    = 4; /* one long pointer to term_data */
-		wc.hInstance     = hInst;
-		wc.hIcon         = hIcon = LoadIcon(hInst, "ANGBAND");
-		wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-		wc.hbrBackground = GetStockObject(BLACK_BRUSH);
-		wc.lpszMenuName  = "ANGBAND";
-		wc.lpszClassName = AppName;
-
-		if (!RegisterClass(&wc)) exit(1);
-
-		wc.lpfnWndProc   = AngbandListProc;
-		wc.lpszMenuName  = NULL;
-		wc.lpszClassName = AngList;
-
-		if (!RegisterClass(&wc)) exit(2);
-
-#ifdef USE_SAVER
-
-		wc.style          = CS_VREDRAW | CS_HREDRAW | CS_SAVEBITS | CS_DBLCLKS;
-		wc.lpfnWndProc    = AngbandSaverProc;
-		wc.hCursor        = NULL;
-		wc.lpszMenuName   = NULL;
-		wc.lpszClassName  = "WindowsScreenSaverClass";
-
-		if (!RegisterClass(&wc)) exit(3);
-
-#endif /* USE_SAVER */
-
-	}
-
-	setlocale(LC_CTYPE, "");
-
-	/* Save globally */
 	hInstance = hInst;
+	g_win_hPrevInst = hPrevInst;
+	g_win_lpCmdLine = lpCmdLine;
+	g_win_nCmdShow = nCmdShow;
 
-	/* Temporary hooks */
-	plog_aux = hack_plog;
-	quit_aux = hack_quit;
-
-	/* Prepare the filepaths */
-	init_stuff();
-
-	/* Determine if display is 16/256/true color */
-	hdc = GetDC(NULL);
-	colors16 = (GetDeviceCaps(hdc, BITSPIXEL) == 4);
-	paletted = ((GetDeviceCaps(hdc, RASTERCAPS) & RC_PALETTE) ? true : false);
-	ReleaseDC(NULL, hdc);
-
-	/* Initialize the colors */
-	for (i = 0; i < MAX_COLORS; i++) {
-		uint8_t rv, gv, bv;
-
-		/* Extract desired values */
-		rv = angband_color_table[i][1];
-		gv = angband_color_table[i][2];
-		bv = angband_color_table[i][3];
-
-		/* Extract the "complex" code */
-		win_clr[i] = PALETTERGB(rv, gv, bv);
-
-		/* Save the "simple" code */
-		angband_color_table[i][0] = win_pal[i];
+	if (init_win(0, NULL) != 0) {
+		return 1;
 	}
-
-	/* load the possible graphics modes */
-	if (!init_graphics_modes()) {
-		plog_fmt("Graphics list load failed");
-	}
-
-	/* Prepare the windows */
-	init_windows();
-
-	/* Activate hooks */
-	plog_aux = hook_plog;
-	quit_aux = hook_quit;
-
-	/* Set the system suffix */
-	ANGBAND_SYS = "win";
-
-	/* Set command hook */
-	cmd_get_hook = textui_get_cmd;
 
 #ifdef USE_SAVER
 	if (screensaver) {
-		/* Start the screensaver */
 		start_screensaver();
-
-		/* Paranoia */
 		quit(NULL);
 	}
-#endif /* USE_SAVER */
+#endif
 
-	/*
-	 * Set action that needs to be done if restarting without exiting.
-	 * Also need to do it now.
-	 */
 	reinit_hook = win_reinit;
 	win_reinit();
 
-	/* Set up the display handlers and things. */
 	init_display();
 	init_angband();
 
@@ -5468,24 +5623,19 @@ int FAR PASCAL WinMain(HINSTANCE hInst, HINSTANCE hPrevInst,
 
 	initialized = true;
 
-	/* Did the user double click on a save file? */
 	check_for_save_file(lpCmdLine);
 
-	/* Prompt the user */
 	prt("[Choose 'New' or 'Open' from the 'File' menu]",
 		(Term->hgt - 23) / 5 + 23, (Term->wid - 45) / 2);
 	Term_fresh();
 
-	/* Process messages forever */
 	while (GetMessage(&msg, NULL, 0, 0)) {
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
 
-	/* Paranoia */
 	quit(NULL);
 
-	/* Paranoia */
 	return (0);
 }
 

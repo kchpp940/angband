@@ -570,6 +570,11 @@ static bool g_sdl2_events_subscribed;
 static void (*g_sdl2_saved_quit_aux)(const char *);
 static bool (*g_sdl2_saved_deny_disconnect)(void);
 
+#include <setjmp.h>
+static jmp_buf g_sdl2_quit_jmp;
+static bool g_sdl2_quit_caught;
+static const char *g_sdl2_quit_message;
+
 #ifdef MSYS2_ENCODING_WORKAROUND
 static void (*g_sdl2_saved_text_mbcs_hook)(const char *, wchar_t *, size_t);
 static void (*g_sdl2_saved_text_wctomb_hook)(char *, wchar_t);
@@ -7210,6 +7215,32 @@ static void quit_hook(const char *s);
 static bool sdl2_deny_disconnect(void);
 static void init_systems(void);
 
+static void sdl2_capture_quit_hook(const char *s)
+{
+	g_sdl2_quit_caught = true;
+	g_sdl2_quit_message = s;
+	if (s) {
+		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", s);
+	}
+	longjmp(g_sdl2_quit_jmp, 1);
+}
+
+#define SDL2_STAGE_BEGIN() \
+	do { \
+		void (*saved_quit)(const char *) = quit_aux; \
+		g_sdl2_quit_caught = false; \
+		g_sdl2_quit_message = NULL; \
+		if (setjmp(g_sdl2_quit_jmp) == 0) { \
+			quit_aux = sdl2_capture_quit_hook;
+
+#define SDL2_STAGE_END() \
+			quit_aux = saved_quit; \
+		} else { \
+			quit_aux = saved_quit; \
+			return -1; \
+		} \
+	} while (0)
+
 static errr sdl2_parse_args(int argc, char **argv)
 {
 	int i;
@@ -7234,8 +7265,6 @@ static errr sdl2_check_capability(int argc, char **argv)
 	SDL_version vr, vc;
 
 	g_sdl2_saved_quit_aux = quit_aux;
-	quit_aux = quit_hook;
-
 	g_sdl2_saved_deny_disconnect = disconnect_denier_hook;
 	disconnect_denier_hook = sdl2_deny_disconnect;
 
@@ -7247,7 +7276,9 @@ static errr sdl2_check_capability(int argc, char **argv)
 			vc.major, vc.minor, vc.patch, SDL_REVISION);
 	}
 
+	SDL2_STAGE_BEGIN();
 	init_systems();
+	SDL2_STAGE_END();
 	g_sdl2_systems_inited = true;
 
 	if (g_app.print_sdl_details) {
@@ -7302,11 +7333,18 @@ static errr sdl2_check_capability(int argc, char **argv)
 		}
 	}
 
-	if (!init_graphics_modes()) {
-		return -1;
+	{
+		bool ok;
+		SDL2_STAGE_BEGIN();
+		ok = init_graphics_modes();
+		SDL2_STAGE_END();
+		if (!ok) {
+			return -1;
+		}
 	}
 	g_sdl2_graphics_modes_inited = true;
 
+	quit_aux = quit_hook;
 	return 0;
 }
 
@@ -7326,12 +7364,16 @@ static void sdl2_cleanup_capability(void)
 
 static errr sdl2_load_resources(int argc, char **argv)
 {
+	SDL2_STAGE_BEGIN();
 	init_globals(&g_app);
+	SDL2_STAGE_END();
 	g_sdl2_globals_inited = true;
 
+	SDL2_STAGE_BEGIN();
 	if (!read_config_file(&g_app)) {
 		create_defaults(&g_app);
 	}
+	SDL2_STAGE_END();
 	return 0;
 }
 
@@ -7345,10 +7387,14 @@ static void sdl2_cleanup_resources(void)
 
 static errr sdl2_register_terms(int argc, char **argv)
 {
+	SDL2_STAGE_BEGIN();
 	start_windows(&g_app);
+	SDL2_STAGE_END();
 	g_sdl2_windows_started = true;
 
+	SDL2_STAGE_BEGIN();
 	load_terms(&g_app);
+	SDL2_STAGE_END();
 	g_sdl2_terms_loaded = true;
 
 	return 0;

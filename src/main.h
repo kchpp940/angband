@@ -39,6 +39,7 @@ extern errr init_vme(int argc, char **argv);
 extern errr init_vcs(int argc, char **argv);
 extern errr init_sdl(int argc, char **argv);
 extern errr init_sdl2(int argc, char **argv);
+extern errr init_win(int argc, char **argv);
 extern errr init_test(int argc, char **argv);
 extern errr init_stats(int argc, char **argv);
 extern errr init_spoil(int argc, char **argv);
