@@ -53,7 +53,7 @@ class ConsistencyChecker:
 
         self.allowlist_entries: Dict[Tuple[str, str], Dict] = {}
         self.allowlist_raw: Dict = {}
-        self.used_allowlist: Set[Tuple[str, str]] = set()
+        self.used_allowlist: Dict[Tuple[str, str], int] = {}
 
         self._load_allowlist()
 
@@ -193,17 +193,18 @@ class ConsistencyChecker:
 
     def _is_allowed(self, category: str, item: str) -> bool:
         if (category, item) in self.allowlist_entries:
-            self.used_allowlist.add((category, item))
+            self.used_allowlist[(category, item)] = self.used_allowlist.get((category, item), 0) + 1
             return True
         basename = os.path.basename(item)
         if (category, basename) in self.allowlist_entries:
-            self.used_allowlist.add((category, basename))
+            self.used_allowlist[(category, basename)] = self.used_allowlist.get((category, basename), 0) + 1
             return True
         return False
 
     def _check_allowlist_health(self):
         all_keys = set(self.allowlist_entries.keys())
-        unused = all_keys - self.used_allowlist
+        used_keys = set(self.used_allowlist.keys())
+        unused = all_keys - used_keys
 
         if unused:
             for category, item in sorted(unused):
@@ -212,6 +213,16 @@ class ConsistencyChecker:
                 self.log_error(
                     f"Allowlist: unused entry category='{category}', item='{item}' "
                     f"(owner: {owner}). Remove stale entries to keep the allowlist clean."
+                )
+
+        for (category, item), count in self.used_allowlist.items():
+            entry = self.allowlist_entries.get((category, item), {})
+            allow_multiple = entry.get("allow_multiple", False)
+            if count > 1 and not allow_multiple:
+                self.log_error(
+                    f"Allowlist: entry category='{category}', item='{item}' matched {count} "
+                    f"warnings but does not have 'allow_multiple': true. Either set "
+                    f"allow_multiple explicitly or split into more precise entries."
                 )
 
     def log_error(self, msg: str):
@@ -954,6 +965,11 @@ class ConsistencyChecker:
             used_count = len(self.used_allowlist)
             total_count = len(self.allowlist_entries)
             print(f"  Allowlist: {used_count}/{total_count} entries used")
+            for (category, item), count in sorted(self.used_allowlist.items()):
+                entry = self.allowlist_entries.get((category, item), {})
+                allow_mult = entry.get("allow_multiple", False)
+                tag = " [allow_multiple]" if allow_mult and count > 1 else ""
+                print(f"    - {category}:{item} -> {count} hit(s){tag}")
         if self.max_warnings >= 0:
             print(f"  Max allowed warnings: {self.max_warnings}")
         else:
@@ -984,6 +1000,181 @@ class ConsistencyChecker:
 
         return not failed
 
+    @staticmethod
+    def run_self_checks(repo_root: str) -> bool:
+        """Run 6 self-tests covering allowlist failure paths.
+        Returns True if all tests pass (expected errors triggered correctly)."""
+
+        import tempfile
+        import shutil
+
+        print(f"\n{Colors.BOLD}{'='*70}{Colors.RESET}")
+        print(f"{Colors.BOLD}Allowlist Self-Checks (6 scenarios){Colors.RESET}")
+        print(f"{Colors.BOLD}{'='*70}{Colors.RESET}\n")
+
+        tmpdir = tempfile.mkdtemp(prefix="angband-cc-selfcheck-")
+
+        def _make_checker(allowlist_data: dict) -> ConsistencyChecker:
+            tmp_scripts = Path(tmpdir) / "scripts"
+            tmp_scripts.mkdir(parents=True, exist_ok=True)
+            tmp_allowlist = tmp_scripts / "check-consistency.allowlist.json"
+            with open(tmp_allowlist, "w") as f:
+                json.dump(allowlist_data, f, indent=2)
+
+            checker = ConsistencyChecker.__new__(ConsistencyChecker)
+            checker.repo_root = Path(tmpdir).resolve()
+            checker.src_dir = checker.repo_root / "src"
+            checker.max_warnings = 0
+            checker.errors = []
+            checker.warnings = []
+            checker.infos = []
+            checker.suppressed = []
+            checker.allowlist_entries = {}
+            checker.allowlist_raw = {}
+            checker.used_allowlist = {}
+            checker._load_allowlist()
+            return checker
+
+        def _run_test(name: str, description: str, setup_fn, expect_errors: int) -> bool:
+            print(f"{Colors.BOLD}Test: {name}{Colors.RESET}")
+            print(f"  {description}")
+            checker = setup_fn()
+            actual = len(checker.errors)
+            ok = actual >= expect_errors
+            if ok:
+                print(f"  {Colors.GREEN}PASS{Colors.RESET}: got {actual} error(s) (expected >= {expect_errors})")
+            else:
+                print(f"  {Colors.RED}FAIL{Colors.RESET}: got {actual} error(s) (expected >= {expect_errors})")
+                for e in checker.errors:
+                    print(f"    ERROR: {e}")
+            print()
+            return ok
+
+        all_pass = True
+
+        # Test 1: Missing required fields
+        def t1_setup():
+            data = {
+                "entries": [
+                    {"category": "orphan_headers", "item": "test.h", "reason": "x"}  # missing owner
+                ]
+            }
+            c = _make_checker(data)
+            return c
+        all_pass &= _run_test(
+            "T1 - Missing fields",
+            "Entry missing 'owner' field should trigger ERROR",
+            t1_setup, 1
+        )
+
+        # Test 2: Invalid category
+        def t2_setup():
+            data = {
+                "entries": [
+                    {"category": "INVALID_CATEGORY", "item": "test.h", "reason": "x", "owner": "t"}
+                ]
+            }
+            c = _make_checker(data)
+            return c
+        all_pass &= _run_test(
+            "T2 - Invalid category",
+            "Entry with invalid category name should trigger ERROR",
+            t2_setup, 1
+        )
+
+        # Test 3: Duplicate entry
+        def t3_setup():
+            data = {
+                "entries": [
+                    {"category": "orphan_headers", "item": "dup.h", "reason": "first", "owner": "t"},
+                    {"category": "orphan_headers", "item": "dup.h", "reason": "second", "owner": "t"},
+                ]
+            }
+            c = _make_checker(data)
+            return c
+        all_pass &= _run_test(
+            "T3 - Duplicate entry",
+            "Two entries with same (category, item) should trigger ERROR",
+            t3_setup, 1
+        )
+
+        # Test 4: Overly broad item (no file extension)
+        def t4_setup():
+            data = {
+                "entries": [
+                    {"category": "orphan_headers", "item": "no_extension", "reason": "x", "owner": "t"}
+                ]
+            }
+            c = _make_checker(data)
+            return c
+        all_pass &= _run_test(
+            "T4 - Overly broad item",
+            "Item without file extension should trigger ERROR",
+            t4_setup, 1
+        )
+
+        # Test 5: Unused entry
+        def t5_setup():
+            data = {
+                "entries": [
+                    {"category": "orphan_headers", "item": "unused.h", "reason": "x", "owner": "t"}
+                ]
+            }
+            c = _make_checker(data)
+            c._check_allowlist_health()
+            return c
+        all_pass &= _run_test(
+            "T5 - Unused entry",
+            "Entry never matched by any warning should trigger ERROR in health check",
+            t5_setup, 1
+        )
+
+        # Test 6: Multi-hit without allow_multiple
+        def t6_setup():
+            data = {
+                "entries": [
+                    {"category": "orphan_headers", "item": "multi.h", "reason": "x", "owner": "t"}
+                ]
+            }
+            c = _make_checker(data)
+            c.warn("orphan_headers", "multi.h", "first match")
+            c.warn("orphan_headers", "multi.h", "second match")
+            c._check_allowlist_health()
+            return c
+        all_pass &= _run_test(
+            "T6 - Multi-hit without allow_multiple",
+            "Entry matching 2+ warnings without allow_multiple:true should trigger ERROR",
+            t6_setup, 1
+        )
+
+        # Test 7 (bonus): Multi-hit WITH allow_multiple should NOT trigger
+        def t7_setup():
+            data = {
+                "entries": [
+                    {"category": "orphan_headers", "item": "ok.h", "reason": "x", "owner": "t", "allow_multiple": True}
+                ]
+            }
+            c = _make_checker(data)
+            c.warn("orphan_headers", "ok.h", "first match")
+            c.warn("orphan_headers", "ok.h", "second match")
+            c._check_allowlist_health()
+            return c
+        all_pass &= _run_test(
+            "T7 - Multi-hit WITH allow_multiple",
+            "Entry matching 2+ warnings WITH allow_multiple:true should NOT trigger ERROR",
+            t7_setup, 0
+        )
+
+        print(f"{Colors.BOLD}{'='*70}{Colors.RESET}")
+        if all_pass:
+            print(f"{Colors.GREEN}{Colors.BOLD}ALL SELF-CHECK TESTS PASSED{Colors.RESET}")
+        else:
+            print(f"{Colors.RED}{Colors.BOLD}SOME SELF-CHECK TESTS FAILED{Colors.RESET}")
+        print(f"{Colors.BOLD}{'='*70}{Colors.RESET}")
+
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return all_pass
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1012,8 +1203,18 @@ def main():
         default=None,
         help="Path to the repository root (default: inferred from script location)",
     )
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="Run built-in self-tests on the allowlist validation logic (6 failure scenarios)",
+    )
 
     args = parser.parse_args()
+
+    if args.self_check:
+        script_dir = Path(__file__).resolve().parent
+        repo_root = Path(args.repo_root).resolve() if args.repo_root else script_dir.parent
+        return 0 if ConsistencyChecker.run_self_checks(str(repo_root)) else 1
 
     if args.lenient:
         max_warnings = -1

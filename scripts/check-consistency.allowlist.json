@@ -1,6 +1,6 @@
 {
   "_schema_version": 1,
-  "_comment": "Allowlist for check-consistency.py. Each entry must have 'item' (exact path), 'reason', and 'owner'. Unused or overly broad entries will cause the check to fail.",
+  "_comment": "Allowlist for check-consistency.py. Each entry must have 'item' (exact path with extension), 'reason', and 'owner'. Unused entries, overly broad items, missing fields, invalid categories, duplicates, or multi-hit entries without 'allow_multiple': true will cause the check to fail. Run 'python3 scripts/check-consistency.py --self-check' to verify all failure paths.",
   "entries": [
     {
       "category": "vs_missing_headers",
@@ -23,8 +23,9 @@
     {
       "category": "doc_missing_references",
       "item": "lib/user/borg.txt",
-      "reason": "Runtime-generated user data file created by the borg AI; does not exist in the source tree",
-      "owner": "angband-core"
+      "reason": "Runtime-generated user data file created by the borg AI; does not exist in the source tree. Referenced from both docs/hacking/borg.rst and docs/hacking/compiling.rst.",
+      "owner": "angband-core",
+      "allow_multiple": true
     }
   ]
 }
