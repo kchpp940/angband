@@ -7221,6 +7221,9 @@ static void sdl2_capture_quit_hook(const char *s)
 	g_sdl2_quit_message = s;
 	if (s) {
 		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", s);
+		frontend_set_stage_error("SDL2 quit: %s", s);
+	} else {
+		frontend_set_stage_error("SDL2 quit (no message)");
 	}
 	longjmp(g_sdl2_quit_jmp, 1);
 }
@@ -7237,6 +7240,9 @@ static void sdl2_capture_quit_hook(const char *s)
 			quit_aux = saved_quit; \
 		} else { \
 			quit_aux = saved_quit; \
+			if (!g_sdl2_quit_message) { \
+				frontend_set_stage_error("SDL2 stage aborted via longjmp"); \
+			} \
 			return -1; \
 		} \
 	} while (0)

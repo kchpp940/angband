@@ -24,9 +24,13 @@
 #include "frontend-lifecycle.h"
 #include "ui-term.h"
 #include "z-util.h"
+#include "z-form.h"
+#include <stdarg.h>
 
 static const struct frontend_adapter *s_active_adapter = NULL;
 static void (*s_saved_quit_aux)(const char *) = NULL;
+static struct frontend_lifecycle_result s_last_result;
+static frontend_stage s_current_stage = FE_STAGE_MAX;
 
 const char *frontend_stage_name(frontend_stage stage)
 {
@@ -121,7 +125,18 @@ errr frontend_run_lifecycle(const struct frontend_adapter *adapter,
 	frontend_stage s;
 	frontend_stage last_completed;
 
-	if (!adapter) return -1;
+	memset(&s_last_result, 0, sizeof(s_last_result));
+	s_last_result.success = true;
+	s_last_result.failed_stage = FE_STAGE_MAX;
+
+	if (!adapter) {
+		s_last_result.success = false;
+		s_last_result.error_code = -1;
+		my_strcpy(s_last_result.error_message,
+			"NULL adapter passed to frontend_run_lifecycle",
+			sizeof(s_last_result.error_message));
+		return -1;
+	}
 
 	s_saved_quit_aux = quit_aux;
 
@@ -129,17 +144,45 @@ errr frontend_run_lifecycle(const struct frontend_adapter *adapter,
 
 	for (s = FE_STAGE_PARSE_ARGS; s < FE_STAGE_MAX;
 		 s = (frontend_stage)(s + 1)) {
-		errr rc = invoke_stage(adapter, s, argc, argv);
+		errr rc;
+		s_current_stage = s;
+		rc = invoke_stage(adapter, s, argc, argv);
 		if (rc != 0) {
+			s_last_result.success = false;
+			s_last_result.failed_stage = s;
+			s_last_result.error_code = rc;
+			if (s_last_result.error_message[0] == '\0') {
+				strnfmt(s_last_result.error_message,
+					sizeof(s_last_result.error_message),
+					"Stage '%s' failed with code %d",
+					frontend_stage_name(s), (int)rc);
+			}
 			rollback_stages(adapter, last_completed);
 			quit_aux = s_saved_quit_aux;
+			s_current_stage = FE_STAGE_MAX;
 			return rc;
 		}
 		last_completed = s;
 	}
 
+	s_current_stage = FE_STAGE_MAX;
 	s_active_adapter = adapter;
 	quit_aux = lifecycle_quit_hook;
 
 	return 0;
+}
+
+const struct frontend_lifecycle_result *frontend_get_last_result(void)
+{
+	return &s_last_result;
+}
+
+void frontend_set_stage_error(const char *fmt, ...)
+{
+	va_list vp;
+	if (!fmt) return;
+	va_start(vp, fmt);
+	vstrnfmt(s_last_result.error_message,
+		sizeof(s_last_result.error_message), fmt, vp);
+	va_end(vp);
 }

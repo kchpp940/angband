@@ -1,0 +1,1 @@
+TESTPROGS += frontend-lifecycle/lifecycle

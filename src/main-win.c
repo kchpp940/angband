@@ -457,6 +457,11 @@ static bool g_win_windows_inited;
 static bool g_win_events_subscribed;
 static void (*g_win_saved_plog_aux)(const char *);
 static void (*g_win_saved_quit_aux)(const char *);
+
+#include <setjmp.h>
+static jmp_buf g_win_quit_jmp;
+static bool g_win_quit_caught;
+static const char *g_win_quit_message;
 #ifdef USE_SAVER
 static bool g_win_screensaver_inited;
 #endif
@@ -5067,6 +5072,37 @@ static void hack_plog(const char *str)
 		MessageBox(NULL, str, "Warning", MB_ICONEXCLAMATION | MB_OK);
 }
 
+static void win_capture_quit_hook(const char *s)
+{
+	g_win_quit_caught = true;
+	g_win_quit_message = s;
+	if (s) {
+		frontend_set_stage_error("Windows quit: %s", s);
+	} else {
+		frontend_set_stage_error("Windows quit (no message)");
+	}
+	longjmp(g_win_quit_jmp, 1);
+}
+
+#define WIN_STAGE_BEGIN() \
+	do { \
+		void (*saved_quit)(const char *) = quit_aux; \
+		g_win_quit_caught = false; \
+		g_win_quit_message = NULL; \
+		if (setjmp(g_win_quit_jmp) == 0) { \
+			quit_aux = win_capture_quit_hook;
+
+#define WIN_STAGE_END() \
+			quit_aux = saved_quit; \
+		} else { \
+			quit_aux = saved_quit; \
+			if (!g_win_quit_message) { \
+				frontend_set_stage_error("Windows stage aborted via longjmp"); \
+			} \
+			return -1; \
+		} \
+	} while (0)
+
 
 static errr win_parse_args(int argc, char **argv)
 {
@@ -5189,7 +5225,9 @@ static errr win_load_resources(int argc, char **argv)
 	HDC hdc;
 	int i;
 
+	WIN_STAGE_BEGIN();
 	init_stuff();
+	WIN_STAGE_END();
 	g_win_stuff_inited = true;
 
 	hdc = GetDC(NULL);
@@ -5206,8 +5244,15 @@ static errr win_load_resources(int argc, char **argv)
 		angband_color_table[i][0] = win_pal[i];
 	}
 
-	if (!init_graphics_modes()) {
-		plog_fmt("Graphics list load failed");
+	{
+		bool ok;
+		WIN_STAGE_BEGIN();
+		ok = init_graphics_modes();
+		WIN_STAGE_END();
+		if (!ok) {
+			frontend_set_stage_error("Windows graphics list load failed");
+			return -1;
+		}
 	}
 	g_win_graphics_modes_inited = true;
 
@@ -5235,7 +5280,9 @@ static void win_cleanup_resources(void)
 
 static errr win_register_terms(int argc, char **argv)
 {
+	WIN_STAGE_BEGIN();
 	init_windows();
+	WIN_STAGE_END();
 	g_win_windows_inited = true;
 	return 0;
 }

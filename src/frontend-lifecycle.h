@@ -110,4 +110,26 @@ const struct frontend_adapter *frontend_get_active_adapter(void);
  */
 const char *frontend_stage_name(frontend_stage stage);
 
+/**
+ * Result of a frontend_run_lifecycle() call.
+ */
+struct frontend_lifecycle_result {
+	bool success;
+	frontend_stage failed_stage;
+	errr error_code;
+	char error_message[256];
+};
+
+/**
+ * Return the result of the most recent frontend_run_lifecycle() call.
+ * Valid after any call to frontend_run_lifecycle().
+ */
+const struct frontend_lifecycle_result *frontend_get_last_result(void);
+
+/**
+ * Set the error message for the current stage (called by adapter stage
+ * implementations so the lifecycle result).  Uses printf-style formatting.
+ */
+void frontend_set_stage_error(const char *fmt, ...);
+
 #endif /* INCLUDED_FRONTEND_LIFECYCLE_H */
