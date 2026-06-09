@@ -1271,14 +1271,29 @@ static int _parse_size_list(const char *arg, int sizes[], int max)
 }
 
 
-static int g_gcu_argc;
-static char **g_gcu_argv;
-static int g_gcu_terms_created = 0;
-static bool g_gcu_initscr_done = false;
-
-static errr gcu_parse_args(int argc, char **argv)
-{
+static void hook_quit(const char *str) {
 	int i;
+
+	for (i = 0; i < term_count; i++) {
+		if (angband_term[i]) {
+			term_nuke(angband_term[i]);
+		}
+	}
+	endwin();
+}
+
+/**
+ * Prepare "curses" for use by the file "ui-term.c"
+ *
+ * Installs the "hook" functions defined above, and then activates
+ * the main screen "term", which clears the screen and such things.
+ *
+ * Someone should really check the semantics of "initscr()"
+ */
+errr init_gcu(int argc, char **argv) {
+	int i;
+
+	/* Parse args */
 	for (i = 1; i < argc; i++) {
 		if (prefix(argv[i], "-B")) {
 			bold_extended = true;
@@ -1292,18 +1307,12 @@ static errr gcu_parse_args(int argc, char **argv)
 			keep_terminal_colors = true;
 		}
 	}
-	g_gcu_argc = argc;
-	g_gcu_argv = argv;
-	return 0;
-}
 
-static errr gcu_check_capability(int argc, char **argv)
-{
-	(void)argc;
-	(void)argv;
-
+	/* Extract the normal keymap */
 	keymap_norm_prepare();
 
+	/* We do it like this to prevent a link error with curseses that
+	 * lack ESCDELAY. */
 	if (!getenv("ESCDELAY")) {
 #if _POSIX_C_SOURCE < 200112L
 		static char escdelbuf[80] = "ESCDELAY=20";
@@ -1313,39 +1322,31 @@ static errr gcu_check_capability(int argc, char **argv)
 #endif
 	}
 
-	if (initscr() == NULL) return -1;
-	g_gcu_initscr_done = true;
+	/* Initialize */
+	if (initscr() == NULL) return (-1);
 
-	if (LINES < MIN_TERM0_LINES || COLS < MIN_TERM0_COLS) {
-		return -1;
-	}
+	/* Activate hooks */
+	quit_aux = hook_quit;
 
-	return 0;
-}
-
-static void gcu_cleanup_capability(void)
-{
-	if (g_gcu_initscr_done) {
-		endwin();
-		g_gcu_initscr_done = false;
-	}
-}
-
-static errr gcu_load_resources(int argc, char **argv)
-{
-	(void)argc;
-	(void)argv;
+	/* Require standard size screen */
+	if (LINES < MIN_TERM0_LINES || COLS < MIN_TERM0_COLS) 
+		quit("Angband needs at least an 80x24 'curses' screen");
 
 #ifdef A_COLOR
+	/* Do we have color, and enough color, available? */
 	can_use_color = ((start_color() != ERR) && has_colors() &&
 					 (COLORS >= 8) && (COLOR_PAIRS >= 8));
 	if (!can_change_color()) keep_terminal_colors = true;
 
 #ifdef HAVE_USE_DEFAULT_COLORS
+	/* Should we use curses' "default color" */
 	if (use_default_background && use_default_colors() == OK) bg_color = -1;
 #endif
 
+	/* Attempt to use colors */
 	if (can_use_color) {
+		/* Prepare the color pairs */
+		/* PAIR_WHITE (pair 0) is *always* WHITE on BLACK */
 		init_pair(PAIR_RED, COLOR_RED, bg_color);
 		init_pair(PAIR_GREEN, COLOR_GREEN, bg_color);
 		init_pair(PAIR_YELLOW, COLOR_YELLOW, bg_color);
@@ -1354,6 +1355,7 @@ static errr gcu_load_resources(int argc, char **argv)
 		init_pair(PAIR_CYAN, COLOR_CYAN, bg_color);
 		init_pair(PAIR_BLACK, COLOR_BLACK, bg_color);
 
+		/* These pairs are used for drawing solid walls */
 		init_pair(PAIR_WHITE_WHITE, COLOR_WHITE, COLOR_WHITE);
 		init_pair(PAIR_RED_RED, COLOR_RED, COLOR_RED);
 		init_pair(PAIR_GREEN_GREEN, COLOR_GREEN, COLOR_GREEN);
@@ -1363,6 +1365,7 @@ static errr gcu_load_resources(int argc, char **argv)
 		init_pair(PAIR_CYAN_CYAN, COLOR_CYAN, COLOR_CYAN);
 		init_pair(PAIR_BLACK_BLACK, COLOR_BLACK, COLOR_BLACK);
 
+		/* Prepare the colors */
 		colortable[COLOUR_DARK]     = (COLOR_PAIR(PAIR_BLACK));
 		colortable[COLOUR_WHITE]    = (COLOR_PAIR(PAIR_WHITE) | A_BRIGHT);
 		colortable[COLOUR_SLATE]    = (COLOR_PAIR(PAIR_WHITE));
@@ -1425,238 +1428,239 @@ static errr gcu_load_resources(int argc, char **argv)
 		handle_extended_color_tables();
 	}
 #endif
-	return 0;
-}
 
-static errr gcu_register_terms(int argc, char **argv)
-{
-	int i;
-	int a = g_gcu_argc;
-	char **av = g_gcu_argv;
-	(void)argc;
-	(void)argv;
-
+	/* Paranoia -- Assume no waiting */
 	nodelay(stdscr, false);
+
+	/* Prepare */
 	cbreak();
 	noecho();
 	nonl();
 	raw();
+
+	/* Tell curses to rewrite escape sequences to KEY_UP and friends */
 	keypad(stdscr, true);
+
+	/* Extract the game keymap */
 	keymap_game_prepare();
 
-	if (term_count > 1) {
+	/* Now prepare the term(s) */
+	if (term_count > 1) 
+	{	
 		int rows, cols, y, x;
 		int next_win = 0;
 		for (i = 0; i < term_count; i++) {
+			/* Get the terminal dimensions; if the user asked for a big screen
+			 * then we'll put the whole screen in term 0; otherwise we'll divide
+			 * it amongst the available terms */
 			get_gcu_term_size(i, &rows, &cols, &y, &x);
+			
+			/* Skip non-existant windows */
 			if (rows <= 0 || cols <= 0) continue;
+			
+			/* Create a term */
 			term_data_init_gcu(&data[next_win], rows, cols, y, x);
+			
+			/* Remember the term */
 			angband_term[next_win] = &data[next_win].t;
+			
+			/* One more window */
 			next_win++;
 		}
-		g_gcu_terms_created = next_win;
-	} else {
-		rect_t remaining = rect(0, 0, COLS, LINES);
-		int spacer_cx = 1;
-		int spacer_cy = 1;
-		int next_term = 1;
-		int term_ct = 1;
-
-		for (i = 1; i < a; i++) {
-			if (streq(av[i], "-spacer")) {
-				char *pe, *ystr;
-				long lv;
-
-				i++;
-				if (i >= a) return -1;
-				lv = strtol(av[i], &pe, 10);
-				if (pe == av[i] || *pe != 'x' || lv <= INT_MIN ||
-						lv >= INT_MAX) {
-					return -1;
-				}
-				spacer_cx = (int)lv;
-				ystr = pe + 1;
-				lv = strtol(ystr, &pe, 10);
-				if (pe == ystr || !contains_only_spaces(pe) ||
-						lv <= INT_MIN || lv >= INT_MAX) {
-					return -1;
-				}
-				spacer_cy = (int)lv;
-			}
-			else if (streq(av[i], "-right") || streq(av[i], "-left")) {
-				const char *arg, *tmp;
-				bool left = streq(av[i], "-left");
-				int cx, cys[MAX_TERM_DATA] = {0}, ct, j, x, y;
-
-				i++;
-				if (i >= a) return -1;
-
-				arg = av[i];
-				tmp = strchr(arg, 'x');
-				if (!tmp) return -1;
-				cx = atoi(arg);
-				remaining.cx -= cx;
-				if (left) {
-					x = remaining.x;
-					y = remaining.y;
-					remaining.x += cx;
-				} else {
-					x = remaining.x + remaining.cx;
-					y = remaining.y;
-				}
-				remaining.cx -= spacer_cx;
-				if (left) remaining.x += spacer_cx;
-
-				tmp++;
-				ct = _parse_size_list(tmp, cys, MAX_TERM_DATA);
-				for (j = 0; j < ct; j++) {
-					int cy = cys[j];
-					if (y + cy > remaining.y + remaining.cy)
-						cy = remaining.y + remaining.cy - y;
-					if (next_term >= MAX_TERM_DATA) return -1;
-					if (cy <= 0) return -1;
-					data[next_term++].r = rect(x, y, cx, cy);
-					y += cy + spacer_cy;
-					term_ct++;
-				}
-			}
-			else if (streq(av[i], "-top") || streq(av[i], "-bottom")) {
-				const char *arg, *tmp;
-				bool top = streq(av[i], "-top");
-				int cy, cxs[MAX_TERM_DATA] = {0}, ct, j, x, y;
-
-				i++;
-				if (i >= a) return -1;
-
-				arg = av[i];
-				tmp = strchr(arg, 'x');
-				if (!tmp) return -1;
-				tmp++;
-				cy = atoi(tmp);
-				ct = _parse_size_list(arg, cxs, MAX_TERM_DATA);
-
-				remaining.cy -= cy;
-				if (top) {
-					x = remaining.x;
-					y = remaining.y;
-					remaining.y += cy;
-				} else {
-					x = remaining.x;
-					y = remaining.y + remaining.cy;
-				}
-				remaining.cy -= spacer_cy;
-				if (top) remaining.y += spacer_cy;
-
-				tmp++;
-				for (j = 0; j < ct; j++) {
-					int cx = cxs[j];
-					if (x + cx > remaining.x + remaining.cx)
-						cx = remaining.x + remaining.cx - x;
-					if (next_term >= MAX_TERM_DATA) return -1;
-					if (cx <= 0) return -1;
-					data[next_term++].r = rect(x, y, cx, cy);
-					x += cx + spacer_cx;
-					term_ct++;
-				}
-			}
-		}
-
-		if (remaining.cx < MIN_TERM0_COLS || remaining.cy < MIN_TERM0_LINES) {
-			return -1;
-		}
-		data[0].r = remaining;
-		term_data_init(&data[0]);
-		angband_term[0] = Term;
-
-		for (next_term = 1; next_term < term_ct; next_term++) {
-			term_data_init(&data[next_term]);
-			angband_term[next_term] = Term;
-		}
-		g_gcu_terms_created = term_ct;
 	}
+	else
+/* Parse Args and Prepare the Terminals. Rectangles are specified
+      as Width x Height, right? The game will allow you to have two
+      strips of extra terminals, one on the right and one on the bottom.
+      The map terminal will than fit in as big as possible in the remaining
+      space.
 
-	return 0;
-}
+      Examples:
+        angband -mgcu -- -right 30x27,* -bottom *x7 will layout as
 
-static void gcu_cleanup_terms(void)
-{
-	int i;
-	for (i = g_gcu_terms_created - 1; i >= 0; i--) {
-		if (angband_term[i]) {
-			term_nuke(angband_term[i]);
-			angband_term[i] = NULL;
-		}
-	}
-	g_gcu_terms_created = 0;
-}
+        Term-0: Map (COLS-30)x(LINES-7) | Term-1: 30x27
+        --------------------------------|----------------------
+        <----Term-3: (COLS-30)x7------->| Term-2: 30x(LINES-27)
 
-static errr gcu_subscribe_events(int argc, char **argv)
-{
-	(void)argc;
-	(void)argv;
+        angband -mgcu -- -bottom *x7 -right 30x27,* will layout as
 
-#ifdef MSYS2_ENCODING_WORKAROUND
-	text_mbcs_hook = Term_mbcs_gcu_msys2;
-	text_wctomb_hook = Term_wctomb_gcu_msys2;
-	text_wcsz_hook = Term_wcsz_gcu_msys2;
-	text_iswprint_hook = Term_iswprint_gcu_msys2;
-#endif
-	return 0;
-}
+        Term-0: Map (COLS-30)x(LINES-7) | Term-2: 30x27
+                                        |------------------------------
+                                        | Term-3: 30x(LINES-27)
+        ---------------------------------------------------------------
+        <----------Term-1: (COLS)x7----------------------------------->
 
-static errr gcu_finalize_ready(int argc, char **argv)
-{
-	(void)argc;
-	(void)argv;
+        Notice the effect on the bottom terminal by specifying its argument
+        second or first. Notice the sequence numbers for the various terminals
+        as you will have to blindly configure them in the window setup screen.
 
+        EDIT: Added support for -left and -top.
+    */
+    {
+        rect_t remaining = rect(0, 0, COLS, LINES);
+        int    spacer_cx = 1;
+        int    spacer_cy = 1;
+        int    next_term = 1;
+        int    term_ct = 1;
+
+        for (i = 1; i < argc; i++)
+        {
+            if (streq(argv[i], "-spacer"))
+            {
+                char *pe, *ystr;
+                long lv;
+
+                i++;
+                if (i >= argc)
+                    quit("Missing size specifier for -spacer");
+                lv = strtol(argv[i], &pe, 10);
+                /*
+                 * Also reject INT_MIN and INT_MAX so do not have to check
+                 * errno to detect overflow on platforms where sizeof(int) ==
+                 * sizeof(long).
+                 */
+                if (pe == argv[i] || *pe != 'x' || lv <= INT_MIN ||
+                        lv >= INT_MAX) {
+                    quit_fmt("Invalid specification for -spacer; got %s",
+                        argv[i]);
+                }
+                spacer_cx = (int)lv;
+                ystr = pe + 1;
+                lv = strtol(ystr, &pe, 10);
+                if (pe == ystr || !contains_only_spaces(pe) ||
+                        lv <= INT_MIN || lv >= INT_MAX) {
+                    quit_fmt("Invalid specification for -spacer; got %s",
+                        argv[i]);
+                }
+                spacer_cy = (int)lv;
+            }
+            else if (streq(argv[i], "-right") || streq(argv[i], "-left"))
+            {
+                const char *arg, *tmp;
+                bool left = streq(argv[i], "-left");
+                int  cx, cys[MAX_TERM_DATA] = {0}, ct, j, x, y;
+
+                i++;
+                if (i >= argc)
+                    quit(format("Missing size specifier for -%s", left ? "left" : "right"));
+
+                arg = argv[i];
+                tmp = strchr(arg, 'x');
+                if (!tmp)
+                    quit(format("Expected something like -%s 60x27,* for two %s hand terminals of 60 columns, the first 27 lines and the second whatever is left.", left ? "left" : "right", left ? "left" : "right"));
+                cx = atoi(arg);
+                remaining.cx -= cx;
+                if (left)
+                {
+                    x = remaining.x;
+                    y = remaining.y;
+                    remaining.x += cx;
+                }
+                else
+                {
+                    x = remaining.x + remaining.cx;
+                    y = remaining.y;
+                }
+                remaining.cx -= spacer_cx;
+                if (left)
+                    remaining.x += spacer_cx;
+                
+                tmp++;
+                ct = _parse_size_list(tmp, cys, MAX_TERM_DATA);
+                for (j = 0; j < ct; j++)
+                {
+                    int cy = cys[j];
+                    if (y + cy > remaining.y + remaining.cy)
+                        cy = remaining.y + remaining.cy - y;
+                    if (next_term >= MAX_TERM_DATA)
+                        quit(format("Too many terminals. Only %d are allowed.", MAX_TERM_DATA));
+                    if (cy <= 0)
+                    {
+                        quit(format("Out of bounds in -%s: %d is too large (%d rows max for this strip)", 
+                            left ? "left" : "right", cys[j], remaining.cy));
+                    }
+                    data[next_term++].r = rect(x, y, cx, cy);
+                    y += cy + spacer_cy;
+                    term_ct++;
+                }
+            }
+            else if (streq(argv[i], "-top") || streq(argv[i], "-bottom"))
+            {
+                const char *arg, *tmp;
+                bool top = streq(argv[i], "-top");
+                int  cy, cxs[MAX_TERM_DATA] = {0}, ct, j, x, y;
+
+                i++;
+                if (i >= argc)
+                    quit(format("Missing size specifier for -%s", top ? "top" : "bottom"));
+
+                arg = argv[i];
+                tmp = strchr(arg, 'x');
+                if (!tmp)
+                    quit(format("Expected something like -%s *x7 for a single %s terminal of 7 lines using as many columns as are available.", top ? "top" : "bottom", top ? "top" : "bottom"));
+                tmp++;
+                cy = atoi(tmp);
+                ct = _parse_size_list(arg, cxs, MAX_TERM_DATA);
+
+                remaining.cy -= cy;
+                if (top)
+                {
+                    x = remaining.x;
+                    y = remaining.y;
+                    remaining.y += cy;
+                }
+                else
+                {
+                    x = remaining.x;
+                    y = remaining.y + remaining.cy;
+                }
+                remaining.cy -= spacer_cy;
+                if (top)
+                    remaining.y += spacer_cy;
+                
+                tmp++;
+                for (j = 0; j < ct; j++)
+                {
+                    int cx = cxs[j];
+                    if (x + cx > remaining.x + remaining.cx)
+                        cx = remaining.x + remaining.cx - x;
+                    if (next_term >= MAX_TERM_DATA)
+                        quit(format("Too many terminals. Only %d are allowed.", MAX_TERM_DATA));
+                    if (cx <= 0)
+                    {
+                        quit(format("Out of bounds in -%s: %d is too large (%d cols max for this strip)", 
+                            top ? "top" : "bottom", cxs[j], remaining.cx));
+                    }
+                    data[next_term++].r = rect(x, y, cx, cy);
+                    x += cx + spacer_cx;
+                    term_ct++;
+                }
+            }
+        }
+
+        /* Map Terminal */
+        if (remaining.cx < MIN_TERM0_COLS || remaining.cy < MIN_TERM0_LINES)
+            quit(format("Failed: angband needs an %dx%d map screen, not %dx%d", MIN_TERM0_COLS, MIN_TERM0_LINES, remaining.cx, remaining.cy));
+        data[0].r = remaining;
+        term_data_init(&data[0]);
+        angband_term[0] = Term;
+
+        /* Child Terminals */
+        for (next_term = 1; next_term < term_ct; next_term++)
+        {
+            term_data_init(&data[next_term]);
+            angband_term[next_term] = Term;
+        }
+    }
+
+	/* Activate the "Angband" window screen */
 	Term_activate(&data[0].t);
+
+	/* Remember the active screen */
 	term_screen = &data[0].t;
-	return 0;
-}
 
-static void gcu_shutdown(void)
-{
-	int i;
-	for (i = 0; i < g_gcu_terms_created; i++) {
-		if (angband_term[i]) {
-			term_nuke(angband_term[i]);
-		}
-	}
-	if (g_gcu_initscr_done) {
-		endwin();
-	}
-}
-
-static const struct frontend_adapter gcu_adapter = {
-	.name               = "gcu",
-	.help               = help_gcu,
-	.hup_disconnects    = true,
-	.tstp_default       = false,
-
-	.init_parse_args          = gcu_parse_args,
-	.init_check_capability    = gcu_check_capability,
-	.init_load_resources      = gcu_load_resources,
-	.init_register_terms      = gcu_register_terms,
-	.init_subscribe_events    = gcu_subscribe_events,
-	.init_finalize_ready      = gcu_finalize_ready,
-
-	.cleanup_capability       = gcu_cleanup_capability,
-	.cleanup_terms            = gcu_cleanup_terms,
-
-	.shutdown                 = gcu_shutdown,
-};
-
-/**
- * Prepare "curses" for use by the file "ui-term.c"
- *
- * Installs the "hook" functions defined above, and then activates
- * the main screen "term", which clears the screen and such things.
- *
- * Someone should really check the semantics of "initscr()"
- */
-errr init_gcu(int argc, char **argv)
-{
-	return frontend_run_lifecycle(&gcu_adapter, argc, argv, NULL);
+	/* Success */
+	return (0);
 }
 
 #endif /* USE_GCU */

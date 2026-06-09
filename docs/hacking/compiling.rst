@@ -148,6 +148,28 @@ build and generate the necessary coverage reports::
     cmake -DSUPPORT_COVERAGE=ON -B build
     cmake --build build -t coverage
 
+Consistency check
+~~~~~~~~~~~~~~~~~
+
+Before submitting changes that add, move, or remove source files, headers,
+or test cases, run the pre-release consistency check.  This verifies that
+source files are properly registered across all build systems (Makefile.src,
+CMakeLists.txt, and the Windows Visual Studio project), that test cases are
+registered in both the suite.mk files and CMake, and that documentation
+references are valid.
+
+To run the check directly::
+
+    python3 scripts/check-consistency.py
+
+Or, if using make::
+
+    make release-check
+
+Or, if using CMake::
+
+    cmake --build build -t release-check
+
 Statistics build
 ~~~~~~~~~~~~~~~~
 

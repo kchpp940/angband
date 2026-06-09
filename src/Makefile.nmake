@@ -30,7 +30,7 @@ LFLAGS = $(LFLAGS) /debug
 # files
 include Makefile.src
 EXE = $(NAME).exe
-OBJS = $(ANGFILES) $(ZFILES) $(BASEMAINFILES) $(WINMAINFILES)
+OBJS = $(ANGFILES) $(ZFILES) $(WINMAINFILES)
 RES = win\$(PROGNAME).res
 
 

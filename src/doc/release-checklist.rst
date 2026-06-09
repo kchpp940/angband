@@ -3,6 +3,14 @@ the broader role of release management, please see the ReleaseManager page.
 
 Before release:
 
+* Run the pre-release consistency check to verify source registration across build systems:
+  Run "python3 scripts/check-consistency.py" (or "make release-check" or
+  "cmake --build . --target release-check")
+  This checks for:
+  - Source files registered in Makefile.src, CMakeLists.txt, and the Windows VS project
+  - Header files registered in build systems
+  - Test cases registered in suite.mk files and CMakeLists.txt
+  - Documentation file references
 * Check that the dependencies in src/Makefile.inc are up to date;  on Linux/Unix
   run "cd src; make -f Makefile.std depgen" and then merge the generated
   src/Makefile.new into src/Makefile.inc

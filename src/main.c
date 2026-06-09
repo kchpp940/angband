@@ -17,7 +17,6 @@
  */
 
 #include "angband.h"
-#include "frontend-lifecycle.h"
 #include "init.h"
 #include "savefile.h"
 #include "ui-birth.h"
@@ -539,7 +538,6 @@ int main(int argc, char *argv[])
 				done = true;
 				break;
 			}
-			frontend_print_result(modules[i].name, NULL);
 		}
 	}
 

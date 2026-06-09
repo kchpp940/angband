@@ -71,6 +71,32 @@ When submitting pull requests on Github, please ensure that you choose only the 
 
 ## Coding Guidelines
 
+### Before submitting
+
+Before submitting your contribution, especially if you are adding or moving source
+files, headers, or test files, run the pre-release consistency check to ensure
+your changes are registered across all build systems (Makefile, CMake, and the
+Windows Visual Studio project):
+
+```
+python3 scripts/check-consistency.py
+```
+
+Or if using make:
+
+```
+make release-check
+```
+
+Or if using CMake:
+
+```
+cmake --build . --target release-check
+```
+
+This checks for unregistered source files, orphan headers, missing test suite
+registrations, and broken documentation references.
+
 This section describes what Angband code and its documentation should look like.  You may also want to read the old [Angband security guide](/src/doc/security.txt), although the default build configuration no longer uses setgid.
 
 ### Rules

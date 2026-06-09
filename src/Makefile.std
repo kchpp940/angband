@@ -96,7 +96,7 @@ LIBS += $(patsubst -D%,,$(patsubst -I%,, $(MODULES)))
 
 
 # Object definitions
-OBJS = $(BASEOBJS) main.o frontend-lifecycle.o $(SYS_stats_objs) main-gcu.o main-x11.o main-sdl.o $(SYS_sdl2_objs) $(SOUND_sdl_objs)
+OBJS = $(BASEOBJS) main.o $(SYS_stats_objs) main-gcu.o main-x11.o main-sdl.o $(SYS_sdl2_objs) $(SOUND_sdl_objs)
 
 
 

@@ -183,7 +183,6 @@ add_library(OurCoreLib OBJECT
         src/effect-handler-attack.c
         src/effect-handler-general.c
         src/effects.c
-        src/frontend-lifecycle.c
         src/effects-info.c
         src/game-event.c
         src/game-input.c
@@ -854,7 +853,6 @@ set(ANGBAND_TEST_CASE_SOURCES
     effects/destruction.c
     effects/earthquake.c
     effects/info.c
-    frontend-lifecycle/lifecycle.c
     game/basic.c
     game/mage.c
     message/message.c
@@ -1111,3 +1109,11 @@ else()
     add_custom_target(allunittests)
 endif()
 add_dependencies(alltests allunittests)
+
+add_custom_target(release-check
+    COMMAND "${CMAKE_COMMAND}" -E echo "Running release consistency checks..."
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-consistency.py"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Pre-release consistency check"
+    VERBATIM
+)

@@ -11,7 +11,6 @@ SUITES = \
 	cave/suite.mk \
 	command/suite.mk \
 	effects/suite.mk \
-	frontend-lifecycle/suite.mk \
 	game/suite.mk \
 	message/suite.mk \
 	monster/suite.mk \

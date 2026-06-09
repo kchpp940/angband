@@ -7,10 +7,14 @@ DISTCLEAN = config.status config.log docs/.deps \
 	mk/buildsys.mk mk/extra.mk
 REPOCLEAN = aclocal.m4 autom4te.cache configure src/autoconf.h.in version
 
-.PHONY: check tests manual manual-optional dist
+.PHONY: check tests manual manual-optional dist release-check
 check: tests
 tests:
 	$(MAKE) -C src tests
+
+release-check:
+	@echo "Running release consistency checks..."
+	@python3 scripts/check-consistency.py
 
 TAG = angband-`cd scripts && ./version.sh`
 OUT = $(TAG).tar.gz

@@ -70,7 +70,7 @@ endif
 
 # Include snd-cocoa.o in $(EXE).o rather than OSX_OBJS to avoid linking errors
 # with the unit test cases.
-OBJS = $(BASEOBJS) frontend-lifecycle.o cocoa/snd-cocoa.o
+OBJS = $(BASEOBJS) cocoa/snd-cocoa.o
 OSX_OBJS = main-cocoa.o
 
 
