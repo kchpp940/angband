@@ -183,6 +183,7 @@ add_library(OurCoreLib OBJECT
         src/effect-handler-attack.c
         src/effect-handler-general.c
         src/effects.c
+        src/frontend-lifecycle.c
         src/effects-info.c
         src/game-event.c
         src/game-input.c
@@ -429,7 +430,6 @@ add_executable(OurExecutable
         $<$<BOOL:${SUPPORT_STATS_FRONTEND}>:src/stats/db.c>
         $<$<BOOL:${SUPPORT_TEST_FRONTEND}>:src/main-test.c>
         $<$<NOT:$<BOOL:${SUPPORT_WINDOWS_FRONTEND}>>:src/main.c>
-        src/frontend-lifecycle.c
 )
 
 set_target_properties(OurExecutable PROPERTIES
@@ -854,6 +854,7 @@ set(ANGBAND_TEST_CASE_SOURCES
     effects/destruction.c
     effects/earthquake.c
     effects/info.c
+    frontend-lifecycle/lifecycle.c
     game/basic.c
     game/mage.c
     message/message.c

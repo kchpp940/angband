@@ -110,7 +110,7 @@ static const struct frontend_adapter mock_adapter = {
 
 static void dummy_quit(const char *s) { (void)s; }
 
-static int setup_tests(void **data)
+int setup_tests(void **data)
 {
 	(void)data;
 	s_saved_quit_aux_before = quit_aux;
@@ -118,7 +118,7 @@ static int setup_tests(void **data)
 	return 0;
 }
 
-static int teardown_tests(void *data)
+int teardown_tests(void *data)
 {
 	(void)data;
 	quit_aux = s_saved_quit_aux_before;
@@ -132,7 +132,7 @@ static int test_success(void *state)
 	(void)state;
 
 	clear_log();
-	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL);
+	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
 
 	eq(rc, 0);
@@ -149,11 +149,13 @@ static int test_resource_load_failure_rollback(void *state)
 {
 	errr rc;
 	const struct frontend_lifecycle_result *res;
+	void (*saved)(const char *);
 	(void)state;
 
 	clear_log();
 	s_fail_at_stage = FE_STAGE_RESOURCES;
-	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL);
+	saved = quit_aux;
+	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
 
 	noteq(rc, 0);
@@ -165,7 +167,7 @@ static int test_resource_load_failure_rollback(void *state)
 	require(streq(s_cleanup_log[0], "cleanup_capability"));
 	require(streq(s_cleanup_log[1], "cleanup_parse_args"));
 
-	require(quit_aux == dummy_quit);
+	require(quit_aux == saved);
 
 	ok;
 }
@@ -174,11 +176,13 @@ static int test_term_register_failure_rollback(void *state)
 {
 	errr rc;
 	const struct frontend_lifecycle_result *res;
+	void (*saved)(const char *);
 	(void)state;
 
 	clear_log();
 	s_fail_at_stage = FE_STAGE_TERMS;
-	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL);
+	saved = quit_aux;
+	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
 
 	noteq(rc, 0);
@@ -191,7 +195,7 @@ static int test_term_register_failure_rollback(void *state)
 	require(streq(s_cleanup_log[1], "cleanup_capability"));
 	require(streq(s_cleanup_log[2], "cleanup_parse_args"));
 
-	require(quit_aux == dummy_quit);
+	require(quit_aux == saved);
 
 	ok;
 }
@@ -200,11 +204,13 @@ static int test_capability_failure_rollback(void *state)
 {
 	errr rc;
 	const struct frontend_lifecycle_result *res;
+	void (*saved)(const char *);
 	(void)state;
 
 	clear_log();
 	s_fail_at_stage = FE_STAGE_CAPABILITY;
-	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL);
+	saved = quit_aux;
+	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
 
 	noteq(rc, 0);
@@ -214,7 +220,7 @@ static int test_capability_failure_rollback(void *state)
 	require(s_cleanup_log_count == 1);
 	require(streq(s_cleanup_log[0], "cleanup_parse_args"));
 
-	require(quit_aux == dummy_quit);
+	require(quit_aux == saved);
 
 	ok;
 }
@@ -223,11 +229,13 @@ static int test_parse_args_failure_no_rollback(void *state)
 {
 	errr rc;
 	const struct frontend_lifecycle_result *res;
+	void (*saved)(const char *);
 	(void)state;
 
 	clear_log();
 	s_fail_at_stage = FE_STAGE_PARSE_ARGS;
-	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL);
+	saved = quit_aux;
+	rc = frontend_run_lifecycle(&mock_adapter, 0, NULL, NULL);
 	res = frontend_get_last_result();
 
 	noteq(rc, 0);
@@ -236,7 +244,7 @@ static int test_parse_args_failure_no_rollback(void *state)
 
 	eq(s_cleanup_log_count, 0);
 
-	require(quit_aux == dummy_quit);
+	require(quit_aux == saved);
 
 	ok;
 }
@@ -260,7 +268,7 @@ static int test_null_adapter(void *state)
 	(void)state;
 
 	clear_log();
-	rc = frontend_run_lifecycle(NULL, 0, NULL);
+	rc = frontend_run_lifecycle(NULL, 0, NULL, NULL);
 	res = frontend_get_last_result();
 
 	noteq(rc, 0);

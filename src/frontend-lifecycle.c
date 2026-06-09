@@ -71,14 +71,23 @@ static void lifecycle_quit_hook(const char *s)
 /**
  * Roll back stages FE_STAGE_PARSE_ARGS .. last_completed (inclusive)
  * in reverse order, calling each stage's cleanup function if present.
+ *
+ * Uses an int loop variable to avoid unsigned enum wraparound when
+ * last_completed < FE_STAGE_PARSE_ARGS (i.e. no stages completed yet).
+ * The bounds check at the top guards against that case explicitly.
  */
 static void rollback_stages(const struct frontend_adapter *adapter,
 							frontend_stage last_completed)
 {
-	frontend_stage s;
+	int i;
 
-	for (s = last_completed; s >= FE_STAGE_PARSE_ARGS; s = (frontend_stage)(s - 1)) {
+	if ((int)last_completed < (int)FE_STAGE_PARSE_ARGS) {
+		return;
+	}
+
+	for (i = (int)last_completed; i >= (int)FE_STAGE_PARSE_ARGS; i--) {
 		fe_cleanup_fn cleanup = NULL;
+		frontend_stage s = (frontend_stage)i;
 
 		switch (s) {
 		case FE_STAGE_PARSE_ARGS: cleanup = adapter->cleanup_parse_args; break;
@@ -120,10 +129,12 @@ static errr invoke_stage(const struct frontend_adapter *adapter,
 }
 
 errr frontend_run_lifecycle(const struct frontend_adapter *adapter,
-							int argc, char **argv)
+							int argc, char **argv,
+							struct frontend_lifecycle_result *out_result)
 {
 	frontend_stage s;
 	frontend_stage last_completed;
+	errr final_rc;
 
 	memset(&s_last_result, 0, sizeof(s_last_result));
 	s_last_result.success = true;
@@ -135,12 +146,14 @@ errr frontend_run_lifecycle(const struct frontend_adapter *adapter,
 		my_strcpy(s_last_result.error_message,
 			"NULL adapter passed to frontend_run_lifecycle",
 			sizeof(s_last_result.error_message));
+		if (out_result) *out_result = s_last_result;
 		return -1;
 	}
 
 	s_saved_quit_aux = quit_aux;
 
 	last_completed = (frontend_stage)(FE_STAGE_PARSE_ARGS - 1);
+	final_rc = 0;
 
 	for (s = FE_STAGE_PARSE_ARGS; s < FE_STAGE_MAX;
 		 s = (frontend_stage)(s + 1)) {
@@ -160,7 +173,8 @@ errr frontend_run_lifecycle(const struct frontend_adapter *adapter,
 			rollback_stages(adapter, last_completed);
 			quit_aux = s_saved_quit_aux;
 			s_current_stage = FE_STAGE_MAX;
-			return rc;
+			final_rc = rc;
+			goto done;
 		}
 		last_completed = s;
 	}
@@ -168,13 +182,78 @@ errr frontend_run_lifecycle(const struct frontend_adapter *adapter,
 	s_current_stage = FE_STAGE_MAX;
 	s_active_adapter = adapter;
 	quit_aux = lifecycle_quit_hook;
+	final_rc = 0;
 
-	return 0;
+done:
+	if (out_result) *out_result = s_last_result;
+	return final_rc;
 }
 
 const struct frontend_lifecycle_result *frontend_get_last_result(void)
 {
 	return &s_last_result;
+}
+
+const char *frontend_last_error_message(void)
+{
+	return s_last_result.error_message;
+}
+
+frontend_stage frontend_last_failed_stage(void)
+{
+	return s_last_result.failed_stage;
+}
+
+void frontend_format_result(char *buf, size_t buf_len,
+							const char *adapter_name,
+							const struct frontend_lifecycle_result *res)
+{
+	const struct frontend_lifecycle_result *r = res ? res : &s_last_result;
+	if (!buf || buf_len == 0) return;
+
+	if (r->success) {
+		if (adapter_name) {
+			strnfmt(buf, buf_len, "frontend '%s' initialized successfully",
+					adapter_name);
+		} else {
+			strnfmt(buf, buf_len, "frontend initialized successfully");
+		}
+		return;
+	}
+
+	if (adapter_name) {
+		if (r->error_message[0] != '\0') {
+			strnfmt(buf, buf_len,
+				"frontend '%s' failed at stage '%s': %s",
+				adapter_name, frontend_stage_name(r->failed_stage),
+				r->error_message);
+		} else {
+			strnfmt(buf, buf_len,
+				"frontend '%s' failed at stage '%s' (code %d)",
+				adapter_name, frontend_stage_name(r->failed_stage),
+				(int)r->error_code);
+		}
+	} else {
+		if (r->error_message[0] != '\0') {
+			strnfmt(buf, buf_len,
+				"failed at stage '%s': %s",
+				frontend_stage_name(r->failed_stage),
+				r->error_message);
+		} else {
+			strnfmt(buf, buf_len,
+				"failed at stage '%s' (code %d)",
+				frontend_stage_name(r->failed_stage),
+				(int)r->error_code);
+		}
+	}
+}
+
+void frontend_print_result(const char *adapter_name,
+						   const struct frontend_lifecycle_result *res)
+{
+	char buf[512];
+	frontend_format_result(buf, sizeof(buf), adapter_name, res);
+	fprintf(stderr, "%s\n", buf);
 }
 
 void frontend_set_stage_error(const char *fmt, ...)

@@ -1656,7 +1656,7 @@ static const struct frontend_adapter gcu_adapter = {
  */
 errr init_gcu(int argc, char **argv)
 {
-	return frontend_run_lifecycle(&gcu_adapter, argc, argv);
+	return frontend_run_lifecycle(&gcu_adapter, argc, argv, NULL);
 }
 
 #endif /* USE_GCU */

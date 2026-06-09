@@ -7590,7 +7590,7 @@ static void init_systems(void)
 
 errr init_sdl2(int argc, char **argv)
 {
-	return frontend_run_lifecycle(&sdl2_adapter, argc, argv);
+	return frontend_run_lifecycle(&sdl2_adapter, argc, argv, NULL);
 }
 
 static void init_globals(struct my_app *a)

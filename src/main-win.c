@@ -58,6 +58,7 @@
 #include "buildid.h"
 #include "cmds.h"
 #include "cave.h"
+#include "frontend-lifecycle.h"
 #include "game-world.h"
 #include "grafmode.h"
 #include "init.h"
@@ -304,6 +305,11 @@ static void monitor_new_savefile(game_event_type ev_type,
 	game_event_data *ev_data, void *user);
 static void finish_monitoring_savefile(game_event_type ev_type,
 	game_event_data *ev_data, void *user);
+
+static void hack_quit(const char *str);
+static void hook_plog(const char *str);
+static void hook_quit(const char *str);
+static void init_stuff(void);
 
 /* prototype functions passed to windows */
 size_t Term_mbstowcs_win(wchar_t* dest, const char* src, int n);
@@ -5384,7 +5390,7 @@ static const struct frontend_adapter win_adapter = {
 
 errr init_win(int argc, char **argv)
 {
-	return frontend_run_lifecycle(&win_adapter, argc, argv);
+	return frontend_run_lifecycle(&win_adapter, argc, argv, NULL);
 }
 
 
@@ -5650,6 +5656,7 @@ int FAR PASCAL WinMain(HINSTANCE hInst, HINSTANCE hPrevInst,
 	g_win_nCmdShow = nCmdShow;
 
 	if (init_win(0, NULL) != 0) {
+		frontend_print_result("windows", NULL);
 		return 1;
 	}
 
